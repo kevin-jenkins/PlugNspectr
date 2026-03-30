@@ -1,7 +1,7 @@
 # PlugNspectr
 ### by Biltroy Audio
 
-> A two-plugin VST3 signal chain analyzer for Windows and Cubase 15 Pro.  
+> A two-plugin VST3 signal chain analyzer for Windows and DAWs that support VST3 plugins.  
 > Insert Pre and Post around any plugin to see exactly what it's doing to your audio.
 
 <img width="1509" height="677" alt="Screenshot 2026-03-30 001506" src="https://github.com/user-attachments/assets/da8dd478-2d7e-4785-841a-58ddf7aa0320" />
