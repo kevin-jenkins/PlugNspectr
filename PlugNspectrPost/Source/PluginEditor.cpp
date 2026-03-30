@@ -38,6 +38,55 @@ SpectrumView::SpectrumView (PlugNspectrPostProcessor& p) : m_proc (p)
         m_avgBtn.setToggleState (m_showAvg, juce::dontSendNotification);
     };
     addAndMakeVisible (m_avgBtn);
+    setInterceptsMouseClicks (true, false);
+}
+
+void SpectrumView::mouseMove (const juce::MouseEvent& e)
+{
+    constexpr float kML = 44.0f, kMR = 12.0f, kMT = 10.0f, kMB = 24.0f;
+    const float px = kML, py = kMT;
+    const float pw = (float) getWidth()  - kML - kMR;
+    const float ph = (float) getHeight() - kMT - kMB;
+    const float mx = (float) e.x;
+    const float my = (float) e.y;
+
+    if (!m_mouseLocked)
+    {
+        const bool inPlot = mx >= px && mx <= px + pw && my >= py && my <= py + ph;
+        if (inPlot != m_mouseInPlot || (inPlot && mx != m_mouseX))
+        {
+            m_mouseInPlot = inPlot;
+            m_mouseX      = mx;
+            repaint();
+        }
+    }
+}
+
+void SpectrumView::mouseExit (const juce::MouseEvent&)
+{
+    if (!m_mouseLocked && m_mouseInPlot)
+    {
+        m_mouseInPlot = false;
+        repaint();
+    }
+}
+
+void SpectrumView::mouseDown (const juce::MouseEvent& e)
+{
+    constexpr float kML = 44.0f, kMR = 12.0f, kMT = 10.0f, kMB = 24.0f;
+    const float px = kML, py = kMT;
+    const float pw = (float) getWidth()  - kML - kMR;
+    const float ph = (float) getHeight() - kMT - kMB;
+    const float mx = (float) e.x;
+    const float my = (float) e.y;
+
+    if (mx >= px && mx <= px + pw && my >= py && my <= py + ph)
+    {
+        m_mouseLocked = !m_mouseLocked;
+        m_mouseX      = mx;
+        m_mouseInPlot = true;
+        repaint();
+    }
 }
 
 void SpectrumView::resized()
@@ -100,6 +149,10 @@ void SpectrumView::paint (juce::Graphics& g)
         f = juce::jlimit (kMinFreq, kMaxFreq, f);
         return px + pw * (std::log10 (f) - kLogMin) / (kLogMax - kLogMin);
     };
+    auto xToFreq = [&] (float x) -> float {
+        const float t = (x - px) / pw;
+        return std::pow (10.0f, kLogMin + t * (kLogMax - kLogMin));
+    };
     auto dbToY = [&] (float db) -> float {
         db = juce::jlimit (kMinDb, kMaxDb, db);
         return py + ph * (1.0f - (db - kMinDb) / (kMaxDb - kMinDb));
@@ -110,10 +163,11 @@ void SpectrumView::paint (juce::Graphics& g)
 
     // ── Background ────────────────────────────────────────────────────────
     g.fillAll (PnsTheme::kBgDark);
-    g.setColour (PnsTheme::kBgPanel);
+    // Pure #0F0F0F plot area
+    g.setColour (juce::Colour (0xff0f0f0f));
     g.fillRect (px, py, pw, ph);
 
-    // ── Grid ──────────────────────────────────────────────────────────────
+    // ── Dotted grid ───────────────────────────────────────────────────────
     g.setFont (PnsTheme::fontLabel());
 
     const float freqMarkers[] = { 30, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000 };
@@ -121,7 +175,7 @@ void SpectrumView::paint (juce::Graphics& g)
     {
         const float x = freqToX (freq);
         g.setColour (PnsTheme::kGridLine);
-        g.drawVerticalLine (juce::roundToInt (x), py, py + ph);
+        PnsTheme::drawDottedVLine (g, x, py, py + ph);
 
         juce::String lbl = (freq >= 1000.0f)
             ? juce::String (juce::roundToInt (freq / 1000.0f)) + "k"
@@ -135,8 +189,17 @@ void SpectrumView::paint (juce::Graphics& g)
     for (float db : dbMarkers)
     {
         const float y = dbToY (db);
-        g.setColour (db == 0.0f ? PnsTheme::kZeroLine : PnsTheme::kGridLine);
-        g.drawHorizontalLine (juce::roundToInt (y), px, px + pw);
+        if (db == 0.0f)
+        {
+            // 0 dB: slightly brighter solid line
+            g.setColour (PnsTheme::kZeroLine);
+            g.drawHorizontalLine (juce::roundToInt (y), px, px + pw);
+        }
+        else
+        {
+            g.setColour (PnsTheme::kGridLine);
+            PnsTheme::drawDottedHLine (g, y, px, px + pw);
+        }
 
         juce::String lbl = (db > 0) ? ("+" + juce::String (juce::roundToInt (db)))
                                      : (db == 0 ? "0" : juce::String (juce::roundToInt (db)));
@@ -145,69 +208,54 @@ void SpectrumView::paint (juce::Graphics& g)
                     juce::roundToInt (kML) - 5, 14, juce::Justification::centredRight);
     }
 
-    // ── Curves + peak hold ────────────────────────────────────────────────
+    // ── Spectra ───────────────────────────────────────────────────────────
     const double sr = m_proc.getSampleRate();
     if (sr <= 0.0) return;
 
     const float binW = (float) (sr / PlugNspectrPostProcessor::kFftSize);
 
-    const juce::Colour kPeakPost = PnsTheme::kColorPost.brighter (0.4f);
-    const juce::Colour kPeakPre  = PnsTheme::kColorPreAvg;
+    // Build paths for PRE and POST
+    juce::Path prePath, postPath;
+    bool preStarted = false, postStarted = false;
 
-    auto drawCurveAndPeaks = [&] (
-        const std::array<float, PlugNspectrPostProcessor::kNumSpecBins>& spec,
-        const std::array<float, PlugNspectrPostProcessor::kNumSpecBins>& peaks,
-        juce::Colour curveColour,
-        juce::Colour peakColour)
+    for (int k = 1; k < PlugNspectrPostProcessor::kNumSpecBins; ++k)
     {
-        juce::Path curvePath, peakPath;
-        bool curveStarted = false, peakStarted = false;
+        const float freq = (float) k * binW;
+        if (freq < kMinFreq) continue;
+        if (freq > kMaxFreq) break;
 
-        for (int k = 1; k < PlugNspectrPostProcessor::kNumSpecBins; ++k)
+        const float x = freqToX (freq);
+
         {
-            const float freq = (float) k * binW;
-            if (freq < kMinFreq) continue;
-            if (freq > kMaxFreq) break;
-
-            const float x = freqToX (freq);
-
-            {
-                const float db = magToDb (spec[k]);
-                const float y  = dbToY (juce::jlimit (kMinDb, kMaxDb, db));
-                if (!curveStarted) { curvePath.startNewSubPath (x, y); curveStarted = true; }
-                else               { curvePath.lineTo (x, y); }
-            }
-
-            {
-                const float db = magToDb (peaks[k]);
-                if (db > kMinDb + 1.0f)
-                {
-                    const float y = dbToY (juce::jlimit (kMinDb, kMaxDb, db));
-                    if (!peakStarted) { peakPath.startNewSubPath (x, y); peakStarted = true; }
-                    else              { peakPath.lineTo (x, y); }
-                }
-                else if (peakStarted)
-                {
-                    peakPath.startNewSubPath (x, dbToY (kMinDb));
-                    peakStarted = false;
-                }
-            }
+            const float db = juce::jlimit (kMinDb, kMaxDb, magToDb (m_post[k]));
+            const float y  = dbToY (db);
+            if (!postStarted) { postPath.startNewSubPath (x, y); postStarted = true; }
+            else               postPath.lineTo (x, y);
         }
-
-        if (curveStarted)
         {
-            g.setColour (curveColour);
-            g.strokePath (curvePath, juce::PathStrokeType (1.5f));
+            const float db = juce::jlimit (kMinDb, kMaxDb, magToDb (m_pre[k]));
+            const float y  = dbToY (db);
+            if (!preStarted) { prePath.startNewSubPath (x, y); preStarted = true; }
+            else              prePath.lineTo (x, y);
         }
-        if (peakStarted)
-        {
-            g.setColour (peakColour);
-            g.strokePath (peakPath, juce::PathStrokeType (1.0f));
-        }
-    };
+    }
 
-    drawCurveAndPeaks (m_post, m_peakPost, PnsTheme::kColorPost, kPeakPost);
-    drawCurveAndPeaks (m_pre,  m_peakPre,  PnsTheme::kColorPre,  kPeakPre);
+    // POST: subtle glow fill (10%) then glow line
+    if (postStarted)
+    {
+        PnsTheme::drawGlowFill (g, postPath, PnsTheme::kColorPost,
+                                px + pw, py + ph, 0.10f);
+        PnsTheme::drawGlowLine (g, postPath, PnsTheme::kColorPost, 2.0f);
+    }
+
+    // PRE: thin ghosted line + very subtle fill (5%)
+    if (preStarted)
+    {
+        PnsTheme::drawGlowFill (g, prePath, PnsTheme::kColorPre,
+                                px + pw, py + ph, 0.05f);
+        g.setColour (PnsTheme::kColorPre.withAlpha (PnsTheme::kColorPreAlpha));
+        g.strokePath (prePath, juce::PathStrokeType (1.0f));
+    }
 
     // ── Average EQ curves (5-bin smoothed rolling average) ────────────────
     if (m_showAvg)
@@ -242,7 +290,7 @@ void SpectrumView::paint (juce::Graphics& g)
         collectAvg (m_avgPost, postPts);
         collectAvg (m_avgPre,  prePts);
 
-        // Fill region between post and pre averages (amber 60% opacity)
+        // Fill region between post and pre averages (amber 15% opacity)
         if (!postPts.empty() && !prePts.empty())
         {
             juce::Path fillPath;
@@ -253,7 +301,7 @@ void SpectrumView::paint (juce::Graphics& g)
             for (int i = (int) prePts.size() - 2; i >= 0; --i)
                 fillPath.lineTo (prePts[(size_t) i]);
             fillPath.closeSubPath();
-            g.setColour (PnsTheme::kColorPostAvg.withAlpha ((uint8_t) 0x99));
+            g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.08f));
             g.fillPath (fillPath);
         }
 
@@ -265,20 +313,92 @@ void SpectrumView::paint (juce::Graphics& g)
             avgPath.startNewSubPath (pts.front());
             for (size_t i = 1; i < pts.size(); ++i)
                 avgPath.lineTo (pts[i]);
-            g.setColour (colour);
-            g.strokePath (avgPath, juce::PathStrokeType (2.0f));
+            g.setColour (colour.withAlpha (0.75f));
+            g.strokePath (avgPath, juce::PathStrokeType (1.5f));
         };
 
         drawAvgLine (prePts,  PnsTheme::kColorPreAvg);
         drawAvgLine (postPts, PnsTheme::kColorPostAvg);
     }
 
+    // ── Interactive frequency hairline ────────────────────────────────────
+    const bool showHair = (m_mouseInPlot || m_mouseLocked)
+                          && m_mouseX >= px && m_mouseX <= px + pw;
+    if (showHair)
+    {
+        const float hx = m_mouseX;
+
+        // Hairline — teal glow
+        {
+            juce::Path hairLine;
+            hairLine.startNewSubPath (hx, py);
+            hairLine.lineTo          (hx, py + ph);
+            g.setColour (PnsTheme::kColorPost.withAlpha (0.18f));
+            g.strokePath (hairLine, juce::PathStrokeType (5.0f));
+            g.setColour (PnsTheme::kColorPost.withAlpha (0.55f));
+            g.strokePath (hairLine, juce::PathStrokeType (1.0f));
+        }
+
+        // Find magnitude at hairline for PRE and POST
+        const float hFreq = xToFreq (hx);
+        const int   hBin  = juce::jlimit (1,
+                                PlugNspectrPostProcessor::kNumSpecBins - 1,
+                                juce::roundToInt (hFreq / binW));
+
+        const float preDb  = magToDb (m_pre [hBin]);
+        const float postDb = magToDb (m_post[hBin]);
+
+        // Intersection dots on each curve
+        auto drawDot = [&] (float dotDb, juce::Colour colour)
+        {
+            const float cy = dbToY (juce::jlimit (kMinDb, kMaxDb, dotDb));
+            g.setColour (colour.withAlpha (0.30f));
+            g.fillEllipse (hx - 5.0f, cy - 5.0f, 10.0f, 10.0f);
+            g.setColour (colour);
+            g.fillEllipse (hx - 3.0f, cy - 3.0f, 6.0f, 6.0f);
+        };
+        drawDot (postDb, PnsTheme::kColorPost);
+        drawDot (preDb,  PnsTheme::kColorPre);
+
+        // Floating tooltip — freq + PRE + POST dB
+        juce::String freqStr;
+        if (hFreq >= 1000.0f)
+            freqStr = juce::String (hFreq / 1000.0f, 1) + " kHz";
+        else
+            freqStr = juce::String (juce::roundToInt (hFreq)) + " Hz";
+
+        auto fmtDb = [] (float db) -> juce::String {
+            if (db <= -89.9f) return "-inf";
+            return (db >= 0.0f ? "+" : "") + juce::String (db, 1) + " dB";
+        };
+
+        const juce::Font ttFont = PnsTheme::fontLabel();
+        constexpr float ttW = 108.0f, ttH = 46.0f, ttPad = 6.0f;
+        float ttx = hx + 8.0f;
+        if (ttx + ttW > px + pw) ttx = hx - ttW - 8.0f;
+        const float tty = py + 6.0f;
+
+        PnsTheme::drawFrostedPanel (g, { ttx, tty, ttW, ttH });
+
+        g.setFont (ttFont);
+        g.setColour (PnsTheme::kTextPrimary);
+        g.drawText (freqStr, juce::roundToInt (ttx + ttPad), juce::roundToInt (tty + ttPad),
+                    juce::roundToInt (ttW - ttPad * 2), 12, juce::Justification::centredLeft);
+        g.setColour (PnsTheme::kColorPost);
+        g.drawText ("Post: " + fmtDb (postDb),
+                    juce::roundToInt (ttx + ttPad), juce::roundToInt (tty + ttPad + 14),
+                    juce::roundToInt (ttW - ttPad * 2), 12, juce::Justification::centredLeft);
+        g.setColour (PnsTheme::kColorPre.withAlpha (0.9f));
+        g.drawText ("Pre:  " + fmtDb (preDb),
+                    juce::roundToInt (ttx + ttPad), juce::roundToInt (tty + ttPad + 27),
+                    juce::roundToInt (ttW - ttPad * 2), 12, juce::Justification::centredLeft);
+    }
+
     // ── Legend — below the controls row (controls bottom = 6+22=28, legend top = 36) ──
     g.setFont (PnsTheme::fontLabel());
     constexpr float sw = 8.0f, sh = 8.0f, rowH = 13.0f;
     {
-        // Panel geometry: right-aligned to same margin as the buttons (kPaddingMid from right)
-        constexpr float kCtrlBottom = (float) (PnsTheme::kPaddingSmall + PnsTheme::kButtonHeight);  // 28
+        constexpr float kCtrlBottom = (float) (PnsTheme::kPaddingSmall + PnsTheme::kButtonHeight);
         const int numRows  = m_showAvg ? 4 : 2;
         const float panelW = 88.0f;
         const float panelH = (float) numRows * rowH + (float) (PnsTheme::kPaddingSmall * 2);
@@ -440,6 +560,12 @@ void DynamicsView::update()
             ? juce::jlimit (-24.0f, 0.0f, currentGr)
             : 0.0f;
         m_grPos = (m_grPos + 1) % kGrLen;
+
+        // Peak hold: track most-negative GR, decay at 0.998 per frame (~3s hold)
+        if (rms.preValid && currentGr < m_grPeakHold)
+            m_grPeakHold = currentGr;
+        else
+            m_grPeakHold = juce::jmin (0.0f, m_grPeakHold * 0.998f);
     }
 }
 
@@ -580,6 +706,23 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
                 return px + (col + 0.5f) * colW;
             };
 
+            // Top-edge-only open path for glow stroke
+            auto buildTopPath = [&] (const std::array<float, kCols>& topY) -> juce::Path
+            {
+                juce::Path p;
+                p.startNewSubPath (px, topY[0]);
+                p.lineTo (cx (0), topY[0]);
+                for (int i = 1; i < kCols; ++i)
+                {
+                    const float mx = (cx (i - 1) + cx (i)) * 0.5f;
+                    const float my = (topY[i - 1] + topY[i]) * 0.5f;
+                    p.quadraticTo (cx (i - 1), topY[i - 1], mx, my);
+                }
+                p.lineTo (cx (kCols - 1), topY[kCols - 1]);
+                p.lineTo (px + pw, topY[kCols - 1]);
+                return p;
+            };
+
             auto buildPath = [&] (const std::array<float, kCols>& topY,
                                   const std::array<float, kCols>& botY) -> juce::Path
             {
@@ -608,13 +751,14 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
                 return p;
             };
 
-            // PRE: lavender at 50% opacity
-            g.setColour (PnsTheme::kColorPre.withAlpha ((uint8_t) 0x80));
+            // PRE: lavender at 35% opacity — ghosted behind POST
+            g.setColour (PnsTheme::kColorPre.withAlpha ((uint8_t) 0x59));
             g.fillPath (buildPath (preTopY, preBotY));
 
-            // POST: teal at 90% opacity
-            g.setColour (PnsTheme::kColorPost.withAlpha ((uint8_t) 0xe6));
+            // POST: teal at 85% opacity + glow outline on top edge
+            g.setColour (PnsTheme::kColorPost.withAlpha ((uint8_t) 0xD9));
             g.fillPath (buildPath (postTopY, postBotY));
+            PnsTheme::drawGlowLine (g, buildTopPath (postTopY), PnsTheme::kColorPost, 1.5f);
 
             // Compression difference fill: subtle teal at 15%
             g.setColour (PnsTheme::kColorPost.withAlpha ((uint8_t) 0x26));
@@ -784,7 +928,7 @@ void DynamicsView::drawGrMeter (juce::Graphics& g, juce::Rectangle<float> area)
     g.drawText ("0",   juce::roundToInt (px + pw) - 14, juce::roundToInt (py + ph) + 2,
                 28, 12, juce::Justification::centredRight);
 
-    // Filled GR history
+    // Filled GR history — vertical gradient (85% at top → 35% at bottom)
     const float zeroY = grToY (0.0f);
     juce::Path fillPath;
     fillPath.startNewSubPath (px, zeroY);
@@ -796,10 +940,15 @@ void DynamicsView::drawGrMeter (juce::Graphics& g, juce::Rectangle<float> area)
     }
     fillPath.lineTo (px + pw, zeroY);
     fillPath.closeSubPath();
-    g.setColour (PnsTheme::kColorGainRed.withAlpha ((uint8_t) 0x88));
-    g.fillPath (fillPath);
+    {
+        juce::ColourGradient grad (PnsTheme::kColorGainRed.withAlpha (0.85f), px, py,
+                                   PnsTheme::kColorGainRed.withAlpha (0.35f), px, py + ph,
+                                   false);
+        g.setGradientFill (grad);
+        g.fillPath (fillPath);
+    }
 
-    // Outline curve
+    // Outline curve — glow treatment
     juce::Path curvePath;
     for (int i = 0; i < kGrLen; ++i)
     {
@@ -809,8 +958,7 @@ void DynamicsView::drawGrMeter (juce::Graphics& g, juce::Rectangle<float> area)
         if (i == 0) curvePath.startNewSubPath (x, y);
         else        curvePath.lineTo (x, y);
     }
-    g.setColour (PnsTheme::kColorGainRed);
-    g.strokePath (curvePath, juce::PathStrokeType (1.5f));
+    PnsTheme::drawGlowLine (g, curvePath, PnsTheme::kColorGainRed, 1.5f);
 
     // "No Pre signal" overlay
     if (!m_preConnected)
@@ -976,7 +1124,7 @@ void OscilloscopeView::paint (juce::Graphics& g)
 
     // ── Background ────────────────────────────────────────────────────────
     g.fillAll (PnsTheme::kBgDark);
-    g.setColour (PnsTheme::kBgPanel);
+    g.setColour (juce::Colour (0, 0, 0));    // pure black plot area
     g.fillRect (px, py, pw, ph);
 
     // ── Title ─────────────────────────────────────────────────────────────
@@ -985,21 +1133,21 @@ void OscilloscopeView::paint (juce::Graphics& g)
     g.drawText ("OSCILLOSCOPE",
                 (int) px, 0, (int) pw, (int) kMT, juce::Justification::centred);
 
-    // ── Grid ──────────────────────────────────────────────────────────────
+    // ── Grid — solid for clip lines, dotted for sub-divisions ─────────────
     g.setColour (PnsTheme::kClipLine);
     g.drawHorizontalLine (juce::roundToInt (ampToY ( 1.0f)), px, px + pw);
     g.drawHorizontalLine (juce::roundToInt (ampToY (-1.0f)), px, px + pw);
 
     g.setColour (PnsTheme::kGridLine);
-    g.drawHorizontalLine (juce::roundToInt (ampToY ( 0.5f)), px, px + pw);
-    g.drawHorizontalLine (juce::roundToInt (ampToY (-0.5f)), px, px + pw);
+    PnsTheme::drawDottedHLine (g, ampToY ( 0.5f), px, px + pw);
+    PnsTheme::drawDottedHLine (g, ampToY (-0.5f), px, px + pw);
 
     g.setColour (PnsTheme::kZeroLine);
     g.drawHorizontalLine (juce::roundToInt (midY), px, px + pw);
 
     g.setColour (PnsTheme::kGridLine);
     for (int q = 1; q <= 3; ++q)
-        g.drawVerticalLine (juce::roundToInt (px + pw * (float) q / 4.0f), py, py + ph);
+        PnsTheme::drawDottedVLine (g, px + pw * (float) q / 4.0f, py, py + ph);
 
     // ── Y axis labels ─────────────────────────────────────────────────────
     g.setFont (PnsTheme::fontLabel());
@@ -1034,13 +1182,12 @@ void OscilloscopeView::paint (juce::Graphics& g)
             return p;
         };
 
-        // PRE — light lavender, 1.5px
-        g.setColour (PnsTheme::kColorPreAvg);
-        g.strokePath (buildPath (m_displayPre),  juce::PathStrokeType (1.5f));
+        // PRE — ghosted lavender at 40%, no glow, thin
+        g.setColour (PnsTheme::kColorPre.withAlpha (0.40f));
+        g.strokePath (buildPath (m_displayPre), juce::PathStrokeType (1.0f));
 
-        // POST — teal, 2px (on top)
-        g.setColour (PnsTheme::kColorPost);
-        g.strokePath (buildPath (m_displayPost), juce::PathStrokeType (2.0f));
+        // POST — teal with glow (on top)
+        PnsTheme::drawGlowLine (g, buildPath (m_displayPost), PnsTheme::kColorPost, 1.5f);
     }
     else
     {
@@ -1073,9 +1220,21 @@ void OscilloscopeView::paint (juce::Graphics& g)
     // ── SR readout — sits 8px below the time buttons (button bottom = 28px) ─
     {
         const double sr = m_proc.getSampleRate();
-        const juce::String srStr = (sr > 0.0)
-            ? ("SR: " + juce::String ((int) sr) + " Hz")
-            : "SR: --";
+        juce::String srStr = "SR: --";
+        if (sr > 0.0)
+        {
+            if (sr >= 1000.0)
+            {
+                const double srKhz = sr / 1000.0;
+                // Show one decimal only when needed (e.g. 44.1, 88.2; suppress for 48, 96)
+                const bool needDecimal = (std::fmod (srKhz, 1.0) > 0.05);
+                srStr = "SR: " + juce::String (srKhz, needDecimal ? 1 : 0) + " kHz";
+            }
+            else
+            {
+                srStr = "SR: " + juce::String ((int) sr) + " Hz";
+            }
+        }
         constexpr int kPanelW  = 104;
         constexpr int kPanelH  = 23;
         constexpr int kPanelT  = PnsTheme::kPaddingSmall + PnsTheme::kButtonHeight + 8;   // 36
@@ -1108,8 +1267,9 @@ HarmonicsView::HarmonicsView (PlugNspectrPostProcessor& p) : m_proc (p)
     m_freqSlider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
     m_freqSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
     m_freqSlider.setRange (100.0, 8000.0, 1.0);
-    m_freqSlider.setSkewFactorFromMidPoint (900.0);
-    m_freqSlider.setValue (m_toneFreq, juce::dontSendNotification);
+    m_freqSlider.setSkewFactorFromMidPoint (1000.0);
+    m_toneFreq = 1000.0;
+    m_freqSlider.setValue (1000.0, juce::dontSendNotification);
     m_freqSlider.addListener (this);
     addAndMakeVisible (m_freqSlider);
 
@@ -1353,7 +1513,7 @@ void HarmonicsView::drawSpectrumArea (juce::Graphics& g, juce::Rectangle<float> 
         if (freq < xMin || freq > xMax) continue;
         const float x = freqToX (freq);
         g.setColour (PnsTheme::kBorderSubtle);
-        g.drawVerticalLine (juce::roundToInt (x), py, py + ph);
+        PnsTheme::drawDottedVLine (g, x, py, py + ph);
         g.setFont (PnsTheme::fontLabel());
         g.setColour (PnsTheme::kGridLabel);
         g.drawText ("H" + juce::String (h + 1),
@@ -1362,7 +1522,7 @@ void HarmonicsView::drawSpectrumArea (juce::Graphics& g, juce::Rectangle<float> 
         (void) kHarmCols;
     }
 
-    // PRE spectrum — lavender 1px
+    // PRE spectrum — ghosted lavender at 40%, 1px
     {
         juce::Path p;
         bool started = false;
@@ -1376,10 +1536,14 @@ void HarmonicsView::drawSpectrumArea (juce::Graphics& g, juce::Rectangle<float> 
             if (!started) { p.startNewSubPath (x, y); started = true; }
             else          { p.lineTo (x, y); }
         }
-        if (started) { g.setColour (PnsTheme::kColorPre); g.strokePath (p, juce::PathStrokeType (1.0f)); }
+        if (started)
+        {
+            g.setColour (PnsTheme::kColorPre.withAlpha (0.40f));
+            g.strokePath (p, juce::PathStrokeType (1.0f));
+        }
     }
 
-    // POST spectrum — teal 2px
+    // POST spectrum — teal with glow
     {
         juce::Path p;
         bool started = false;
@@ -1393,10 +1557,11 @@ void HarmonicsView::drawSpectrumArea (juce::Graphics& g, juce::Rectangle<float> 
             if (!started) { p.startNewSubPath (x, y); started = true; }
             else          { p.lineTo (x, y); }
         }
-        if (started) { g.setColour (PnsTheme::kColorPost); g.strokePath (p, juce::PathStrokeType (2.0f)); }
+        if (started)
+            PnsTheme::drawGlowLine (g, p, PnsTheme::kColorPost, 1.5f);
     }
 
-    // Harmonic peak dots on POST (H2-H8) + hover tooltip
+    // Harmonic peak dots on POST (H2-H8): cyan→pink gradient with glow + hover tooltip
     const juce::Point<float> mousePos = getMouseXYRelative().toFloat();
     m_hoveredHarmonic = -1;
     for (int h = 1; h < kNumH; ++h)   // H2-H8
@@ -1407,16 +1572,17 @@ void HarmonicsView::drawSpectrumArea (juce::Graphics& g, juce::Rectangle<float> 
         const float db    = magToDb (m_harmPost[h]);
         if (db < kMinDb + 1.0f) continue;
         const float y     = dbToY (juce::jlimit (kMinDb, kMaxDb, db));
-        const float t     = (float) (h - 1) / 6.0f;
-        const juce::Colour col = PnsTheme::kColorPost.interpolatedWith (PnsTheme::kColorPostAvg, t);
+        const float t     = (float) (h - 1) / (float) (kNumH - 2);  // 0=H2, 1=H8
+        const juce::Colour col = PnsTheme::kColorHarmLow.interpolatedWith (PnsTheme::kColorHarmHigh, t);
 
-        // Diamond
-        const float ds = 5.0f;
-        juce::Path diamond;
-        diamond.addTriangle (x, y - ds, x + ds, y, x, y + ds);
-        diamond.addTriangle (x, y - ds, x - ds, y, x, y + ds);
+        // Glow halo
+        g.setColour (col.withAlpha (0.22f));
+        g.fillEllipse (x - 7.0f, y - 7.0f, 14.0f, 14.0f);
+        g.setColour (col.withAlpha (0.45f));
+        g.fillEllipse (x - 5.0f, y - 5.0f, 10.0f, 10.0f);
+        // Core dot
         g.setColour (col);
-        g.fillPath (diamond);
+        g.fillEllipse (x - 3.5f, y - 3.5f, 7.0f, 7.0f);
 
         // Hover detection
         if (mousePos.getDistanceFrom ({ x, y }) < 10.0f)
@@ -1597,11 +1763,29 @@ PlugNspectrPostEditor::~PlugNspectrPostEditor()
 //==============================================================================
 void PlugNspectrPostEditor::timerCallback()
 {
-    // Dynamics data + repaint at full 60 fps.
+    // ── Overlay animation ──────────────────────────────────────────────────
+    // Check Pre active every 200ms (every 12 ticks at 60fps)
+    if (m_tickCounter % 12 == 0)
+        m_overlayTarget = audioProcessor.isPreActive() ? 0.0f : 1.0f;
+
+    // Smooth fade: slower fade-out (300ms) when Pre connects, faster fade-in
+    const float diff      = m_overlayTarget - m_overlayAlpha;
+    const float fadeStep  = (diff > 0.0f) ? 0.08f : 0.055f;
+    if (std::abs (diff) > 0.004f)
+    {
+        m_overlayAlpha = juce::jlimit (0.0f, 1.0f, m_overlayAlpha + fadeStep * (diff > 0 ? 1.0f : -1.0f));
+        repaint();
+    }
+
+    // Pulse phase for the searching dot (~1 cycle per second at 60fps)
+    m_pulsePhase += juce::MathConstants<float>::twoPi / 60.0f;
+    if (m_pulsePhase > juce::MathConstants<float>::twoPi)
+        m_pulsePhase -= juce::MathConstants<float>::twoPi;
+
+    // ── Views ──────────────────────────────────────────────────────────────
     m_dynView.update();
     if (m_activeTab == 1) m_dynView.repaint();
 
-    // Spectrum, Oscilloscope, Harmonics at 30 fps.
     if (++m_tickCounter % 2 == 0)
     {
         m_specView.update();
@@ -1613,6 +1797,136 @@ void PlugNspectrPostEditor::timerCallback()
         m_harmView.update();
         if (m_activeTab == 3) m_harmView.repaint();
     }
+}
+
+//==============================================================================
+void PlugNspectrPostEditor::paintOverChildren (juce::Graphics& g)
+{
+    if (m_overlayAlpha < 0.005f) return;
+
+    const float alpha = m_overlayAlpha;
+    constexpr int hH  = PnsTheme::kHeaderHeight;
+    constexpr int tbH = PnsTheme::kTabBarHeight;
+    const int W = getWidth(), H = getHeight();
+    const int cY = hH + tbH;
+    const int cH = H - cY;
+
+    // ── Dim overlay over content area ──────────────────────────────────────
+    g.setColour (PnsTheme::kBgDark.withAlpha (0.92f * alpha));
+    g.fillRect (0, cY, W, cH);
+
+    // ── Content box ────────────────────────────────────────────────────────
+    constexpr float boxW = 430.0f;
+    constexpr float boxH = 270.0f;
+    const float boxX = (float) (W - (int) boxW) * 0.5f;
+    const float boxY = (float) cY + ((float) cH - boxH) * 0.5f;
+
+    PnsTheme::drawFrostedPanel (g, { boxX, boxY, boxW, boxH });
+
+    float cy = boxY + 16.0f;
+
+    // ── "No connection" icon (circle with diagonal slash) ──────────────────
+    constexpr float iconDia = 44.0f, iconPad = 9.0f;
+    const float icX = boxX + (boxW - iconDia) * 0.5f;
+    g.setColour (PnsTheme::kColorGainRed.withAlpha (alpha));
+    g.drawEllipse (icX, cy, iconDia, iconDia, 2.5f);
+    g.drawLine (icX + iconPad,          cy + iconDia - iconPad,
+                icX + iconDia - iconPad, cy + iconPad, 2.5f);
+    cy += iconDia + 10.0f;
+
+    // ── Title ──────────────────────────────────────────────────────────────
+    g.setFont (PnsTheme::fontTitle());
+    g.setColour (PnsTheme::kTextPrimary.withAlpha (alpha));
+    g.drawText ("No Pre Plugin Detected",
+                (int) boxX, (int) cy, (int) boxW, 14, juce::Justification::centred);
+    cy += 18.0f;
+
+    // ── Subtitle ───────────────────────────────────────────────────────────
+    g.setFont (PnsTheme::fontLabel());
+    g.setColour (PnsTheme::kTextSecondary.withAlpha (alpha));
+    g.drawText ("PlugNspectr requires both Pre and Post plugins to be active.",
+                (int) boxX, (int) cy, (int) boxW, 11, juce::Justification::centred);
+    cy += 15.0f;
+
+    // ── Divider ────────────────────────────────────────────────────────────
+    g.setColour (PnsTheme::kBorderSubtle.withAlpha (alpha));
+    {
+        const float divX = boxX + (boxW - 200.0f) * 0.5f;
+        g.drawHorizontalLine (juce::roundToInt (cy), divX, divX + 200.0f);
+    }
+    cy += 9.0f;
+
+    // ── Setup instructions ─────────────────────────────────────────────────
+    g.setFont (PnsTheme::fontLabel());
+    g.setColour (PnsTheme::kTextSecondary.withAlpha (alpha));
+    g.drawText ("To begin analysis, set up your signal chain:",
+                (int) boxX, (int) cy, (int) boxW, 11, juce::Justification::centred);
+    cy += 16.0f;
+
+    // ── Signal chain diagram ───────────────────────────────────────────────
+    constexpr float bH    = 22.0f;
+    constexpr float bW1   = 96.0f;     // "PlugNspectr Pre"
+    constexpr float bW2   = 108.0f;    // "Plugin to Analyze"
+    constexpr float bW3   = 100.0f;    // "PlugNspectr Post"
+    constexpr float arrW  = 20.0f;
+    const float chainW    = bW1 + arrW + bW2 + arrW + bW3;
+    const float chainX    = boxX + (boxW - chainW) * 0.5f;
+
+    auto drawBlock = [&] (float bx, float bw, juce::Colour border, const char* lbl)
+    {
+        g.setColour (PnsTheme::kBgWidget.withAlpha (alpha));
+        g.fillRoundedRectangle (bx, cy, bw, bH, 3.0f);
+        g.setColour (border.withAlpha (alpha));
+        g.drawRoundedRectangle (bx + 0.5f, cy + 0.5f, bw - 1.0f, bH - 1.0f, 3.0f, 1.0f);
+        g.setFont (PnsTheme::fontLabel());
+        g.setColour (PnsTheme::kTextPrimary.withAlpha (alpha * 0.85f));
+        g.drawText (lbl, (int) bx, (int) cy, (int) bw, (int) bH, juce::Justification::centred);
+    };
+
+    auto drawArrow = [&] (float ax)
+    {
+        const float ay = cy + bH * 0.5f;
+        g.setColour (PnsTheme::kTextSecondary.withAlpha (alpha));
+        g.drawLine (ax + 1.0f, ay, ax + arrW - 6.0f, ay, 1.0f);
+        juce::Path head;
+        const float hx = ax + arrW - 6.0f;
+        head.addTriangle (hx, ay - 3.5f, hx + 6.0f, ay, hx, ay + 3.5f);
+        g.fillPath (head);
+    };
+
+    drawBlock (chainX,                              bW1, PnsTheme::kColorPost,    "PlugNspectr Pre");
+    drawArrow (chainX + bW1);
+    drawBlock (chainX + bW1 + arrW,                 bW2, PnsTheme::kBorderActive, "Plugin to Analyze");
+    drawArrow (chainX + bW1 + arrW + bW2);
+    drawBlock (chainX + bW1 + arrW + bW2 + arrW,    bW3, PnsTheme::kColorPostAvg, "PlugNspectr Post");
+    cy += bH + 10.0f;
+
+    // ── Note ───────────────────────────────────────────────────────────────
+    g.setFont (PnsTheme::fontLabel());
+    g.setColour (PnsTheme::kGridLabel.withAlpha (alpha));
+    g.drawText ("Both plugins must be on the same audio track and",
+                (int) boxX + 10, (int) cy, (int) boxW - 20, 11, juce::Justification::centred);
+    cy += 12.0f;
+    g.drawText ("PlugNspectr Pre must come before the plugin you want to analyze.",
+                (int) boxX + 10, (int) cy, (int) boxW - 20, 11, juce::Justification::centred);
+    cy += 16.0f;
+
+    // ── Pulsing search dot + status text ───────────────────────────────────
+    const float pulse  = 0.65f + 0.35f * std::sin (m_pulsePhase);
+    const float dotR   = 4.0f * pulse;
+    constexpr float statusContentW = 172.0f;
+    const float dotX   = boxX + (boxW - statusContentW) * 0.5f;
+    const float dotCY  = cy + 5.5f;
+
+    g.setColour (PnsTheme::kColorGainRed.withAlpha (alpha * pulse));
+    g.fillEllipse (dotX, dotCY - dotR, dotR * 2.0f, dotR * 2.0f);
+
+    g.setFont (PnsTheme::fontLabel());
+    g.setColour (PnsTheme::kTextSecondary.withAlpha (alpha));
+    g.drawText ("Searching for PlugNspectr Pre...",
+                (int) (dotX + 11.0f), (int) (dotCY - 5.5f),
+                (int) (statusContentW - 11.0f), 11,
+                juce::Justification::centredLeft);
 }
 
 //==============================================================================
@@ -1646,7 +1960,7 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
 
     // ── Header bar ────────────────────────────────────────────────────────
     constexpr int hH = PnsTheme::kHeaderHeight;
-    g.setColour (PnsTheme::kBgPanel);
+    g.setColour (juce::Colour (10, 10, 10));   // #0A0A0A — slightly darker than panel
     g.fillRect (0, 0, getWidth(), hH);
     g.setColour (PnsTheme::kBorderSubtle);
     g.drawHorizontalLine (hH - 1, 0.0f, (float) getWidth());
@@ -1702,6 +2016,7 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
     constexpr int tbBottom = hH + PnsTheme::kTabBarHeight;
     g.setColour (PnsTheme::kBorderSubtle);
     g.drawHorizontalLine (tbBottom - 1, 0.0f, (float) getWidth());
+
 }
 
 //==============================================================================

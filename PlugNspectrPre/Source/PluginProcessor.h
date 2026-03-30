@@ -37,9 +37,17 @@ public:
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     //==========================================================================
-    // No editor — Pre is a silent capture plugin
-    bool                        hasEditor()    const override { return false; }
-    juce::AudioProcessorEditor* createEditor()       override { return nullptr; }
+    bool                        hasEditor()    const override { return true; }
+    juce::AudioProcessorEditor* createEditor()       override;
+
+    // Returns true if PlugNspectrPost has set a heartbeat within the last second.
+    bool isPostConnected() const
+    {
+        if (m_pShared == nullptr || m_pShared->magic != kPNS_Magic) return false;
+        const uint32_t age = juce::Time::getMillisecondCounter()
+                           - m_pShared->postLastHeartbeat;
+        return age < 1000u;
+    }
 
     //==========================================================================
     const juce::String getName() const override { return JucePlugin_Name; }

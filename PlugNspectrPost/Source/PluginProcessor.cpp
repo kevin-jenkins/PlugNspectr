@@ -36,7 +36,8 @@ void PlugNspectrPostProcessor::openSharedMemory()
     if (m_hMapFile != nullptr)
         return;
 
-    m_hMapFile = OpenFileMappingA (FILE_MAP_READ, FALSE, kPNS_SharedMemName);
+    // Post needs write access to update postLastHeartbeat in the shared block.
+    m_hMapFile = OpenFileMappingA (FILE_MAP_WRITE, FALSE, kPNS_SharedMemName);
 
     if (m_hMapFile == nullptr || m_hMapFile == INVALID_HANDLE_VALUE)
     {
@@ -45,7 +46,7 @@ void PlugNspectrPostProcessor::openSharedMemory()
     }
 
     m_pShared = static_cast<PNS_SharedBlock*> (
-        MapViewOfFile (m_hMapFile, FILE_MAP_READ, 0, 0, kPNS_SharedMemBytes));
+        MapViewOfFile (m_hMapFile, FILE_MAP_WRITE, 0, 0, kPNS_SharedMemBytes));
 
     if (m_pShared == nullptr)
     {
@@ -208,7 +209,10 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         m_lastRms = { preDb, postDb, preValid };
     }
 
-    // Pass-through: buffer is not modified.
+    // ── Post heartbeat — lets Pre editor detect that Post is running ──────
+    if (m_pShared != nullptr)
+        m_pShared->postLastHeartbeat = juce::Time::getMillisecondCounter();
+
 }
 
 //==============================================================================

@@ -61,6 +61,15 @@ private:
     juce::ComboBox   m_smoothBox;
     juce::TextButton m_avgBtn { "Avg" };
 
+    // Interactive hairline
+    float m_mouseX     = -1.0f;   // x in component coords, -1 = not in plot
+    bool  m_mouseLocked = false;   // true after click — hairline stays until next click
+    bool  m_mouseInPlot = false;
+
+    void mouseMove  (const juce::MouseEvent&) override;
+    void mouseExit  (const juce::MouseEvent&) override;
+    void mouseDown  (const juce::MouseEvent&) override;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectrumView)
 };
 
@@ -93,9 +102,10 @@ private:
     juce::TextButton m_zoom6s  { "6s"  };
     juce::TextButton m_zoom12s { "12s" };
 
-    // GR readout — instantaneous + 30s rolling average
+    // GR readout — instantaneous + 30s rolling average + peak hold
     float  m_instantGr        = 0.0f;
     float  m_avgGr            = 0.0f;   // calculated rolling average
+    float  m_grPeakHold       = 0.0f;  // most-negative GR seen, decays slowly
     double m_grFlashEnd       = 0.0;    // ms timestamp; 0 = not flashing
     bool   m_mouseOverReadout = false;
 
@@ -252,8 +262,9 @@ public:
     void resized ()                   override;
 
 private:
-    void timerCallback () override;
-    void switchTab     (int index);
+    void timerCallback      () override;
+    void paintOverChildren  (juce::Graphics& g) override;
+    void switchTab          (int index);
 
     PlugNspectrPostProcessor& audioProcessor;
 
@@ -263,6 +274,11 @@ private:
     juce::TextButton m_tabHarmonics    { "Harmonics"    };
     int              m_activeTab   = 0;
     int              m_tickCounter = 0;
+
+    // "No Pre" overlay animation state
+    float m_overlayAlpha  = 0.0f;   // current rendered alpha (0=hidden, 1=fully visible)
+    float m_overlayTarget = 0.0f;   // desired alpha (animated toward each tick)
+    float m_pulsePhase    = 0.0f;   // 0–2π, for the pulsing search dot
 
     PnsLookAndFeel    m_laf;
     juce::Image       m_biltroyLogo;

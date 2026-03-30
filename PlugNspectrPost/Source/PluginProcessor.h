@@ -88,6 +88,16 @@ public:
     // Returns the most recent per-block RMS levels for the dynamics display.
     RmsPair getRms() const;
 
+    // Returns true if PlugNspectrPre has set a heartbeat within the last 500ms.
+    bool isPreActive() const
+    {
+        if (m_pShared == nullptr || m_pShared->magic != kPNS_Magic) return false;
+        const uint32_t age = juce::Time::getMillisecondCounter()
+                           - m_pShared->preLastHeartbeat;
+        return age < 500u;
+    }
+
+
 private:
     //==========================================================================
     HANDLE m_hMapFile = nullptr;

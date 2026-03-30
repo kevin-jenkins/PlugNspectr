@@ -32,8 +32,9 @@ struct PNS_SharedBlock
     int32_t           numChannels;    // number of channels stored in preData (1 or 2)
     int32_t           numSamples;     // valid sample count per channel this block
     double            sampleRate;     // sample rate Pre is running at
-    volatile uint32_t writeCount;     // incremented by Pre after every block write;
-                                      // Post can compare to detect a new block
+    volatile uint32_t writeCount;        // incremented by Pre after every block write
+    volatile uint32_t preLastHeartbeat;  // set by Pre each processBlock (ms counter)
+    volatile uint32_t postLastHeartbeat; // set by Post each processBlock (ms counter)
     float             preData[kPNS_MaxChannels][kPNS_MaxSamplesPerBlock];
 };
 #pragma pack(pop)

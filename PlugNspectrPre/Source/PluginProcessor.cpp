@@ -10,6 +10,7 @@
 #include <windows.h>
 
 #include "PluginProcessor.h"
+#include "PluginEditor.h"
 
 #include <cstring>   // std::memcpy
 #include <cmath>
@@ -206,9 +207,16 @@ void PlugNspectrPreProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
 
         ++m_pShared->writeCount;
+        m_pShared->preLastHeartbeat = juce::Time::getMillisecondCounter();
     }
     // When test tone is active the buffer now contains the sine wave,
     // which passes through to the plugin-under-analysis as intended.
+}
+
+//==============================================================================
+juce::AudioProcessorEditor* PlugNspectrPreProcessor::createEditor()
+{
+    return new PlugNspectrPreEditor (*this);
 }
 
 //==============================================================================
