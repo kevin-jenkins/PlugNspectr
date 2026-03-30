@@ -4,6 +4,8 @@
 > A two-plugin VST3 signal chain analyzer for Windows and Cubase 15 Pro.  
 > Insert Pre and Post around any plugin to see exactly what it's doing to your audio.
 
+<img width="1509" height="677" alt="Screenshot 2026-03-30 001506" src="https://github.com/user-attachments/assets/da8dd478-2d7e-4785-841a-58ddf7aa0320" />
+
 ---
 
 ## Table of Contents
@@ -113,6 +115,8 @@ Audio Output
 4. Add **PlugNspectr Post** as insert slot 3
 5. Open **PlugNspectr Post** — the UI will activate automatically when audio plays
 
+<img width="163" height="418" alt="Screenshot 2026-03-29 221243" src="https://github.com/user-attachments/assets/0360b39d-8661-48d5-8fb4-18b862d39d9f" />
+
 > **Tip:** PlugNspectr works on any track type — audio tracks, instrument tracks, group buses, and the master bus.
 
 ---
@@ -124,6 +128,8 @@ PlugNspectr Post contains four analysis tabs accessible via the tab bar at the t
 ---
 
 ### Spectrum Tab
+
+<img width="805" height="603" alt="Screenshot 2026-03-30 001159" src="https://github.com/user-attachments/assets/19587bfc-f711-4de4-9d7a-180da01f151e" />
 
 Real-time FFT frequency analysis showing how the plugin under analysis is shaping the frequency content of your audio.
 
@@ -157,6 +163,8 @@ Real-time FFT frequency analysis showing how the plugin under analysis is shapin
 ---
 
 ### Dynamics Tab
+
+<img width="803" height="601" alt="Screenshot 2026-03-30 001300" src="https://github.com/user-attachments/assets/97befaf4-ca1c-42e9-be73-d8d0d3279b2d" />
 
 Reveals how the plugin is affecting the dynamic range and overall level of your audio in real time.
 
@@ -206,6 +214,8 @@ A scrolling gain reduction history graph:
 
 ### Oscilloscope Tab
 
+<img width="805" height="601" alt="Screenshot 2026-03-30 001358" src="https://github.com/user-attachments/assets/653e5eba-001c-421f-95d8-9150aaf1b87b" />
+
 A zero-crossing triggered oscilloscope showing the time-domain waveform of both signals. Useful for detecting phase shifts, transient shaping, clipping, and saturation character.
 
 **What you see:**
@@ -235,6 +245,9 @@ Current sample rate shown in the top right (e.g. "44.1 kHz").
 ---
 
 ### Harmonics Tab
+
+<img width="805" height="597" alt="Screenshot 2026-03-30 001448" src="https://github.com/user-attachments/assets/1631c824-01e5-455b-a2d3-c97c82f76d57" />
+
 
 Analyzes harmonic distortion introduced by the plugin under analysis using a pure test tone. Identifies the character and intensity of even and odd harmonics from H2 through H8.
 
@@ -462,4 +475,4 @@ See [LICENSE](LICENSE) for the full license text.
 ---
 
 *PlugNspectr is developed by Biltroy Audio using JUCE and C++.*  
-*Built with ❤️ for mastering engineers and music producers who want to hear what their plugins are really doing.*
+*Built with ❤️ for mixing / mastering engineers and music producers who want to hear what their plugins are really doing.*
