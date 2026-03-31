@@ -30,7 +30,7 @@
 
 ## Overview
 
-PlugNspectr is a **before/after signal analyzer** that reveals exactly how any plugin in your signal chain is affecting your audio. Unlike standalone analyzers such as PluginDoctor, PlugNspectr works directly inside your DAW in real time — no test exports, no switching windows.
+PlugNspectr is a **before/after signal analyzer** that reveals exactly how any plugin in your signal chain is affecting your audio. Unlike standalone analyzers, PlugNspectr works directly inside your DAW in real time — no test exports, no switching windows.
 
 It consists of two companion VST3 plugins:
 
