@@ -345,8 +345,8 @@ void SpectrumView::paint (juce::Graphics& g)
                                 PlugNspectrPostProcessor::kNumSpecBins - 1,
                                 juce::roundToInt (hFreq / binW));
 
-        const float preDb  = magToDb (m_pre [hBin]);
-        const float postDb = magToDb (m_post[hBin]);
+        const float preDb  = magToDb (m_avgPre [hBin]);
+        const float postDb = magToDb (m_avgPost[hBin]);
 
         // Intersection dots on each curve
         auto drawDot = [&] (float dotDb, juce::Colour colour)
@@ -1261,88 +1261,34 @@ void OscilloscopeView::paint (juce::Graphics& g)
 //==============================================================================
 HarmonicsView::HarmonicsView (PlugNspectrPostProcessor& p) : m_proc (p)
 {
-    openCmdMemory();
-
-    // Frequency slider — logarithmic rotary
-    m_freqSlider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-    m_freqSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-    m_freqSlider.setRange (100.0, 8000.0, 1.0);
-    m_freqSlider.setSkewFactorFromMidPoint (1000.0);
-    m_toneFreq = 1000.0;
-    m_freqSlider.setValue (1000.0, juce::dontSendNotification);
-    m_freqSlider.addListener (this);
-    addAndMakeVisible (m_freqSlider);
-
-    // Test tone toggle button
-    m_toneBtn.setToggleable (true);
-    m_toneBtn.setToggleState (false, juce::dontSendNotification);
-    m_toneBtn.onClick = [this]
-    {
-        m_toneActive = !m_toneActive;
-        m_toneBtn.setToggleState (m_toneActive, juce::dontSendNotification);
-        writeCmdBlock();
-    };
-    addAndMakeVisible (m_toneBtn);
-}
-
-HarmonicsView::~HarmonicsView()
-{
-    m_freqSlider.removeListener (this);
-    // Zero cmd block before closing so Pre knows test tone is off
-    if (m_pCmd != nullptr)
-    {
-        m_pCmd->testToneActive    = 0;
-        m_pCmd->testToneFrequency = 1000.0;
-    }
-    closeCmdMemory();
 }
 
 //──────────────────────────────────────────────────────────────────────────────
-void HarmonicsView::openCmdMemory()
+void HarmonicsView::setToneFreq (double freq)
 {
-    if (m_pCmd != nullptr) return;
+    m_toneFreq = freq;
+    repaint();
+}
 
-    // Post creates and owns this mapping; Pre opens it read-only.
-    HANDLE hMap = CreateFileMappingA (INVALID_HANDLE_VALUE, nullptr,
-                                      PAGE_READWRITE, 0, kPNS_CmdMemBytes,
-                                      kPNS_CmdMemName);
-    if (hMap == nullptr || hMap == INVALID_HANDLE_VALUE) return;
-
-    m_hCmdFile = hMap;
-    m_pCmd = static_cast<PNS_CmdBlock*> (
-        MapViewOfFile (m_hCmdFile, FILE_MAP_ALL_ACCESS, 0, 0, kPNS_CmdMemBytes));
-
-    if (m_pCmd == nullptr)
+void HarmonicsView::setToneActive (bool active)
+{
+    if (active)
     {
-        CloseHandle (m_hCmdFile);
-        m_hCmdFile = nullptr;
-        return;
+        // Reactivating — clear freeze and start fresh
+        m_toneActive      = true;
+        m_harmonicsPaused = false;
+        m_harmPre .fill (0.0f);
+        m_harmPost.fill (0.0f);
+        m_thdPre  = 0.0f;
+        m_thdPost = 0.0f;
     }
-
-    // Initialise to safe defaults
-    m_pCmd->testToneActive    = 0;
-    m_pCmd->testToneFrequency = m_toneFreq;
-}
-
-void HarmonicsView::closeCmdMemory()
-{
-    if (m_pCmd != nullptr) { UnmapViewOfFile (m_pCmd);  m_pCmd = nullptr; }
-    if (m_hCmdFile != nullptr) { CloseHandle (m_hCmdFile); m_hCmdFile = nullptr; }
-}
-
-void HarmonicsView::writeCmdBlock()
-{
-    if (m_pCmd == nullptr) return;
-    m_pCmd->testToneFrequency = m_toneFreq;
-    m_pCmd->testToneActive    = m_toneActive ? 1u : 0u;
-}
-
-//──────────────────────────────────────────────────────────────────────────────
-void HarmonicsView::sliderValueChanged (juce::Slider*)
-{
-    m_toneFreq = m_freqSlider.getValue();
-    writeCmdBlock();
-    repaint();   // rescale X axis immediately
+    else
+    {
+        // Deactivating — freeze the last captured frame
+        m_toneActive      = false;
+        m_harmonicsPaused = true;
+    }
+    repaint();
 }
 
 void HarmonicsView::mouseMove (const juce::MouseEvent& e)
@@ -1358,20 +1304,12 @@ void HarmonicsView::mouseExit (const juce::MouseEvent&)
 }
 
 //──────────────────────────────────────────────────────────────────────────────
-void HarmonicsView::resized()
-{
-    constexpr int knobSize = 52;
-    constexpr int btnW     = 80;
-    constexpr int btnH     = PnsTheme::kButtonHeight;
-    constexpr int pad      = PnsTheme::kPaddingMid;
-
-    m_freqSlider.setBounds (pad, pad, knobSize, knobSize);
-    m_toneBtn   .setBounds (pad + knobSize + 8, pad + (knobSize - btnH) / 2, btnW, btnH);
-}
 
 //──────────────────────────────────────────────────────────────────────────────
 void HarmonicsView::update()
 {
+    if (m_harmonicsPaused) return;
+
     m_proc.getSpectra (m_specPre, m_specPost);
 
     const double sr = m_proc.getSampleRate();
@@ -1419,15 +1357,13 @@ void HarmonicsView::paint (juce::Graphics& g)
 {
     g.fillAll (PnsTheme::kBgDark);
 
-    if (!m_toneActive)
+    // Show "Activate" prompt only when tone has never been run (no frozen data)
+    if (!m_toneActive && !m_harmonicsPaused)
     {
-        // Inactive state — full-area message
         g.setFont (PnsTheme::fontPrimary());
         g.setColour (PnsTheme::kTextSecondary);
         g.drawText ("Activate test tone to begin analysis",
                     getLocalBounds(), juce::Justification::centred);
-
-        // Still draw controls so user can find and click them
         return;
     }
 
@@ -1439,6 +1375,16 @@ void HarmonicsView::paint (juce::Graphics& g)
 
     drawSpectrumArea (g, specArea);
     drawReadouts     (g, readoutArea);
+
+    // ── "PAUSED" badge in top-left of spectrum area ───────────────────────
+    if (m_harmonicsPaused)
+    {
+        constexpr float kML = 44.0f, kMT = 28.0f;
+        g.setFont (PnsTheme::fontLabel());
+        g.setColour (PnsTheme::kTextSecondary.withAlpha (0.65f));
+        g.drawText ("PAUSED", (int) kML + 4, (int) kMT + 4, 60, 12,
+                    juce::Justification::centredLeft);
+    }
 }
 
 //──────────────────────────────────────────────────────────────────────────────
@@ -1607,30 +1553,6 @@ void HarmonicsView::drawSpectrumArea (juce::Graphics& g, juce::Rectangle<float> 
         g.drawText (tip, (int) tx - 2, (int) ty - 2, 70, 15, juce::Justification::centred);
     }
 
-    // Frequency readout below knob (top-left control area)
-    {
-        g.setFont (PnsTheme::fontLabel());
-        g.setColour (PnsTheme::kGridLabel);
-        g.drawText ("FREQ", PnsTheme::kPaddingMid, PnsTheme::kPaddingMid - 2, 52, 10,
-                    juce::Justification::centred);
-        g.setFont (PnsTheme::fontLabel());
-        g.setColour (PnsTheme::kTextAccent);
-        const juce::String freqStr = (m_toneFreq >= 1000.0)
-            ? juce::String (m_toneFreq / 1000.0, 2) + " kHz"
-            : juce::String (juce::roundToInt ((float) m_toneFreq)) + " Hz";
-        g.drawText (freqStr, PnsTheme::kPaddingMid, PnsTheme::kPaddingMid + 52, 52, 12,
-                    juce::Justification::centred);
-    }
-
-    // Warning label
-    {
-        g.setFont (PnsTheme::fontLabel());
-        g.setColour (PnsTheme::kColorGainRed);
-        g.drawText (juce::String::fromUTF8 ("\xe2\x9a\xa0") + " Replaces audio output",
-                    PnsTheme::kPaddingMid + 52 + 8 + 80 + 8, PnsTheme::kPaddingMid + (52 - 10) / 2,
-                    200, 12, juce::Justification::centredLeft);
-    }
-
     g.setColour (PnsTheme::kBorderSubtle);
     g.drawRect (px, py, pw, ph, 1.0f);
 }
@@ -1746,18 +1668,93 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     addAndMakeVisible (m_oscView);
     addAndMakeVisible (m_harmView);
 
+    // ── Global footer — frequency knob ────────────────────────────────────
+    m_footerFreqSlider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    m_footerFreqSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    m_footerFreqSlider.setRange (100.0, 8000.0, 1.0);
+    m_footerFreqSlider.setSkewFactorFromMidPoint (1000.0);
+    m_footerFreqSlider.setValue (1000.0, juce::dontSendNotification);
+    m_footerFreqSlider.onValueChange = [this]
+    {
+        m_toneFreq = m_footerFreqSlider.getValue();
+        writeCmdBlock();
+        m_harmView.setToneFreq (m_toneFreq);
+        repaint();   // update footer freq label
+    };
+    addAndMakeVisible (m_footerFreqSlider);
+
+    // ── Global footer — test tone button ──────────────────────────────────
+    m_footerToneBtn.setToggleable (true);
+    m_footerToneBtn.setToggleState (false, juce::dontSendNotification);
+    m_footerToneBtn.onClick = [this]
+    {
+        m_toneActive = !m_toneActive;
+        m_footerToneBtn.setToggleState (m_toneActive, juce::dontSendNotification);
+        writeCmdBlock();
+        m_harmView.setToneActive (m_toneActive);
+        repaint();   // show/hide warning label
+    };
+    addAndMakeVisible (m_footerToneBtn);
+
+    openCmdMemory();
+
     switchTab (0);
 
-    setSize (800, 540);
+    setSize (800, 576);   // +36px for footer
     setResizable (true, true);
-    setResizeLimits (600, 450, 2000, 1400);
+    setResizeLimits (600, 486, 2000, 1436);
     startTimerHz (60);
 }
 
 PlugNspectrPostEditor::~PlugNspectrPostEditor()
 {
+    // Zero cmd block so Pre stops the test tone immediately on editor close
+    if (m_pCmd != nullptr)
+    {
+        m_pCmd->testToneActive    = 0;
+        m_pCmd->testToneFrequency = 1000.0;
+    }
+    closeCmdMemory();
     setLookAndFeel (nullptr);
     stopTimer();
+}
+
+//──────────────────────────────────────────────────────────────────────────────
+void PlugNspectrPostEditor::openCmdMemory()
+{
+    if (m_pCmd != nullptr) return;
+
+    HANDLE hMap = CreateFileMappingA (INVALID_HANDLE_VALUE, nullptr,
+                                      PAGE_READWRITE, 0, kPNS_CmdMemBytes,
+                                      kPNS_CmdMemName);
+    if (hMap == nullptr || hMap == INVALID_HANDLE_VALUE) return;
+
+    m_hCmdFile = hMap;
+    m_pCmd = static_cast<PNS_CmdBlock*> (
+        MapViewOfFile (m_hCmdFile, FILE_MAP_ALL_ACCESS, 0, 0, kPNS_CmdMemBytes));
+
+    if (m_pCmd == nullptr)
+    {
+        CloseHandle (m_hCmdFile);
+        m_hCmdFile = nullptr;
+        return;
+    }
+
+    m_pCmd->testToneActive    = 0;
+    m_pCmd->testToneFrequency = m_toneFreq;
+}
+
+void PlugNspectrPostEditor::closeCmdMemory()
+{
+    if (m_pCmd != nullptr) { UnmapViewOfFile (m_pCmd);  m_pCmd = nullptr; }
+    if (m_hCmdFile != nullptr) { CloseHandle (m_hCmdFile); m_hCmdFile = nullptr; }
+}
+
+void PlugNspectrPostEditor::writeCmdBlock()
+{
+    if (m_pCmd == nullptr) return;
+    m_pCmd->testToneFrequency = m_toneFreq;
+    m_pCmd->testToneActive    = m_toneActive ? 1u : 0u;
 }
 
 //==============================================================================
@@ -1809,7 +1806,8 @@ void PlugNspectrPostEditor::paintOverChildren (juce::Graphics& g)
     constexpr int tbH = PnsTheme::kTabBarHeight;
     const int W = getWidth(), H = getHeight();
     const int cY = hH + tbH;
-    const int cH = H - cY;
+    constexpr int kFooterH = 36;
+    const int cH = H - cY - kFooterH;
 
     // ── Dim overlay over content area ──────────────────────────────────────
     g.setColour (PnsTheme::kBgDark.withAlpha (0.92f * alpha));
@@ -2017,6 +2015,47 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
     g.setColour (PnsTheme::kBorderSubtle);
     g.drawHorizontalLine (tbBottom - 1, 0.0f, (float) getWidth());
 
+    // ── Footer bar ────────────────────────────────────────────────────────
+    constexpr int kFooterH = 36;
+    const int H2 = getHeight(), W2 = getWidth();
+    const int footerY = H2 - kFooterH;
+
+    g.setColour (PnsTheme::kBgPanel);
+    g.fillRect (0, footerY, W2, kFooterH);
+    g.setColour (PnsTheme::kBorderSubtle);
+    g.drawHorizontalLine (footerY, 0.0f, (float) W2);
+
+    // "FREQ" label — to the right of the knob (knob is 28px wide at kPaddingLarge)
+    constexpr int knobX = PnsTheme::kPaddingLarge;
+    constexpr int knobW = 28;
+    const int freqLabelX = knobX + knobW + 4;
+    g.setFont (PnsTheme::fontLabel());
+    g.setColour (PnsTheme::kTextSecondary);
+    g.drawText ("FREQ", freqLabelX, footerY, 36, kFooterH, juce::Justification::centredLeft);
+
+    // Frequency value display
+    const double freq = m_toneFreq;
+    juce::String freqStr;
+    if (freq < 1000.0)
+        freqStr = juce::String (juce::roundToInt (freq)) + " Hz";
+    else
+        freqStr = juce::String (freq / 1000.0, 2) + " kHz";
+
+    g.setColour (m_toneActive ? PnsTheme::kTextAccent : PnsTheme::kTextSecondary);
+    g.drawText (freqStr, freqLabelX + 36, footerY, 64, kFooterH, juce::Justification::centredLeft);
+
+    // Warning label — only when test tone is active
+    if (m_toneActive)
+    {
+        // Position warning 8px right of the "Test Tone" button
+        // Button center is W2/2, button width is 80, so right edge is W2/2 + 40
+        const int warnX = W2 / 2 + 48;
+        g.setFont (PnsTheme::fontLabel());
+        g.setColour (PnsTheme::kColorGainRed);
+        g.drawText (juce::CharPointer_UTF8 ("\xe2\x9a\xa0 Replaces audio output"),
+                    warnX, footerY, W2 - warnX - PnsTheme::kPaddingMid, kFooterH,
+                    juce::Justification::centredLeft);
+    }
 }
 
 //==============================================================================
@@ -2032,9 +2071,16 @@ void PlugNspectrPostEditor::resized()
     m_tabOscilloscope.setBounds (kTabW * 2,           hH, kTabWO, tbH);
     m_tabHarmonics   .setBounds (kTabW * 2 + kTabWO,  hH, kTabW,  tbH);
 
-    const auto content = getLocalBounds().withTrimmedTop (hH + tbH);
+    constexpr int kFooterH = 36;
+    const int W = getWidth(), H = getHeight();
+
+    const auto content = getLocalBounds().withTrimmedTop (hH + tbH).withTrimmedBottom (kFooterH);
     m_specView.setBounds (content);
     m_dynView .setBounds (content);
     m_oscView .setBounds (content);
     m_harmView.setBounds (content);
+
+    // Footer controls
+    m_footerFreqSlider.setBounds (PnsTheme::kPaddingLarge, H - kFooterH + 4, 28, 28);
+    m_footerToneBtn   .setBounds ((W - 80) / 2, H - kFooterH + 7, 80, 22);
 }

@@ -190,29 +190,24 @@ private:
 //==============================================================================
 // Harmonics view — THD analysis using an internal test tone
 //==============================================================================
-class HarmonicsView : public juce::Component,
-                      private juce::Slider::Listener
+class HarmonicsView : public juce::Component
 {
 public:
     explicit HarmonicsView (PlugNspectrPostProcessor& p);
-    ~HarmonicsView() override;
 
     void paint   (juce::Graphics& g) override;
-    void resized ()                   override;
+    void resized ()                   override {}
     void update  ();
 
+    // Called by the editor footer when the user changes the tone controls
+    void setToneFreq   (double freq);
+    void setToneActive (bool active);
+
 private:
-    // ── Shared-memory command block (Post creates, Pre reads) ─────────────
-    HANDLE        m_hCmdFile = nullptr;
-    PNS_CmdBlock* m_pCmd     = nullptr;
-
-    void openCmdMemory();
-    void closeCmdMemory();
-    void writeCmdBlock();            // push current state to shared memory
-
-    // ── Test-tone state ────────────────────────────────────────────────────
-    bool   m_toneActive = false;
-    double m_toneFreq   = 1000.0;
+    // ── Test-tone state (set by editor footer) ─────────────────────────────
+    bool   m_toneActive     = false;
+    bool   m_harmonicsPaused = false;   // true after tone deactivated — freezes last frame
+    double m_toneFreq       = 1000.0;
 
     // ── Harmonic analysis ─────────────────────────────────────────────────
     static constexpr int kNumH = 8;   // H1 .. H8
@@ -231,14 +226,8 @@ private:
     // Hover state for harmonic dot tooltips
     int m_hoveredHarmonic = -1;   // 0-based index into H2-H8 (stored as H index 1-7)
 
-    // ── Controls ──────────────────────────────────────────────────────────
-    juce::Slider     m_freqSlider;
-    juce::TextButton m_toneBtn { "Test Tone" };
-
-    void sliderValueChanged (juce::Slider*) override;
-
-    void mouseMove  (const juce::MouseEvent&) override;
-    void mouseExit  (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
 
     // ── Drawing helpers ───────────────────────────────────────────────────
     void drawSpectrumArea (juce::Graphics&, juce::Rectangle<float> area);
@@ -279,6 +268,19 @@ private:
     float m_overlayAlpha  = 0.0f;   // current rendered alpha (0=hidden, 1=fully visible)
     float m_overlayTarget = 0.0f;   // desired alpha (animated toward each tick)
     float m_pulsePhase    = 0.0f;   // 0–2π, for the pulsing search dot
+
+    // ── Global footer — test tone controls ────────────────────────────────
+    HANDLE        m_hCmdFile   = nullptr;
+    PNS_CmdBlock* m_pCmd       = nullptr;
+    bool          m_toneActive = false;
+    double        m_toneFreq   = 1000.0;
+
+    juce::Slider     m_footerFreqSlider;
+    juce::TextButton m_footerToneBtn { "Test Tone" };
+
+    void openCmdMemory  ();
+    void closeCmdMemory ();
+    void writeCmdBlock  ();
 
     PnsLookAndFeel    m_laf;
     juce::Image       m_biltroyLogo;
