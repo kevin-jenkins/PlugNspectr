@@ -7,6 +7,7 @@
 #include "PluginEditor.h"
 #include <cmath>
 #include <algorithm>
+#include <set>
 
 //==============================================================================
 // SpectrumView
@@ -130,6 +131,276 @@ void SpectrumView::update()
         m_avgPre [k] = m_avgPre [k] * kAvgDecay + m_rawPre [k] * avgAtt;
         m_avgPost[k] = m_avgPost[k] * kAvgDecay + m_rawPost[k] * avgAtt;
     }
+
+    // ── Silence detection and warmup gating ──────────────────────────────
+    {
+        float maxMag = 0.0f;
+        for (int k = 1; k < PlugNspectrPostProcessor::kNumSpecBins; ++k)
+            maxMag = juce::jmax (maxMag, m_rawPost[k]);
+        const bool isSilent = (maxMag < 1.0e-5f);   // below ~-100 dB
+
+        if (isSilent)
+        {
+            ++m_silenceN;
+            if (m_silenceN >= kSilenceFrames)
+            {
+                // 3 s of continuous silence — full reset
+                m_warmupN  = 0;
+                m_markerN  = 0;
+                m_silenceN = 0;
+                m_peakMarkers.clear();
+                m_topBins.fill (-1);
+                m_topScores.fill (0.0f);
+            }
+        }
+        else
+        {
+            m_silenceN = 0;
+            if (m_warmupN < kWarmupFrames)
+            {
+                ++m_warmupN;
+                if (m_warmupN == kWarmupFrames)
+                    m_markerN = kMarkerUpdateFrames;  // trigger first calc immediately after warmup
+            }
+        }
+    }
+
+    // ── Variance markers: score = abs(postAvg_dB − preAvg_dB) per bin ──────
+    // Measures the plugin's actual EQ/compression effect at each frequency.
+    // Gated behind 3 s warmup; recalculates every 5 seconds.
+    if (m_warmupN >= kWarmupFrames)
+    {
+        ++m_markerN;
+        if (m_markerN >= kMarkerUpdateFrames)
+        {
+            m_markerN = 0;
+
+            auto magToDbF = [] (float mag) -> float {
+                return 20.0f * std::log10 (juce::jmax (mag, 1.0e-6f));
+            };
+
+            const double sr   = m_proc.getSampleRate();
+            const float  binW = (sr > 0.0) ? (float)(sr / PlugNspectrPostProcessor::kFftSize) : 1.0f;
+
+            constexpr float kDispML      = 44.0f, kDispMR = 12.0f;
+            constexpr float kDispMinFreq = 20.0f, kDispMaxFreq = 20000.0f;
+            const float kLogMin = std::log10 (kDispMinFreq);
+            const float kLogMax = std::log10 (kDispMaxFreq);
+            const float dispW   = (float) getWidth() - kDispML - kDispMR;
+            auto binToX = [&] (int k2) -> float {
+                const float f = juce::jlimit (kDispMinFreq, kDispMaxFreq, (float) k2 * binW);
+                return kDispML + dispW * (std::log10 (f) - kLogMin) / (kLogMax - kLogMin);
+            };
+
+            // Build ranked list: score = |postAvg_dB − preAvg_dB|, both clamped to
+            // kNoiseFloorDb so a noise-floor value never inflates the difference
+            // unrealistically. Bins where BOTH signals are below floor are skipped
+            // outright (true silence). A bin where only one is below floor is still
+            // valid — it means the plugin is adding or removing content there.
+            constexpr float kNoiseFloorDb = -85.0f;
+            using VB = std::pair<float, int>;
+            std::vector<VB> ranked;
+            ranked.reserve (PlugNspectrPostProcessor::kNumSpecBins);
+            for (int k = 1; k < PlugNspectrPostProcessor::kNumSpecBins; ++k)
+            {
+                const float freq = (float) k * binW;
+                if (freq < kDispMinFreq || freq > kDispMaxFreq) continue;
+                const float rawPostDb = magToDbF (m_avgPost[k]);
+                const float rawPreDb  = magToDbF (m_avgPre [k]);
+                if (rawPostDb < kNoiseFloorDb && rawPreDb < kNoiseFloorDb) continue;
+                // Clamp each to floor so a -110 dB value doesn't create a huge gap
+                const float postDb = juce::jmax (rawPostDb, kNoiseFloorDb);
+                const float preDb  = juce::jmax (rawPreDb,  kNoiseFloorDb);
+                ranked.push_back ({ std::abs (postDb - preDb), k });
+            }
+            std::sort (ranked.begin(), ranked.end(),
+                       [] (const VB& a, const VB& b) { return a.first > b.first; });
+
+            // Debug: log top 10 candidates before spacing enforcement
+            {
+                int logged = 0;
+                for (auto& [sc, k] : ranked)
+                {
+                    if (logged >= 10) break;
+                    DBG ("Candidate bin=" + juce::String (k)
+                         + " freq=" + juce::String ((float) k * binW, 1)
+                         + " variance=" + juce::String (sc, 2)
+                         + " screenX=" + juce::String (binToX (k), 1));
+                    ++logged;
+                }
+            }
+
+            // ── Slot 0: reserved low-frequency marker (20 – 200 Hz) ────────
+            // Independently selected; not subject to cross-region spacing. Min 2 dB.
+            constexpr float kLowFreqCeil  = 200.0f;
+            constexpr float kLowFreqMinDb = 2.0f;
+
+            int   lowFreqBin   = -1;
+            float lowFreqScore = 0.0f;
+            for (auto& [sc, k] : ranked)
+            {
+                if (sc < kLowFreqMinDb) break;
+                if ((float) k * binW <= kLowFreqCeil)
+                {
+                    lowFreqBin   = k;
+                    lowFreqScore = sc;
+                    break;
+                }
+            }
+
+            // ── Slot 1: reserved Pre-dropout marker ─────────────────────────
+            // Fires when the plugin is boosting/adding content at a frequency:
+            // Post has meaningful signal but Pre has dropped below noise floor.
+            // Pre < -80 dB AND Post > -75 dB AND variance >= 8 dB.
+            constexpr float kBoostPreMax  = -80.0f;   // Pre must be below this
+            constexpr float kBoostPostMin = -75.0f;   // Post must be above this
+            constexpr float kBoostMinDb   =  8.0f;
+
+            int   boostBin   = -1;
+            float boostScore = 0.0f;
+            for (auto& [sc, k] : ranked)
+            {
+                if (sc < kBoostMinDb) break;
+                const float rawPostDb = magToDbF (m_avgPost[k]);
+                const float rawPreDb  = magToDbF (m_avgPre [k]);
+                if (rawPreDb < kBoostPreMax && rawPostDb > kBoostPostMin)
+                {
+                    boostBin   = k;
+                    boostScore = sc;
+                    break;
+                }
+            }
+            const float boostX = (boostBin >= 0) ? binToX (boostBin) : -1.0e9f;
+
+            // ── Slots 2–4: greedy high-frequency selection (200 Hz – 20 kHz) ──
+            // Spacing checked against each other and against slot 1 (Pre-dropout).
+            constexpr int kHighFreqSlots = kNumPeakMarkers - 2;   // 3
+
+            std::array<int,   kHighFreqSlots> hfTop    { -1,-1,-1 };
+            std::array<float, kHighFreqSlots> hfScores {  0, 0, 0 };
+            std::array<float, kHighFreqSlots> hfX      {  0, 0, 0 };
+            int hfPicked = 0;
+
+            for (auto& [sc, k] : ranked)
+            {
+                if (hfPicked >= kHighFreqSlots) break;
+                const float freq = (float) k * binW;
+                if (freq < kLowFreqCeil || freq > kDispMaxFreq) continue;
+                const float x = binToX (k);
+                bool tooClose = (std::abs (x - boostX) < kMinPixelSpacing);
+                if (!tooClose)
+                    for (int i = 0; i < hfPicked; ++i)
+                        if (std::abs (x - hfX[i]) < kMinPixelSpacing) { tooClose = true; break; }
+                if (!tooClose)
+                {
+                    hfTop[hfPicked]    = k;
+                    hfScores[hfPicked] = sc;
+                    hfX[hfPicked]      = x;
+                    ++hfPicked;
+                }
+            }
+
+            // ── Assemble final 5-slot array ─────────────────────────────────
+            // Slot 0 = low-freq reserved; Slot 1 = Pre-dropout; Slots 2-4 = greedy
+            std::array<int,   kNumPeakMarkers> newTop    { -1,-1,-1,-1,-1 };
+            std::array<float, kNumPeakMarkers> newScores {  0, 0, 0, 0, 0 };
+            std::array<float, kNumPeakMarkers> newX      {  0, 0, 0, 0, 0 };
+
+            newTop[0]    = lowFreqBin;
+            newScores[0] = lowFreqScore;
+            newX[0]      = (lowFreqBin >= 0) ? binToX (lowFreqBin) : 0.0f;
+
+            newTop[1]    = boostBin;
+            newScores[1] = boostScore;
+            newX[1]      = (boostBin >= 0) ? binToX (boostBin) : 0.0f;
+
+            for (int i = 0; i < kHighFreqSlots; ++i)
+            {
+                newTop   [2 + i] = hfTop[i];
+                newScores[2 + i] = hfScores[i];
+                newX     [2 + i] = hfX[i];
+            }
+
+            // ── Per-slot 20% score hysteresis ─────────────────────────────
+            // Each slot competes against its own previously confirmed bin only.
+            for (int i = 0; i < kNumPeakMarkers; ++i)
+            {
+                if (newTop[i] < 0 || m_topBins[i] < 0) continue;
+                if (newTop[i] == m_topBins[i]) continue;
+                const float opDb  = juce::jmax (magToDbF (m_avgPost[m_topBins[i]]), kNoiseFloorDb);
+                const float orDb  = juce::jmax (magToDbF (m_avgPre  [m_topBins[i]]), kNoiseFloorDb);
+                const float oldSc = std::abs (opDb - orDb);
+                if (newScores[i] < oldSc * kScoreHysteresis)
+                {
+                    newTop   [i] = m_topBins[i];
+                    newScores[i] = oldSc;
+                    newX     [i] = binToX (m_topBins[i]);
+                }
+            }
+
+            // ── Post-hysteresis deduplication ─────────────────────────────
+            // After all slots (including hysteresis) are finalised, discard the
+            // lower-scoring slot in any pair that land within 80 px of each other.
+            // This handles the case where a reserved slot and a greedy slot (or two
+            // greedy slots after hysteresis) independently settle on the same region.
+            for (int i = 0; i < kNumPeakMarkers; ++i)
+            {
+                if (newTop[i] < 0) continue;
+                for (int j = i + 1; j < kNumPeakMarkers; ++j)
+                {
+                    if (newTop[j] < 0) continue;
+                    if (std::abs (newX[i] - newX[j]) < kMinPixelSpacing)
+                    {
+                        if (newScores[i] >= newScores[j])
+                            newTop[j] = -1;
+                        else
+                        {
+                            newTop[i] = -1;
+                            break;   // slot i gone — stop checking it
+                        }
+                    }
+                }
+            }
+
+            // Apply update: fade out removed markers, fade in new ones
+            std::set<int> newSet (newTop.begin(), newTop.end());
+            for (auto& mk : m_peakMarkers)
+                if (mk.fadingIn && newSet.find (mk.bin) == newSet.end())
+                    mk.fadingIn = false;
+
+            std::set<int> alreadyShown;
+            for (auto& mk : m_peakMarkers)
+                alreadyShown.insert (mk.bin);
+
+            for (int i = 0; i < kNumPeakMarkers; ++i)
+            {
+                const int  b       = newTop[i];
+                const bool isBoost = (i == 1 && b >= 0);
+                if (b < 0) continue;
+                if (alreadyShown.find (b) == alreadyShown.end())
+                    m_peakMarkers.push_back ({ b, (float) b, 0.0f, true, newScores[i], isBoost });
+                else
+                    for (auto& mk : m_peakMarkers)
+                        if (mk.bin == b) { mk.score = newScores[i]; mk.isBoost = isBoost; break; }
+            }
+
+            m_topBins   = newTop;
+            m_topScores = newScores;
+        }
+
+        // Lerp displayBin toward target bin each frame (~2 s exponential approach)
+        for (auto& mk : m_peakMarkers)
+            mk.displayBin += ((float) mk.bin - mk.displayBin) * kLerpRate;
+    }
+
+    // Animate alphas — fast fade-in (0.5 s), slower fade-out (1 s)
+    for (auto& mk : m_peakMarkers)
+        mk.alpha = juce::jlimit (0.0f, 1.0f,
+                                 mk.alpha + (mk.fadingIn ? kMarkerFadeInRate : -kMarkerFadeOutRate));
+    m_peakMarkers.erase (
+        std::remove_if (m_peakMarkers.begin(), m_peakMarkers.end(),
+                        [] (const PeakMarkerState& mk) { return !mk.fadingIn && mk.alpha <= 0.0f; }),
+        m_peakMarkers.end());
 }
 
 void SpectrumView::paint (juce::Graphics& g)
@@ -240,6 +511,11 @@ void SpectrumView::paint (juce::Graphics& g)
         }
     }
 
+    // Clip all curve drawing to the plot area so glow strokes don't bleed
+    // into the frequency-label strip below or the margins around the plot.
+    g.saveState();
+    g.reduceClipRegion (juce::Rectangle<float> (px, py, pw, ph).toNearestInt());
+
     // POST: subtle glow fill (10%) then glow line
     if (postStarted)
     {
@@ -319,6 +595,97 @@ void SpectrumView::paint (juce::Graphics& g)
 
         drawAvgLine (prePts,  PnsTheme::kColorPreAvg);
         drawAvgLine (postPts, PnsTheme::kColorPostAvg);
+    }
+
+    g.restoreState();   // end plot-area clip
+
+    // ── Fluctuation peak markers — only after warmup ─────────────────────
+    if (m_warmupN >= kWarmupFrames && !m_peakMarkers.empty())
+    {
+        constexpr float labelH    = 16.0f;
+        constexpr float stemLen   = 28.0f;
+        constexpr float dotR      = 3.0f;
+        constexpr int   kSmH      = 2;   // must match kSmoothHalf in collectAvg above
+        const juce::Colour kPillBg   = PnsTheme::kColorPostAvg;
+        const juce::Colour kPillText = PnsTheme::kBgPanel;
+        const juce::Font   pillFont  = PnsTheme::fontLabel();
+
+        struct LayoutMk { float x, dotY, alpha, pillW; juce::String label; };
+        std::vector<LayoutMk> layout;
+        layout.reserve (m_peakMarkers.size());
+
+        for (auto& mk : m_peakMarkers)
+        {
+            if (mk.displayBin < 1.0f) continue;
+            const int dispBin = juce::roundToInt (mk.displayBin);
+            if (dispBin < 1 || dispBin >= PlugNspectrPostProcessor::kNumSpecBins) continue;
+            const float displayFreq = mk.displayBin * binW;
+            if (displayFreq < kMinFreq || displayFreq > kMaxFreq) continue;
+
+            const float x = freqToX (displayFreq);
+
+            // Dot Y: identical 5-bin smoothing as the Post avg line (collectAvg above)
+            const int cBin = juce::jlimit (1, PlugNspectrPostProcessor::kNumSpecBins - 1, dispBin);
+            float sum = 0.0f;  int cnt = 0;
+            for (int j = cBin - kSmH; j <= cBin + kSmH; ++j)
+                if (j >= 1 && j < PlugNspectrPostProcessor::kNumSpecBins)
+                    { sum += m_avgPost[j]; ++cnt; }
+            const float smoothed = (cnt > 0) ? sum / (float) cnt : m_avgPost[cBin];
+            const float dotY = dbToY (juce::jlimit (kMinDb, kMaxDb, magToDb (smoothed)));
+
+            juce::String lbl = (displayFreq >= 1000.0f)
+                ? juce::String (displayFreq / 1000.0f, 1) + " kHz"
+                : juce::String (juce::roundToInt (displayFreq)) + " Hz";
+            // Boost markers get a "↑" indicator and a slightly wider pill
+            if (mk.isBoost)
+                lbl += juce::String (juce::CharPointer_UTF8 (" \xe2\x86\x91"));
+            const float markerPillW = mk.isBoost ? 63.0f : 52.0f;
+            layout.push_back ({ x, dotY, mk.alpha, markerPillW, lbl });
+        }
+
+        std::sort (layout.begin(), layout.end(),
+                   [] (const LayoutMk& a, const LayoutMk& b) { return a.x < b.x; });
+
+        // Two-row stagger: row 0 = normal stem, row 1 = stem extended by 16px.
+        // If a label would conflict in both rows, the marker is dropped entirely.
+        constexpr float kRow1Extra = 16.0f;
+        float row0Right = -1e9f, row1Right = -1e9f;   // rightmost right-edge of placed labels
+
+        for (auto& mk : layout)
+        {
+            const float pw2    = mk.pillW;
+            const float lLeft  = mk.x - pw2 * 0.5f;
+            const float lRight = mk.x + pw2 * 0.5f;
+
+            int row = -1;
+            if (lLeft >= row0Right + 3.0f)      { row = 0; row0Right = lRight; }
+            else if (lLeft >= row1Right + 3.0f) { row = 1; row1Right = lRight; }
+            if (row < 0) continue;   // no valid row — drop
+
+            const float alpha    = mk.alpha;
+            const float cx       = mk.x;
+            const float dotY     = mk.dotY;
+            const float extraLen = (row == 1) ? kRow1Extra : 0.0f;
+            const float labelTop = dotY - stemLen - extraLen - labelH;
+
+            // Stem — straight vertical from dot to label bottom
+            g.setColour (kPillBg.withAlpha (0.6f * alpha));
+            g.drawLine (cx, dotY - dotR, cx, labelTop + labelH, 1.0f);
+
+            // Dot — soft outer glow + bright core
+            g.setColour (kPillBg.withAlpha (0.30f * alpha));
+            g.fillEllipse (cx - dotR * 2.0f, dotY - dotR * 2.0f, dotR * 4.0f, dotR * 4.0f);
+            g.setColour (kPillBg.withAlpha (alpha));
+            g.fillEllipse (cx - dotR, dotY - dotR, dotR * 2.0f, dotR * 2.0f);
+
+            // Pill label
+            const juce::Rectangle<float> pill (cx - pw2 * 0.5f, labelTop, pw2, labelH);
+            g.setColour (kPillBg.withAlpha (alpha));
+            g.fillRoundedRectangle (pill, 3.0f);
+            g.setFont (pillFont);
+            g.setColour (kPillText.withAlpha (alpha));
+            g.drawText (mk.label, pill.toNearestInt(), juce::Justification::centred);
+        }
     }
 
     // ── Interactive frequency hairline ────────────────────────────────────
