@@ -17,6 +17,7 @@
 - [Setting Up the Signal Chain](#setting-up-the-signal-chain)
 - [Analysis Tabs](#analysis-tabs)
   - [Spectrum](#spectrum-tab)
+    - [Frequency Variance Markers](#frequency-variance-markers)
   - [Dynamics](#dynamics-tab)
   - [Oscilloscope](#oscilloscope-tab)
   - [Harmonics](#harmonics-tab)
@@ -159,6 +160,42 @@ Real-time FFT frequency analysis showing how the plugin under analysis is shapin
 **Axis:**
 - X: 20 Hz – 20 kHz (logarithmic)
 - Y: -90 dB to +12 dB (0 dB reference line highlighted)
+
+---
+
+#### Frequency Variance Markers
+
+After 3 seconds of audio, the Spectrum tab automatically places up to **5 floating markers** on the display identifying the frequency regions where the Pre and Post *average* curves diverge most. These highlight where the plugin is making its most significant EQ changes over time.
+
+**What you see:**
+- **Amber pill labels** — show the exact frequency (e.g. `2.4 kHz` or `340 Hz`) of each flagged region
+- **Vertical stems with dots** — the dot rests directly on the Post average curve at that frequency; the stem extends upward to the pill
+- **Boost markers** — pills marked with `↑` indicate a frequency where the plugin is generating content that wasn't present in the Pre signal (Post has signal, Pre is below the noise floor)
+- **Two-row stagger** — when markers would overlap, the lower-priority one drops to a second row to keep labels readable
+
+**How markers are selected:**
+
+The five marker slots each serve a distinct purpose:
+
+| Slot | Region | Purpose |
+|---|---|---|
+| **1** | 20 – 200 Hz | Best low-frequency variance — always reserved for the low end |
+| **2** | Full range | Boost detection — fires when the plugin adds content at a frequency below the Pre noise floor |
+| **3 – 5** | 200 Hz – 20 kHz | The three highest-variance bins in the mid/high range, spaced at least 80 px apart |
+
+**Behavior:**
+- Markers fade in over ~0.5 seconds and fade out over ~1 second when they change
+- A new candidate frequency needs to show **20% more variance** than the current marker to displace it — this prevents rapid jitter on broad, flat EQ curves
+- Bins where both Pre and Post are below -85 dB are excluded (treated as noise)
+- Markers slide smoothly to a new frequency over ~2 seconds rather than jumping instantly
+
+**Reading the markers:**
+- **Multiple markers clustered in the same region** → the plugin has a broad EQ shelf or resonance centered there
+- **A single isolated marker in the highs with no others** → a narrow high-frequency cut or boost (e.g. an air shelf, de-esser band)
+- **A boost marker `↑`** → the plugin is synthesizing or heavily boosting a frequency that was essentially absent in the input — common with resonant filters, exciters, or heavy compression pumping artifacts
+- **No markers appearing** → the plugin is spectrally transparent on average — averages are very close across all frequencies
+
+> Markers are based on the **rolling 10-second averages**, not the live spectrum. They reflect the plugin's cumulative EQ character, not momentary peaks. Let the audio run for 10+ seconds for the most accurate marker positions.
 
 ---
 
@@ -319,6 +356,7 @@ Values display in grey at 0 dB and switch to teal when non-zero so you always kn
 - Use **Slow** smoothing when analyzing subtle EQ coloration from compressors or tape plugins — Fast smoothing can mask gentle curves
 - The **average lines** are most useful for revealing the cumulative character of a plugin over a full mix — let audio play for 10+ seconds before reading them
 - **Click to lock** the frequency tooltip when you want to note a specific frequency value without it jumping around
+- **Frequency variance markers** appear after ~3 seconds and update continuously — the marker positions tell you *where* the plugin is working hardest; use them as a starting point for further EQ investigation
 
 ### Dynamics Tab
 - The **30-second Avg GR** is the most musically meaningful compression reading — it tells you how hard the compressor is working on average across a full musical phrase
