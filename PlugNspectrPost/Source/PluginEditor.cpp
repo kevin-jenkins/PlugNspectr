@@ -688,7 +688,46 @@ void SpectrumView::paint (juce::Graphics& g)
         }
     }
 
-    // ── Interactive frequency hairline ────────────────────────────────────
+    // ── Legend — drawn before hairline so tooltip renders on top ─────────
+    g.setFont (PnsTheme::fontLabel());
+    constexpr float sw = 8.0f, sh = 8.0f, rowH = 13.0f;
+    constexpr float kLegendW = 88.0f;
+    constexpr float kCtrlBottom = (float) (PnsTheme::kPaddingSmall + PnsTheme::kButtonHeight);
+    const int   legendRows  = m_showAvg ? 4 : 2;
+    const float legendH     = (float) legendRows * rowH + (float) (PnsTheme::kPaddingSmall * 2);
+    const float legendPanelR = (float) getWidth() - (float) PnsTheme::kPaddingMid;
+    const float legendPanelT = kCtrlBottom + 8.0f;
+    const float legendPanelL = legendPanelR - kLegendW;
+    const juce::Rectangle<float> legendRect { legendPanelL, legendPanelT, kLegendW, legendH };
+    PnsTheme::drawFrostedPanel (g, legendRect);
+
+    {
+        const float lx = legendPanelL + (float) PnsTheme::kPaddingSmall;
+        const float ly = legendPanelT + (float) PnsTheme::kPaddingSmall;
+        auto drawLegendRow = [&] (float row, juce::Colour swatch, const char* label)
+        {
+            const float ry = ly + row * rowH;
+            g.setColour (swatch);
+            g.fillRect (lx, ry, sw, sh);
+            g.setColour (PnsTheme::kTextSecondary);
+            g.drawText (label,
+                        juce::roundToInt (lx + sw + 4), juce::roundToInt (ry - 1),
+                        60, 11, juce::Justification::centredLeft);
+        };
+        drawLegendRow (0.0f, PnsTheme::kColorPre,     "Pre");
+        drawLegendRow (1.0f, PnsTheme::kColorPost,    "Post");
+        if (m_showAvg)
+        {
+            drawLegendRow (2.0f, PnsTheme::kColorPreAvg,  "Pre Avg");
+            drawLegendRow (3.0f, PnsTheme::kColorPostAvg, "Post Avg");
+        }
+    }
+
+    // ── Border ────────────────────────────────────────────────────────────
+    g.setColour (PnsTheme::kBorderSubtle);
+    g.drawRect (px, py, pw, ph, 1.0f);
+
+    // ── Interactive frequency hairline — drawn last so it's always on top ─
     const bool showHair = (m_mouseInPlot || m_mouseLocked)
                           && m_mouseX >= px && m_mouseX <= px + pw;
     if (showHair)
@@ -727,79 +766,144 @@ void SpectrumView::paint (juce::Graphics& g)
         drawDot (postDb, PnsTheme::kColorPost);
         drawDot (preDb,  PnsTheme::kColorPre);
 
-        // Floating tooltip — freq + PRE + POST dB
+        // Floating tooltip — freq + PRE + POST dB + delta pill
         juce::String freqStr;
         if (hFreq >= 1000.0f)
             freqStr = juce::String (hFreq / 1000.0f, 1) + " kHz";
         else
             freqStr = juce::String (juce::roundToInt (hFreq)) + " Hz";
 
-        auto fmtDb = [] (float db) -> juce::String {
-            if (db <= -89.9f) return "-inf";
+        constexpr float kValidFloor = -90.0f;
+        const bool postValid = (postDb > kValidFloor);
+        const bool preValid  = (preDb  > kValidFloor);
+
+        auto fmtDb = [] (float db, bool valid) -> juce::String {
+            if (!valid) return "---";
             return (db >= 0.0f ? "+" : "") + juce::String (db, 1) + " dB";
         };
 
-        const juce::Font ttFont = PnsTheme::fontLabel();
-        constexpr float ttW = 108.0f, ttH = 46.0f, ttPad = 6.0f;
+        const juce::Font ttFont  = PnsTheme::fontLabel();
+        constexpr float ttPad    = 6.0f;
+        constexpr float lineH    = 12.0f;
+        constexpr float lineGap  = 13.0f;
+        constexpr float pillPadX = 8.0f;
+        constexpr float pillPadY = 2.0f;
+        const float pillH        = lineH + pillPadY * 2.0f;
+
+        auto strW = [&] (const juce::String& s) -> float {
+            juce::GlyphArrangement ga;
+            ga.addLineOfText (ttFont, s, 0.0f, 0.0f);
+            return ga.getBoundingBox (0, -1, true).getWidth();
+        };
+
+        // Determine pill case:
+        //   Case 1 — both valid: show delta
+        //   Case 2 — post valid, pre "---": plugin adding content (↑)
+        //   Case 3 — pre valid, post "---": plugin removing content (↓)
+        //   Case 4 — both "---": no pill
+        juce::String deltaStr;
+        juce::Colour pillColour;
+        float pillW = 0.0f;
+        bool  showPill = false;
+
+        if (postValid && preValid)
+        {
+            // Case 1 — normal delta
+            const float deltaDb = postDb - preDb;
+            if (std::abs (deltaDb) > 0.1f)
+            {
+                showPill   = true;
+                pillColour = (deltaDb > 0.0f) ? PnsTheme::kColorPost
+                                               : PnsTheme::kColorGainRed;
+                deltaStr   = (deltaDb > 0.0f ? "+" : "")
+                             + juce::String (deltaDb, 1) + " dB";
+                pillW      = strW (deltaStr) + pillPadX * 2.0f;
+            }
+        }
+        else if (postValid && !preValid)
+        {
+            // Case 2 — post valid, pre silent: plugin adding content
+            showPill   = true;
+            pillColour = PnsTheme::kColorPost;
+            deltaStr   = juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x91"))
+                         + " +" + juce::String (std::abs (postDb - kValidFloor), 1) + " dB";
+            pillW      = strW (deltaStr) + pillPadX * 2.0f;
+        }
+        else if (!postValid && preValid)
+        {
+            // Case 3 — pre valid, post silent: plugin removing content
+            showPill   = true;
+            pillColour = PnsTheme::kColorGainRed;
+            deltaStr   = juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x93"))
+                         + " -" + juce::String (std::abs (preDb - kValidFloor), 1) + " dB";
+            pillW      = strW (deltaStr) + pillPadX * 2.0f;
+        }
+
+        const juce::String postLine = "Post: " + fmtDb (postDb, postValid);
+        const juce::String preLine  = "Pre:  " + fmtDb (preDb,  preValid);
+        const float freqLineW  = strW (freqStr);
+        const float postLineW  = strW (postLine) + (showPill ? 6.0f + pillW : 0.0f);
+        const float preLineW   = strW (preLine);
+        const float contentW   = juce::jmax (freqLineW, postLineW, preLineW);
+        const float ttW        = contentW + ttPad * 2.0f;
+        const float ttH        = ttPad + lineH + lineGap + lineH + ttPad;
+
+        // Position tooltip: try right of hairline, then left, then below legend
+        const float tty0 = py + 6.0f;
+        auto tooltipOverlapsLegend = [&] (float tx) {
+            return juce::Rectangle<float> (tx, tty0, ttW, ttH)
+                       .intersects (legendRect);
+        };
         float ttx = hx + 8.0f;
-        if (ttx + ttW > px + pw) ttx = hx - ttW - 8.0f;
-        const float tty = py + 6.0f;
+        if (ttx + ttW > px + pw || tooltipOverlapsLegend (ttx))
+            ttx = hx - ttW - 8.0f;
+        float tty = tty0;
+        if (tooltipOverlapsLegend (ttx))
+            tty = legendRect.getBottom() + 4.0f;
 
         PnsTheme::drawFrostedPanel (g, { ttx, tty, ttW, ttH });
 
         g.setFont (ttFont);
+
+        // Frequency label
         g.setColour (PnsTheme::kTextPrimary);
-        g.drawText (freqStr, juce::roundToInt (ttx + ttPad), juce::roundToInt (tty + ttPad),
-                    juce::roundToInt (ttW - ttPad * 2), 12, juce::Justification::centredLeft);
+        g.drawText (freqStr,
+                    juce::roundToInt (ttx + ttPad), juce::roundToInt (tty + ttPad),
+                    juce::roundToInt (contentW), juce::roundToInt (lineH),
+                    juce::Justification::centredLeft);
+
+        // Post dB value
+        const float postLineY = tty + ttPad + lineGap;
         g.setColour (PnsTheme::kColorPost);
-        g.drawText ("Post: " + fmtDb (postDb),
-                    juce::roundToInt (ttx + ttPad), juce::roundToInt (tty + ttPad + 14),
-                    juce::roundToInt (ttW - ttPad * 2), 12, juce::Justification::centredLeft);
+        g.drawText (postLine,
+                    juce::roundToInt (ttx + ttPad), juce::roundToInt (postLineY),
+                    juce::roundToInt (contentW), juce::roundToInt (lineH),
+                    juce::Justification::centredLeft);
+
+        // Delta pill — right of Post value, vertically centred on Post line
+        if (showPill)
+        {
+            const float postTextW = strW (postLine);
+            const float pillX     = ttx + ttPad + postTextW + 6.0f;
+            const float pillY     = postLineY + (lineH - pillH) * 0.5f;
+            const juce::Rectangle<float> pill (pillX, pillY, pillW, pillH);
+            const float pillRadius = pillH * 0.5f;
+
+            g.setColour (pillColour.withAlpha (0.20f));
+            g.fillRoundedRectangle (pill, pillRadius);
+            g.setColour (pillColour.withAlpha (0.70f));
+            g.drawRoundedRectangle (pill, pillRadius, 1.0f);
+            g.setColour (pillColour);
+            g.drawText (deltaStr, pill.toNearestInt(), juce::Justification::centred);
+        }
+
+        // Pre dB value
         g.setColour (PnsTheme::kColorPre.withAlpha (0.9f));
-        g.drawText ("Pre:  " + fmtDb (preDb),
-                    juce::roundToInt (ttx + ttPad), juce::roundToInt (tty + ttPad + 27),
-                    juce::roundToInt (ttW - ttPad * 2), 12, juce::Justification::centredLeft);
+        g.drawText (preLine,
+                    juce::roundToInt (ttx + ttPad), juce::roundToInt (postLineY + lineGap),
+                    juce::roundToInt (contentW), juce::roundToInt (lineH),
+                    juce::Justification::centredLeft);
     }
-
-    // ── Legend — below the controls row (controls bottom = 6+22=28, legend top = 36) ──
-    g.setFont (PnsTheme::fontLabel());
-    constexpr float sw = 8.0f, sh = 8.0f, rowH = 13.0f;
-    {
-        constexpr float kCtrlBottom = (float) (PnsTheme::kPaddingSmall + PnsTheme::kButtonHeight);
-        const int numRows  = m_showAvg ? 4 : 2;
-        const float panelW = 88.0f;
-        const float panelH = (float) numRows * rowH + (float) (PnsTheme::kPaddingSmall * 2);
-        const float panelR = (float) getWidth() - (float) PnsTheme::kPaddingMid;
-        const float panelT = kCtrlBottom + 8.0f;
-        PnsTheme::drawFrostedPanel (g, { panelR - panelW, panelT, panelW, panelH });
-    }
-    const float panelR = (float) getWidth() - (float) PnsTheme::kPaddingMid;
-    const float panelT = (float) (PnsTheme::kPaddingSmall + PnsTheme::kButtonHeight) + 8.0f;
-    const float lx = panelR - 88.0f + (float) PnsTheme::kPaddingSmall;
-    const float ly = panelT          + (float) PnsTheme::kPaddingSmall;
-
-    auto drawLegendRow = [&] (float row, juce::Colour swatch, const char* label)
-    {
-        const float ry = ly + row * rowH;
-        g.setColour (swatch);
-        g.fillRect (lx, ry, sw, sh);
-        g.setColour (PnsTheme::kTextSecondary);
-        g.drawText (label,
-                    juce::roundToInt (lx + sw + 4), juce::roundToInt (ry - 1),
-                    60, 11, juce::Justification::centredLeft);
-    };
-
-    drawLegendRow (0.0f, PnsTheme::kColorPre,     "Pre");
-    drawLegendRow (1.0f, PnsTheme::kColorPost,    "Post");
-    if (m_showAvg)
-    {
-        drawLegendRow (2.0f, PnsTheme::kColorPreAvg,  "Pre Avg");
-        drawLegendRow (3.0f, PnsTheme::kColorPostAvg, "Post Avg");
-    }
-
-    // ── Border ────────────────────────────────────────────────────────────
-    g.setColour (PnsTheme::kBorderSubtle);
-    g.drawRect (px, py, pw, ph, 1.0f);
 }
 
 //==============================================================================
