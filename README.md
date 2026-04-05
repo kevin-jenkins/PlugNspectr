@@ -130,7 +130,9 @@ PlugNspectr Post contains four analysis tabs accessible via the tab bar at the t
 
 ### Spectrum Tab
 
-<img width="805" height="603" alt="Screenshot 2026-03-30 001159" src="https://github.com/user-attachments/assets/19587bfc-f711-4de4-9d7a-180da01f151e" />
+<img width="803" height="642" alt="image" src="https://github.com/user-attachments/assets/ec83a6ec-e9b5-45c0-81ed-b9852618aac0" />
+
+
 
 Real-time FFT frequency analysis showing how the plugin under analysis is shaping the frequency content of your audio.
 
@@ -164,7 +166,6 @@ Real-time FFT frequency analysis showing how the plugin under analysis is shapin
 ---
 
 #### Frequency Variance Markers
-
 After 3 seconds of audio, the Spectrum tab automatically places up to **5 floating markers** on the display identifying the frequency regions where the Pre and Post *average* curves diverge most. These highlight where the plugin is making its most significant EQ changes over time.
 
 **Reading the markers:**
