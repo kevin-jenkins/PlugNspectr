@@ -167,28 +167,6 @@ Real-time FFT frequency analysis showing how the plugin under analysis is shapin
 
 After 3 seconds of audio, the Spectrum tab automatically places up to **5 floating markers** on the display identifying the frequency regions where the Pre and Post *average* curves diverge most. These highlight where the plugin is making its most significant EQ changes over time.
 
-**What you see:**
-- **Amber pill labels** — show the exact frequency (e.g. `2.4 kHz` or `340 Hz`) of each flagged region
-- **Vertical stems with dots** — the dot rests directly on the Post average curve at that frequency; the stem extends upward to the pill
-- **Boost markers** — pills marked with `↑` indicate a frequency where the plugin is generating content that wasn't present in the Pre signal (Post has signal, Pre is below the noise floor)
-- **Two-row stagger** — when markers would overlap, the lower-priority one drops to a second row to keep labels readable
-
-**How markers are selected:**
-
-The five marker slots each serve a distinct purpose:
-
-| Slot | Region | Purpose |
-|---|---|---|
-| **1** | 20 – 200 Hz | Best low-frequency variance — always reserved for the low end |
-| **2** | Full range | Boost detection — fires when the plugin adds content at a frequency below the Pre noise floor |
-| **3 – 5** | 200 Hz – 20 kHz | The three highest-variance bins in the mid/high range, spaced at least 80 px apart |
-
-**Behavior:**
-- Markers fade in over ~0.5 seconds and fade out over ~1 second when they change
-- A new candidate frequency needs to show **20% more variance** than the current marker to displace it — this prevents rapid jitter on broad, flat EQ curves
-- Bins where both Pre and Post are below -85 dB are excluded (treated as noise)
-- Markers slide smoothly to a new frequency over ~2 seconds rather than jumping instantly
-
 **Reading the markers:**
 - **Multiple markers clustered in the same region** → the plugin has a broad EQ shelf or resonance centered there
 - **A single isolated marker in the highs with no others** → a narrow high-frequency cut or boost (e.g. an air shelf, de-esser band)
