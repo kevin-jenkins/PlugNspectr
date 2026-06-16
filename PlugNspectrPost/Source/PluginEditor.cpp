@@ -995,13 +995,18 @@ void DynamicsView::update()
                 postPeak = juce::jmax (postPeak, std::abs (postPtr[i]));
             }
 
-            if (prePeak > 1.0e-6f)
+            if (prePeak > 1.0e-3f)   // ~-60 dBFS silence gate — ignore noise floor
                 currentGr = 20.0f * std::log10 (juce::jmax (postPeak, 1.0e-6f))
                           - 20.0f * std::log10 (prePeak);
         }
 
         const auto rms = m_proc.getRms();
         m_preConnected = rms.preValid;
+
+        // If RMS levels are within 0.5 dB, treat as no compression (avoids false
+        // GR readings caused by peak-timing skew between Pre and Post captures).
+        if (rms.preValid && std::abs (rms.postDb - rms.preDb) < 0.5f)
+            currentGr = 0.0f;
 
         if (rms.preValid)
         {
