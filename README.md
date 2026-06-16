@@ -120,6 +120,17 @@ Audio Output
 
 > **Tip:** PlugNspectr works on any track type — audio tracks, instrument tracks, group buses, and the master bus.
 
+### Adding Both Plugins at Once (FX Chain Preset)
+
+A plugin can't insert its companion automatically — the DAW controls the insert chain, and VST3 gives a plugin no way to load another plugin into it. To add Pre and Post together in a single step, save them as a **Cubase FX Chain Preset**:
+
+1. Set up the chain once on any track — **PlugNspectr Pre** → plugin under analysis → **PlugNspectr Post** — as described above
+2. In the **Inserts** rack header, open the preset menu and choose **Save FX Chain Preset…**
+3. Name it something memorable, e.g. `PlugNspectr Pre+Post`
+4. On any future track, load that FX Chain Preset to drop both inserts at once
+
+> **Tip:** Save a version containing only **Pre → Post** (no middle plugin). Loading it gives you the empty analyzer pair, ready for you to drop the plugin you want to inspect into the slot between them.
+
 ---
 
 ## Analysis Tabs
@@ -330,6 +341,7 @@ Values display in grey at 0 dB and switch to teal when non-zero so you always kn
 - Always insert Pre **before** the plugin under analysis and Post **after** — the order matters
 - Both plugins must be on the **same track or bus**
 - Audio must be **playing** for the analysis to update — the plugins only process audio in real time
+- Save the Pre/Post pair as an **FX Chain Preset** to add both inserts at once on future tracks (see [Setting Up the Signal Chain](#setting-up-the-signal-chain))
 
 ### Spectrum Tab
 - Use **Slow** smoothing when analyzing subtle EQ coloration from compressors or tape plugins — Fast smoothing can mask gentle curves
