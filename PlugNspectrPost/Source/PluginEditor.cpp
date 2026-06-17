@@ -989,8 +989,10 @@ void DynamicsView::update()
 
         if (available > 0)
         {
-            constexpr float kEnvSmooth = 0.35f;   // light EMA — removes shimmer
-
+            // Raw per-column min/max envelope. No temporal smoothing: the window
+            // scrolls (~10 cols/sec), so blending fixed columns would smear and
+            // waver. Scrolling itself is smooth because the window advances each
+            // frame; jitter is avoided by the fixed scale, not by blending.
             for (int col = 0; col < kWaveCols; ++col)
             {
                 const int s0 = (int) ((float)  col      / (float) kWaveCols * (float) available);
@@ -1012,18 +1014,8 @@ void DynamicsView::update()
                 winPeak = juce::jmax (winPeak, preMax, -preMin);
                 winPeak = juce::jmax (winPeak, postMax, -postMin);
 
-                if (m_waveColsValid == 0)   // first frame: seed without smoothing
-                {
-                    m_wavePreTop [col] = preMax;  m_wavePreBot [col] = preMin;
-                    m_wavePostTop[col] = postMax; m_wavePostBot[col] = postMin;
-                }
-                else
-                {
-                    m_wavePreTop [col] += (preMax  - m_wavePreTop [col]) * kEnvSmooth;
-                    m_wavePreBot [col] += (preMin  - m_wavePreBot [col]) * kEnvSmooth;
-                    m_wavePostTop[col] += (postMax - m_wavePostTop[col]) * kEnvSmooth;
-                    m_wavePostBot[col] += (postMin - m_wavePostBot[col]) * kEnvSmooth;
-                }
+                m_wavePreTop [col] = preMax;  m_wavePreBot [col] = preMin;
+                m_wavePostTop[col] = postMax; m_wavePostBot[col] = postMin;
             }
             m_waveColsValid = kWaveCols;
         }

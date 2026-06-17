@@ -139,8 +139,9 @@ private:
     float m_waveCalibPeak    = 0.0f;   // running peak during calibration
     int   m_waveSilenceCount = 0;      // consecutive silent update() ticks (re-arm)
 
-    // Smoothed per-column waveform envelope (amplitude, not pixels). Computed in
-    // update() with a light EMA so the render glides instead of jittering.
+    // Per-column waveform envelope (amplitude, not pixels). Built once in
+    // update() and rendered by drawWaveform(), so the buffer is scanned once
+    // per frame and the calibration peak comes from the same pass.
     static constexpr int kWaveCols = 120;
     std::array<float, kWaveCols> m_wavePreTop  {};
     std::array<float, kWaveCols> m_wavePreBot  {};
