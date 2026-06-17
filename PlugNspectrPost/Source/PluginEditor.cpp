@@ -971,6 +971,93 @@ void DynamicsView::update()
                 m_sampleWritePos = (m_sampleWritePos + 1) % kSampleBufLen;
             }
             m_samplesStored = juce::jmin (m_samplesStored + n, kSampleBufLen);
+            m_totalSamplesWritten += n;
+        }
+    }
+
+    // ── Waveform envelope + fixed-at-start vertical scale ─────────────────
+    // Columns are anchored to ABSOLUTE sample positions: bin k always covers the
+    // same audio [k*binSamples, (k+1)*binSamples), so a given chunk keeps a stable
+    // height instead of "breathing" as the window scrolls. Smooth scroll comes
+    // from the sub-bin offset (m_waveScrollFrac), not from re-binning each frame.
+    {
+        const double sr = m_proc.getSampleRate();
+        const int displaySamples = (sr > 0.0)
+            ? juce::jmin ((int) (sr * (double) m_zoomSeconds), kSampleBufLen)
+            : kSampleBufLen;
+        const int        binSamples = juce::jmax (1, displaySamples / kWaveCols);
+        const juce::int64 total      = m_totalSamplesWritten;
+        const juce::int64 oldestAvail = total - juce::jmin ((juce::int64) m_samplesStored,
+                                                            (juce::int64) kSampleBufLen);
+        const juce::int64 curBin     = total / binSamples;   // rightmost (partial) bin
+
+        m_waveScrollFrac = (float) ((double) (total % binSamples) / (double) binSamples);
+
+        float winPeak = 0.0f;
+        bool  anyData = false;
+
+        for (int col = 0; col < kWaveCols; ++col)
+        {
+            // Newest bin (curBin) sits at the right; older bins to the left.
+            const juce::int64 binIndex = curBin - (juce::int64) (kWaveCols - 1) + col;
+
+            float preMin = 0.0f, preMax = 0.0f, postMin = 0.0f, postMax = 0.0f;
+            if (binIndex >= 0)
+            {
+                const juce::int64 a0 = juce::jmax (binIndex * (juce::int64) binSamples, oldestAvail);
+                const juce::int64 a1 = juce::jmin ((binIndex + 1) * (juce::int64) binSamples, total);
+                for (juce::int64 a = a0; a < a1; ++a)
+                {
+                    const int   idx = (int) (a % kSampleBufLen);
+                    const float ps  = m_preSamples [idx];
+                    const float qs  = m_postSamples[idx];
+                    if (ps < preMin)  preMin  = ps;
+                    if (ps > preMax)  preMax  = ps;
+                    if (qs < postMin) postMin = qs;
+                    if (qs > postMax) postMax = qs;
+                }
+                if (a1 > a0) anyData = true;
+            }
+
+            winPeak = juce::jmax (winPeak, preMax, -preMin);
+            winPeak = juce::jmax (winPeak, postMax, -postMin);
+
+            m_wavePreTop [col] = preMax;  m_wavePreBot [col] = preMin;
+            m_wavePostTop[col] = postMax; m_wavePostBot[col] = postMin;
+        }
+        if (anyData) m_waveColsValid = kWaveCols;
+
+        // Fixed-at-start vertical scale: calibrate from the first ~2s of real
+        // audio, lock, and re-arm after ~1s of silence so the next play recals.
+        constexpr float kSilence = 1.0e-3f;     // ~-60 dBFS
+        const bool hasSignal = winPeak > kSilence;
+
+        if (! m_waveScaleLocked)
+        {
+            if (hasSignal)
+            {
+                m_waveCalibPeak     = juce::jmax (m_waveCalibPeak, winPeak);
+                m_waveCalibSamples += (int) (sr / 60.0);   // ~one tick of audio
+
+                if (m_waveCalibSamples >= (int) (sr * 2.0) && m_waveCalibPeak > kSilence)
+                {
+                    // 0.65 → calibration peak fills ~65% of half-height (headroom)
+                    m_waveScale       = juce::jlimit (1.0f, 64.0f, 0.65f / m_waveCalibPeak);
+                    m_waveScaleLocked = true;
+                }
+            }
+        }
+        else
+        {
+            if (hasSignal)
+                m_waveSilenceCount = 0;
+            else if (++m_waveSilenceCount >= 60)   // ~1s silent → re-arm
+            {
+                m_waveScaleLocked  = false;
+                m_waveCalibPeak    = 0.0f;
+                m_waveCalibSamples = 0;
+                m_waveSilenceCount = 0;
+            }
         }
     }
 
@@ -1102,8 +1189,10 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
     if (pw <= 0 || ph <= 0) return;
 
     const float midY = py + ph * 0.5f;
+
+    const float scale = m_waveScale;   // smoothed auto-zoom, computed in update()
     auto ampToY = [&] (float a) -> float {
-        return midY - juce::jlimit (-1.0f, 1.0f, a) * ph * 0.5f;
+        return midY - juce::jlimit (-1.0f, 1.0f, a * scale) * ph * 0.5f;
     };
 
     // ── Title ─────────────────────────────────────────────────────────────
@@ -1117,69 +1206,53 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
     g.setColour (PnsTheme::kBgPanel);
     g.fillRect (px, py, pw, ph);
 
-    // ── Clip lines ────────────────────────────────────────────────────────
-    g.setColour (PnsTheme::kClipLine);
-    g.drawHorizontalLine (juce::roundToInt (ampToY ( 1.0f)), px, px + pw);
-    g.drawHorizontalLine (juce::roundToInt (ampToY (-1.0f)), px, px + pw);
+    // ── Clip lines ── only meaningful when not auto-zoomed (edges = ±1.0) ──
+    if (scale < 1.05f)
+    {
+        g.setColour (PnsTheme::kClipLine);
+        g.drawHorizontalLine (juce::roundToInt (ampToY ( 1.0f)), px, px + pw);
+        g.drawHorizontalLine (juce::roundToInt (ampToY (-1.0f)), px, px + pw);
+    }
 
     // ── Center line ───────────────────────────────────────────────────────
     g.setColour (PnsTheme::kZeroLine);
     g.drawHorizontalLine (juce::roundToInt (midY), px, px + pw);
 
     // ── Y axis labels ─────────────────────────────────────────────────────
+    // The top/bottom edges represent amplitude 1/scale — show it in dBFS so the
+    // current auto-zoom level is legible (0 dB when not zoomed).
+    const float edgeDb = 20.0f * std::log10 (juce::jmax (1.0f / scale, 1.0e-6f));
+    const juce::String edgeLbl = juce::String (juce::roundToInt (edgeDb)) + " dB";
     g.setFont (PnsTheme::fontLabel());
     g.setColour (PnsTheme::kGridLabel);
-    g.drawText ("+1", juce::roundToInt (area.getX()), juce::roundToInt (ampToY ( 1.0f)) - 6,
+    g.drawText (edgeLbl, juce::roundToInt (area.getX()), juce::roundToInt (py) - 6,
                 juce::roundToInt (kML) - 4, 12, juce::Justification::centredRight);
     g.drawText ("0",  juce::roundToInt (area.getX()), juce::roundToInt (midY) - 6,
                 juce::roundToInt (kML) - 4, 12, juce::Justification::centredRight);
-    g.drawText ("-1", juce::roundToInt (area.getX()), juce::roundToInt (ampToY (-1.0f)) - 6,
+    g.drawText (edgeLbl, juce::roundToInt (area.getX()), juce::roundToInt (py + ph) - 6,
                 juce::roundToInt (kML) - 4, 12, juce::Justification::centredRight);
 
-    // ── Smooth waveform paths — 120 columns, quadratic midpoint smoothing ──
+    // ── Smooth waveform paths — render the EMA envelope built in update() ──
     {
-        const double sr = m_proc.getSampleRate();
-        const int displaySamples = (sr > 0.0)
-            ? juce::jmin ((int) (sr * (double) m_zoomSeconds), kSampleBufLen)
-            : kSampleBufLen;
-        const int available = juce::jmin (m_samplesStored, displaySamples);
-
-        if (available > 0)
+        if (m_waveColsValid > 0)
         {
-            constexpr int kCols = 120;
+            constexpr int kCols = kWaveCols;
             const float   colW  = pw / (float) kCols;
-            const int     base  = (m_sampleWritePos - available + kSampleBufLen) % kSampleBufLen;
 
+            // Map the smoothed amplitude envelope through the locked scale.
             std::array<float, kCols> preTopY, preBotY, postTopY, postBotY;
-
             for (int col = 0; col < kCols; ++col)
             {
-                const int s0 = (int) ((float)  col      / (float) kCols * (float) available);
-                const int s1 = juce::jmax (s0 + 1,
-                               (int) ((float) (col + 1) / (float) kCols * (float) available));
-
-                float preMin = 0.0f, preMax = 0.0f;
-                float postMin = 0.0f, postMax = 0.0f;
-
-                for (int s = s0; s < s1; ++s)
-                {
-                    const int   idx = (base + s) % kSampleBufLen;
-                    const float ps  = m_preSamples [idx];
-                    const float qs  = m_postSamples[idx];
-                    if (ps < preMin)  preMin  = ps;
-                    if (ps > preMax)  preMax  = ps;
-                    if (qs < postMin) postMin = qs;
-                    if (qs > postMax) postMax = qs;
-                }
-
-                preTopY [col] = ampToY (preMax);
-                preBotY [col] = ampToY (preMin);
-                postTopY[col] = ampToY (postMax);
-                postBotY[col] = ampToY (postMin);
+                preTopY [col] = ampToY (m_wavePreTop [col]);
+                preBotY [col] = ampToY (m_wavePreBot [col]);
+                postTopY[col] = ampToY (m_wavePostTop[col]);
+                postBotY[col] = ampToY (m_wavePostBot[col]);
             }
 
+            // Sub-column scroll: shift left by how far the newest bin has filled,
+            // so the waveform glides continuously instead of jumping per column.
             auto cx = [&] (int col) -> float {
-                return px + (col + 0.5f) * colW;
+                return px + ((float) col + 1.5f - m_waveScrollFrac) * colW;
             };
 
             // Top-edge-only open path for glow stroke
@@ -1227,6 +1300,11 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
                 return p;
             };
 
+            // Clip to the plot so the partial (sub-column-shifted) edges don't
+            // spill past the right border.
+            juce::Graphics::ScopedSaveState clip (g);
+            g.reduceClipRegion (juce::Rectangle<float> (px, py, pw, ph).toNearestInt());
+
             // PRE: lavender at 35% opacity — ghosted behind POST
             g.setColour (PnsTheme::kColorPre.withAlpha ((uint8_t) 0x59));
             g.fillPath (buildPath (preTopY, preBotY));
@@ -1236,11 +1314,12 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
             g.fillPath (buildPath (postTopY, postBotY));
             PnsTheme::drawGlowLine (g, buildTopPath (postTopY), PnsTheme::kColorPost, 1.5f);
 
-            // Compression difference fill: subtle teal at 15%
+            // Compression difference fill: subtle teal at 15% — aligned to the
+            // same sub-column scroll offset as the paths.
             g.setColour (PnsTheme::kColorPost.withAlpha ((uint8_t) 0x26));
             for (int col = 0; col < kCols; ++col)
             {
-                const float x = px + (float) col * colW;
+                const float x = px + ((float) col + 1.0f - m_waveScrollFrac) * colW;
                 if (postTopY[col] > preTopY[col])
                     g.fillRect (x, preTopY[col], colW, postTopY[col] - preTopY[col]);
                 if (preBotY[col] > postBotY[col])

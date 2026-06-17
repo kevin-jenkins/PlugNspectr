@@ -125,9 +125,31 @@ private:
     std::array<float, kSampleBufLen> m_postSamples {};
     int                              m_sampleWritePos = 0;
     int                              m_samplesStored  = 0;
+    juce::int64                      m_totalSamplesWritten = 0;  // monotonic; anchors absolute-aligned bins
 
     // Zoom: visible window in seconds (6 / 12)
     int m_zoomSeconds = 12;
+
+    // Vertical scale — calibrated once from the first ~2s of audio, then locked
+    // so the song's natural loud/soft dynamics stay visible. Re-arms after ~1s
+    // of silence (transport stop) so the next playback recalibrates.
+    // 1.0 = no zoom (true amplitude).
+    float m_waveScale        = 1.0f;
+    bool  m_waveScaleLocked  = false;
+    int   m_waveCalibSamples = 0;      // audio samples accumulated this calibration
+    float m_waveCalibPeak    = 0.0f;   // running peak during calibration
+    int   m_waveSilenceCount = 0;      // consecutive silent update() ticks (re-arm)
+
+    // Per-column waveform envelope (amplitude, not pixels). Built once in
+    // update() and rendered by drawWaveform(), so the buffer is scanned once
+    // per frame and the calibration peak comes from the same pass.
+    static constexpr int kWaveCols = 120;
+    std::array<float, kWaveCols> m_wavePreTop  {};
+    std::array<float, kWaveCols> m_wavePreBot  {};
+    std::array<float, kWaveCols> m_wavePostTop {};
+    std::array<float, kWaveCols> m_wavePostBot {};
+    int   m_waveColsValid  = 0;        // number of columns with valid data (0 = none yet)
+    float m_waveScrollFrac = 0.0f;     // 0..1 fill of the rightmost (newest) bin — sub-column scroll offset
 
     juce::TextButton m_zoom6s  { "6s"  };
     juce::TextButton m_zoom12s { "12s" };
