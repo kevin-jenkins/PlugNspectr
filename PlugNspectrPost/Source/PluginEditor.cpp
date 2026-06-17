@@ -974,6 +974,34 @@ void DynamicsView::update()
         }
     }
 
+    // ── Auto vertical scale ──────────────────────────────────────────────
+    // Loudest peak across BOTH signals in the visible window → a scale that
+    // makes it fill ~85% of the half-height. Same factor for Pre and Post so
+    // the compression comparison stays valid. Rises fast, falls slowly.
+    {
+        const double sr = m_proc.getSampleRate();
+        const int displaySamples = (sr > 0.0)
+            ? juce::jmin ((int) (sr * (double) m_zoomSeconds), kSampleBufLen)
+            : kSampleBufLen;
+        const int available = juce::jmin (m_samplesStored, displaySamples);
+        const int base = (m_sampleWritePos - available + kSampleBufLen) % kSampleBufLen;
+
+        float peak = 0.0f;
+        for (int s = 0; s < available; ++s)
+        {
+            const int idx = (base + s) % kSampleBufLen;
+            peak = juce::jmax (peak, std::abs (m_preSamples [idx]));
+            peak = juce::jmax (peak, std::abs (m_postSamples[idx]));
+        }
+
+        const float targetScale = (peak > 1.0e-5f)
+            ? juce::jlimit (1.0f, 64.0f, 0.85f / peak)
+            : m_waveScale;
+
+        const float k = (targetScale < m_waveScale) ? 0.30f : 0.05f;
+        m_waveScale += (targetScale - m_waveScale) * k;
+    }
+
     // ── Peak-based GR + rolling average + smoothed RMS volume ────────────
     {
         const auto cap2 = m_proc.getCapture();
@@ -1102,8 +1130,10 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
     if (pw <= 0 || ph <= 0) return;
 
     const float midY = py + ph * 0.5f;
+
+    const float scale = m_waveScale;   // smoothed auto-zoom, computed in update()
     auto ampToY = [&] (float a) -> float {
-        return midY - juce::jlimit (-1.0f, 1.0f, a) * ph * 0.5f;
+        return midY - juce::jlimit (-1.0f, 1.0f, a * scale) * ph * 0.5f;
     };
 
     // ── Title ─────────────────────────────────────────────────────────────
@@ -1117,23 +1147,30 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
     g.setColour (PnsTheme::kBgPanel);
     g.fillRect (px, py, pw, ph);
 
-    // ── Clip lines ────────────────────────────────────────────────────────
-    g.setColour (PnsTheme::kClipLine);
-    g.drawHorizontalLine (juce::roundToInt (ampToY ( 1.0f)), px, px + pw);
-    g.drawHorizontalLine (juce::roundToInt (ampToY (-1.0f)), px, px + pw);
+    // ── Clip lines ── only meaningful when not auto-zoomed (edges = ±1.0) ──
+    if (scale < 1.05f)
+    {
+        g.setColour (PnsTheme::kClipLine);
+        g.drawHorizontalLine (juce::roundToInt (ampToY ( 1.0f)), px, px + pw);
+        g.drawHorizontalLine (juce::roundToInt (ampToY (-1.0f)), px, px + pw);
+    }
 
     // ── Center line ───────────────────────────────────────────────────────
     g.setColour (PnsTheme::kZeroLine);
     g.drawHorizontalLine (juce::roundToInt (midY), px, px + pw);
 
     // ── Y axis labels ─────────────────────────────────────────────────────
+    // The top/bottom edges represent amplitude 1/scale — show it in dBFS so the
+    // current auto-zoom level is legible (0 dB when not zoomed).
+    const float edgeDb = 20.0f * std::log10 (juce::jmax (1.0f / scale, 1.0e-6f));
+    const juce::String edgeLbl = juce::String (juce::roundToInt (edgeDb)) + " dB";
     g.setFont (PnsTheme::fontLabel());
     g.setColour (PnsTheme::kGridLabel);
-    g.drawText ("+1", juce::roundToInt (area.getX()), juce::roundToInt (ampToY ( 1.0f)) - 6,
+    g.drawText (edgeLbl, juce::roundToInt (area.getX()), juce::roundToInt (py) - 6,
                 juce::roundToInt (kML) - 4, 12, juce::Justification::centredRight);
     g.drawText ("0",  juce::roundToInt (area.getX()), juce::roundToInt (midY) - 6,
                 juce::roundToInt (kML) - 4, 12, juce::Justification::centredRight);
-    g.drawText ("-1", juce::roundToInt (area.getX()), juce::roundToInt (ampToY (-1.0f)) - 6,
+    g.drawText (edgeLbl, juce::roundToInt (area.getX()), juce::roundToInt (py + ph) - 6,
                 juce::roundToInt (kML) - 4, 12, juce::Justification::centredRight);
 
     // ── Smooth waveform paths — 120 columns, quadratic midpoint smoothing ──

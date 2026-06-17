@@ -129,6 +129,10 @@ private:
     // Zoom: visible window in seconds (6 / 12)
     int m_zoomSeconds = 12;
 
+    // Auto vertical scale — smoothed so the visible waveform fills the display
+    // at any signal level. 1.0 = no zoom (true amplitude). Updated each frame.
+    float m_waveScale = 1.0f;
+
     juce::TextButton m_zoom6s  { "6s"  };
     juce::TextButton m_zoom12s { "12s" };
 
