@@ -974,10 +974,9 @@ void DynamicsView::update()
         }
     }
 
-    // ── Auto vertical scale ──────────────────────────────────────────────
-    // Loudest peak across BOTH signals in the visible window → a scale that
-    // makes it fill ~85% of the half-height. Same factor for Pre and Post so
-    // the compression comparison stays valid. Rises fast, falls slowly.
+    // ── Waveform envelope + fixed-at-start vertical scale ─────────────────
+    // One pass over the visible window builds the smoothed per-column envelope
+    // (EMA, so the render glides) and the window peak used for calibration.
     {
         const double sr = m_proc.getSampleRate();
         const int displaySamples = (sr > 0.0)
@@ -986,20 +985,81 @@ void DynamicsView::update()
         const int available = juce::jmin (m_samplesStored, displaySamples);
         const int base = (m_sampleWritePos - available + kSampleBufLen) % kSampleBufLen;
 
-        float peak = 0.0f;
-        for (int s = 0; s < available; ++s)
+        float winPeak = 0.0f;
+
+        if (available > 0)
         {
-            const int idx = (base + s) % kSampleBufLen;
-            peak = juce::jmax (peak, std::abs (m_preSamples [idx]));
-            peak = juce::jmax (peak, std::abs (m_postSamples[idx]));
+            constexpr float kEnvSmooth = 0.35f;   // light EMA — removes shimmer
+
+            for (int col = 0; col < kWaveCols; ++col)
+            {
+                const int s0 = (int) ((float)  col      / (float) kWaveCols * (float) available);
+                const int s1 = juce::jmax (s0 + 1,
+                               (int) ((float) (col + 1) / (float) kWaveCols * (float) available));
+
+                float preMin = 0.0f, preMax = 0.0f, postMin = 0.0f, postMax = 0.0f;
+                for (int s = s0; s < s1; ++s)
+                {
+                    const int   idx = (base + s) % kSampleBufLen;
+                    const float ps  = m_preSamples [idx];
+                    const float qs  = m_postSamples[idx];
+                    if (ps < preMin)  preMin  = ps;
+                    if (ps > preMax)  preMax  = ps;
+                    if (qs < postMin) postMin = qs;
+                    if (qs > postMax) postMax = qs;
+                }
+
+                winPeak = juce::jmax (winPeak, preMax, -preMin);
+                winPeak = juce::jmax (winPeak, postMax, -postMin);
+
+                if (m_waveColsValid == 0)   // first frame: seed without smoothing
+                {
+                    m_wavePreTop [col] = preMax;  m_wavePreBot [col] = preMin;
+                    m_wavePostTop[col] = postMax; m_wavePostBot[col] = postMin;
+                }
+                else
+                {
+                    m_wavePreTop [col] += (preMax  - m_wavePreTop [col]) * kEnvSmooth;
+                    m_wavePreBot [col] += (preMin  - m_wavePreBot [col]) * kEnvSmooth;
+                    m_wavePostTop[col] += (postMax - m_wavePostTop[col]) * kEnvSmooth;
+                    m_wavePostBot[col] += (postMin - m_wavePostBot[col]) * kEnvSmooth;
+                }
+            }
+            m_waveColsValid = kWaveCols;
         }
 
-        const float targetScale = (peak > 1.0e-5f)
-            ? juce::jlimit (1.0f, 64.0f, 0.85f / peak)
-            : m_waveScale;
+        // Fixed-at-start vertical scale: calibrate from the first ~2s of real
+        // audio, lock, and re-arm after ~1s of silence so the next play recals.
+        constexpr float kSilence = 1.0e-3f;     // ~-60 dBFS
+        const bool hasSignal = winPeak > kSilence;
 
-        const float k = (targetScale < m_waveScale) ? 0.30f : 0.05f;
-        m_waveScale += (targetScale - m_waveScale) * k;
+        if (! m_waveScaleLocked)
+        {
+            if (hasSignal)
+            {
+                m_waveCalibPeak     = juce::jmax (m_waveCalibPeak, winPeak);
+                m_waveCalibSamples += (int) (sr / 60.0);   // ~one tick of audio
+
+                if (m_waveCalibSamples >= (int) (sr * 2.0) && m_waveCalibPeak > kSilence)
+                {
+                    // 0.65 → calibration peak fills ~65% of half-height (headroom)
+                    m_waveScale       = juce::jlimit (1.0f, 64.0f, 0.65f / m_waveCalibPeak);
+                    m_waveScaleLocked = true;
+                }
+            }
+        }
+        else
+        {
+            if (hasSignal)
+                m_waveSilenceCount = 0;
+            else if (++m_waveSilenceCount >= 60)   // ~1s silent → re-arm
+            {
+                m_waveScaleLocked  = false;
+                m_waveCalibPeak    = 0.0f;
+                m_waveCalibSamples = 0;
+                m_waveSilenceCount = 0;
+            }
+        }
     }
 
     // ── Peak-based GR + rolling average + smoothed RMS volume ────────────
@@ -1173,46 +1233,21 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
     g.drawText (edgeLbl, juce::roundToInt (area.getX()), juce::roundToInt (py + ph) - 6,
                 juce::roundToInt (kML) - 4, 12, juce::Justification::centredRight);
 
-    // ── Smooth waveform paths — 120 columns, quadratic midpoint smoothing ──
+    // ── Smooth waveform paths — render the EMA envelope built in update() ──
     {
-        const double sr = m_proc.getSampleRate();
-        const int displaySamples = (sr > 0.0)
-            ? juce::jmin ((int) (sr * (double) m_zoomSeconds), kSampleBufLen)
-            : kSampleBufLen;
-        const int available = juce::jmin (m_samplesStored, displaySamples);
-
-        if (available > 0)
+        if (m_waveColsValid > 0)
         {
-            constexpr int kCols = 120;
+            constexpr int kCols = kWaveCols;
             const float   colW  = pw / (float) kCols;
-            const int     base  = (m_sampleWritePos - available + kSampleBufLen) % kSampleBufLen;
 
+            // Map the smoothed amplitude envelope through the locked scale.
             std::array<float, kCols> preTopY, preBotY, postTopY, postBotY;
-
             for (int col = 0; col < kCols; ++col)
             {
-                const int s0 = (int) ((float)  col      / (float) kCols * (float) available);
-                const int s1 = juce::jmax (s0 + 1,
-                               (int) ((float) (col + 1) / (float) kCols * (float) available));
-
-                float preMin = 0.0f, preMax = 0.0f;
-                float postMin = 0.0f, postMax = 0.0f;
-
-                for (int s = s0; s < s1; ++s)
-                {
-                    const int   idx = (base + s) % kSampleBufLen;
-                    const float ps  = m_preSamples [idx];
-                    const float qs  = m_postSamples[idx];
-                    if (ps < preMin)  preMin  = ps;
-                    if (ps > preMax)  preMax  = ps;
-                    if (qs < postMin) postMin = qs;
-                    if (qs > postMax) postMax = qs;
-                }
-
-                preTopY [col] = ampToY (preMax);
-                preBotY [col] = ampToY (preMin);
-                postTopY[col] = ampToY (postMax);
-                postBotY[col] = ampToY (postMin);
+                preTopY [col] = ampToY (m_wavePreTop [col]);
+                preBotY [col] = ampToY (m_wavePreBot [col]);
+                postTopY[col] = ampToY (m_wavePostTop[col]);
+                postBotY[col] = ampToY (m_wavePostBot[col]);
             }
 
             auto cx = [&] (int col) -> float {

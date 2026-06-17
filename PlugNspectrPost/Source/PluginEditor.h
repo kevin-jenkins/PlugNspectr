@@ -129,9 +129,24 @@ private:
     // Zoom: visible window in seconds (6 / 12)
     int m_zoomSeconds = 12;
 
-    // Auto vertical scale — smoothed so the visible waveform fills the display
-    // at any signal level. 1.0 = no zoom (true amplitude). Updated each frame.
-    float m_waveScale = 1.0f;
+    // Vertical scale — calibrated once from the first ~2s of audio, then locked
+    // so the song's natural loud/soft dynamics stay visible. Re-arms after ~1s
+    // of silence (transport stop) so the next playback recalibrates.
+    // 1.0 = no zoom (true amplitude).
+    float m_waveScale        = 1.0f;
+    bool  m_waveScaleLocked  = false;
+    int   m_waveCalibSamples = 0;      // audio samples accumulated this calibration
+    float m_waveCalibPeak    = 0.0f;   // running peak during calibration
+    int   m_waveSilenceCount = 0;      // consecutive silent update() ticks (re-arm)
+
+    // Smoothed per-column waveform envelope (amplitude, not pixels). Computed in
+    // update() with a light EMA so the render glides instead of jittering.
+    static constexpr int kWaveCols = 120;
+    std::array<float, kWaveCols> m_wavePreTop  {};
+    std::array<float, kWaveCols> m_wavePreBot  {};
+    std::array<float, kWaveCols> m_wavePostTop {};
+    std::array<float, kWaveCols> m_wavePostBot {};
+    int m_waveColsValid = 0;           // number of columns with valid data (0 = none yet)
 
     juce::TextButton m_zoom6s  { "6s"  };
     juce::TextButton m_zoom12s { "12s" };
