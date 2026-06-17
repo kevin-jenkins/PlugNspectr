@@ -980,6 +980,11 @@ void DynamicsView::update()
     // same audio [k*binSamples, (k+1)*binSamples), so a given chunk keeps a stable
     // height instead of "breathing" as the window scrolls. Smooth scroll comes
     // from the sub-bin offset (m_waveScrollFrac), not from re-binning each frame.
+    //
+    // Gated to when the Dynamics tab is visible: this scan is ~displaySamples
+    // (up to 576k) per frame, pure waste on the other tabs. Calibration simply
+    // begins when the tab is opened — the sample ring buffer keeps filling above.
+    if (isVisible())
     {
         const double sr = m_proc.getSampleRate();
         const int displaySamples = (sr > 0.0)
@@ -1006,15 +1011,18 @@ void DynamicsView::update()
             {
                 const juce::int64 a0 = juce::jmax (binIndex * (juce::int64) binSamples, oldestAvail);
                 const juce::int64 a1 = juce::jmin ((binIndex + 1) * (juce::int64) binSamples, total);
+                // Contiguous range (≤ binSamples < kSampleBufLen): one modulo to
+                // seed the ring index, then increment-with-wrap in the hot loop.
+                int idx = (int) (a0 % kSampleBufLen);
                 for (juce::int64 a = a0; a < a1; ++a)
                 {
-                    const int   idx = (int) (a % kSampleBufLen);
                     const float ps  = m_preSamples [idx];
                     const float qs  = m_postSamples[idx];
                     if (ps < preMin)  preMin  = ps;
                     if (ps > preMax)  preMax  = ps;
                     if (qs < postMin) postMin = qs;
                     if (qs > postMax) postMax = qs;
+                    if (++idx == kSampleBufLen) idx = 0;
                 }
                 if (a1 > a0) anyData = true;
             }
@@ -1232,14 +1240,14 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
     g.drawText (edgeLbl, juce::roundToInt (area.getX()), juce::roundToInt (py + ph) - 6,
                 juce::roundToInt (kML) - 4, 12, juce::Justification::centredRight);
 
-    // ── Smooth waveform paths — render the EMA envelope built in update() ──
+    // ── Waveform paths — render the per-column envelope built in update() ──
     {
         if (m_waveColsValid > 0)
         {
             constexpr int kCols = kWaveCols;
             const float   colW  = pw / (float) kCols;
 
-            // Map the smoothed amplitude envelope through the locked scale.
+            // Map the per-column amplitude envelope through the locked scale.
             std::array<float, kCols> preTopY, preBotY, postTopY, postBotY;
             for (int col = 0; col < kCols; ++col)
             {
