@@ -125,6 +125,7 @@ private:
     std::array<float, kSampleBufLen> m_postSamples {};
     int                              m_sampleWritePos = 0;
     int                              m_samplesStored  = 0;
+    juce::int64                      m_totalSamplesWritten = 0;  // monotonic; anchors absolute-aligned bins
 
     // Zoom: visible window in seconds (6 / 12)
     int m_zoomSeconds = 12;
@@ -147,7 +148,8 @@ private:
     std::array<float, kWaveCols> m_wavePreBot  {};
     std::array<float, kWaveCols> m_wavePostTop {};
     std::array<float, kWaveCols> m_wavePostBot {};
-    int m_waveColsValid = 0;           // number of columns with valid data (0 = none yet)
+    int   m_waveColsValid  = 0;        // number of columns with valid data (0 = none yet)
+    float m_waveScrollFrac = 0.0f;     // 0..1 fill of the rightmost (newest) bin — sub-column scroll offset
 
     juce::TextButton m_zoom6s  { "6s"  };
     juce::TextButton m_zoom12s { "12s" };

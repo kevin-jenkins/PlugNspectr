@@ -971,38 +971,44 @@ void DynamicsView::update()
                 m_sampleWritePos = (m_sampleWritePos + 1) % kSampleBufLen;
             }
             m_samplesStored = juce::jmin (m_samplesStored + n, kSampleBufLen);
+            m_totalSamplesWritten += n;
         }
     }
 
     // ── Waveform envelope + fixed-at-start vertical scale ─────────────────
-    // One pass over the visible window builds the smoothed per-column envelope
-    // (EMA, so the render glides) and the window peak used for calibration.
+    // Columns are anchored to ABSOLUTE sample positions: bin k always covers the
+    // same audio [k*binSamples, (k+1)*binSamples), so a given chunk keeps a stable
+    // height instead of "breathing" as the window scrolls. Smooth scroll comes
+    // from the sub-bin offset (m_waveScrollFrac), not from re-binning each frame.
     {
         const double sr = m_proc.getSampleRate();
         const int displaySamples = (sr > 0.0)
             ? juce::jmin ((int) (sr * (double) m_zoomSeconds), kSampleBufLen)
             : kSampleBufLen;
-        const int available = juce::jmin (m_samplesStored, displaySamples);
-        const int base = (m_sampleWritePos - available + kSampleBufLen) % kSampleBufLen;
+        const int        binSamples = juce::jmax (1, displaySamples / kWaveCols);
+        const juce::int64 total      = m_totalSamplesWritten;
+        const juce::int64 oldestAvail = total - juce::jmin ((juce::int64) m_samplesStored,
+                                                            (juce::int64) kSampleBufLen);
+        const juce::int64 curBin     = total / binSamples;   // rightmost (partial) bin
+
+        m_waveScrollFrac = (float) ((double) (total % binSamples) / (double) binSamples);
 
         float winPeak = 0.0f;
+        bool  anyData = false;
 
-        if (available > 0)
+        for (int col = 0; col < kWaveCols; ++col)
         {
-            // Raw per-column min/max envelope. No temporal smoothing: the window
-            // scrolls (~10 cols/sec), so blending fixed columns would smear and
-            // waver. Scrolling itself is smooth because the window advances each
-            // frame; jitter is avoided by the fixed scale, not by blending.
-            for (int col = 0; col < kWaveCols; ++col)
-            {
-                const int s0 = (int) ((float)  col      / (float) kWaveCols * (float) available);
-                const int s1 = juce::jmax (s0 + 1,
-                               (int) ((float) (col + 1) / (float) kWaveCols * (float) available));
+            // Newest bin (curBin) sits at the right; older bins to the left.
+            const juce::int64 binIndex = curBin - (juce::int64) (kWaveCols - 1) + col;
 
-                float preMin = 0.0f, preMax = 0.0f, postMin = 0.0f, postMax = 0.0f;
-                for (int s = s0; s < s1; ++s)
+            float preMin = 0.0f, preMax = 0.0f, postMin = 0.0f, postMax = 0.0f;
+            if (binIndex >= 0)
+            {
+                const juce::int64 a0 = juce::jmax (binIndex * (juce::int64) binSamples, oldestAvail);
+                const juce::int64 a1 = juce::jmin ((binIndex + 1) * (juce::int64) binSamples, total);
+                for (juce::int64 a = a0; a < a1; ++a)
                 {
-                    const int   idx = (base + s) % kSampleBufLen;
+                    const int   idx = (int) (a % kSampleBufLen);
                     const float ps  = m_preSamples [idx];
                     const float qs  = m_postSamples[idx];
                     if (ps < preMin)  preMin  = ps;
@@ -1010,15 +1016,16 @@ void DynamicsView::update()
                     if (qs < postMin) postMin = qs;
                     if (qs > postMax) postMax = qs;
                 }
-
-                winPeak = juce::jmax (winPeak, preMax, -preMin);
-                winPeak = juce::jmax (winPeak, postMax, -postMin);
-
-                m_wavePreTop [col] = preMax;  m_wavePreBot [col] = preMin;
-                m_wavePostTop[col] = postMax; m_wavePostBot[col] = postMin;
+                if (a1 > a0) anyData = true;
             }
-            m_waveColsValid = kWaveCols;
+
+            winPeak = juce::jmax (winPeak, preMax, -preMin);
+            winPeak = juce::jmax (winPeak, postMax, -postMin);
+
+            m_wavePreTop [col] = preMax;  m_wavePreBot [col] = preMin;
+            m_wavePostTop[col] = postMax; m_wavePostBot[col] = postMin;
         }
+        if (anyData) m_waveColsValid = kWaveCols;
 
         // Fixed-at-start vertical scale: calibrate from the first ~2s of real
         // audio, lock, and re-arm after ~1s of silence so the next play recals.
@@ -1242,8 +1249,10 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
                 postBotY[col] = ampToY (m_wavePostBot[col]);
             }
 
+            // Sub-column scroll: shift left by how far the newest bin has filled,
+            // so the waveform glides continuously instead of jumping per column.
             auto cx = [&] (int col) -> float {
-                return px + (col + 0.5f) * colW;
+                return px + ((float) col + 1.5f - m_waveScrollFrac) * colW;
             };
 
             // Top-edge-only open path for glow stroke
@@ -1291,6 +1300,11 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
                 return p;
             };
 
+            // Clip to the plot so the partial (sub-column-shifted) edges don't
+            // spill past the right border.
+            juce::Graphics::ScopedSaveState clip (g);
+            g.reduceClipRegion (juce::Rectangle<float> (px, py, pw, ph).toNearestInt());
+
             // PRE: lavender at 35% opacity — ghosted behind POST
             g.setColour (PnsTheme::kColorPre.withAlpha ((uint8_t) 0x59));
             g.fillPath (buildPath (preTopY, preBotY));
@@ -1300,11 +1314,12 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
             g.fillPath (buildPath (postTopY, postBotY));
             PnsTheme::drawGlowLine (g, buildTopPath (postTopY), PnsTheme::kColorPost, 1.5f);
 
-            // Compression difference fill: subtle teal at 15%
+            // Compression difference fill: subtle teal at 15% — aligned to the
+            // same sub-column scroll offset as the paths.
             g.setColour (PnsTheme::kColorPost.withAlpha ((uint8_t) 0x26));
             for (int col = 0; col < kCols; ++col)
             {
-                const float x = px + (float) col * colW;
+                const float x = px + ((float) col + 1.0f - m_waveScrollFrac) * colW;
                 if (postTopY[col] > preTopY[col])
                     g.fillRect (x, preTopY[col], colW, postTopY[col] - preTopY[col]);
                 if (preBotY[col] > postBotY[col])
