@@ -160,9 +160,26 @@ void PlugNspectrPreProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         openCmdMemory();
 
     // ── Test-tone mode ────────────────────────────────────────────────────────
-    const bool toneActive = (m_pCmd != nullptr && m_pCmd->testToneActive != 0);
+    const bool toneActive    = (m_pCmd != nullptr && m_pCmd->testToneActive != 0);
+    const bool measureActive = (m_pCmd != nullptr && m_pCmd->measureActive  != 0);
 
-    if (toneActive)
+    if (measureActive && ! toneActive)
+    {
+        // White-noise stimulus for the Linear (magnitude/phase/group-delay)
+        // measurement. Generated here so it passes through the plugin under
+        // analysis before Post measures the transfer function.
+        constexpr float kNoiseAmp = 0.25f;   // ~-12 dBFS
+        const int numCh  = buffer.getNumChannels();
+        const int numSmp = buffer.getNumSamples();
+
+        float* ch0 = buffer.getWritePointer (0);
+        for (int i = 0; i < numSmp; ++i)
+            ch0[i] = kNoiseAmp * (m_noiseRng.nextFloat() * 2.0f - 1.0f);
+        for (int ch = 1; ch < numCh; ++ch)
+            std::memcpy (buffer.getWritePointer (ch), ch0,
+                         static_cast<size_t> (numSmp) * sizeof (float));
+    }
+    else if (toneActive)
     {
         const double sr        = getSampleRate();
         const double frequency = (m_pCmd != nullptr) ? m_pCmd->testToneFrequency : 1000.0;

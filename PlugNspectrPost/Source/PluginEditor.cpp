@@ -2205,20 +2205,185 @@ void HarmonicsView::drawReadouts (juce::Graphics& g, juce::Rectangle<float> area
 //==============================================================================
 // PlugNspectrPostEditor
 //==============================================================================
+//==============================================================================
+// LinearView — magnitude / phase / group-delay of the measured transfer function
+//==============================================================================
+LinearView::LinearView (PlugNspectrPostProcessor& p) : m_proc (p)
+{
+    m_measureBtn.setClickingTogglesState (true);
+    m_measureBtn.onClick = [this]
+    {
+        m_measureActive = m_measureBtn.getToggleState();
+        m_proc.resetMeasurement();
+        if (onMeasureChanged) onMeasureChanged();
+        repaint();
+    };
+    addAndMakeVisible (m_measureBtn);
+}
+
+void LinearView::resized()
+{
+    m_measureBtn.setBounds (getWidth() - 90, PnsTheme::kPaddingSmall,
+                            78, PnsTheme::kButtonHeight);
+}
+
+float LinearView::freqToX (double f, juce::Rectangle<float> r) const
+{
+    constexpr double lo = 20.0, hi = 20000.0;
+    const double t = std::log10 (juce::jlimit (lo, hi, f) / lo) / std::log10 (hi / lo);
+    return r.getX() + (float) t * r.getWidth();
+}
+
+void LinearView::update()
+{
+    m_proc.getMeasurement (m_meas);
+    const double sr = m_meas.sampleRate;
+    if (sr <= 0.0) return;
+    const int    N  = PlugNspectrPostProcessor::kMeasFftSize;
+    const double pi = juce::MathConstants<double>::pi;
+
+    for (int k = 0; k < kBins; ++k)
+        m_phaseDeg[k] = m_meas.phase[k] * 180.0f / (float) pi;
+
+    // Unwrap phase, then central-difference → group delay (ms).
+    std::array<double, kBins> uw {};
+    double off = 0.0, prev = m_meas.phase[0];
+    uw[0] = m_meas.phase[0];
+    for (int k = 1; k < kBins; ++k)
+    {
+        const double d = m_meas.phase[k] - prev;
+        if      (d >  pi) off -= 2.0 * pi;
+        else if (d < -pi) off += 2.0 * pi;
+        prev  = m_meas.phase[k];
+        uw[k] = m_meas.phase[k] + off;
+    }
+
+    const double df = sr / N;
+    float gdLo = 1.0e9f, gdHi = -1.0e9f;
+    for (int k = 0; k < kBins; ++k)
+    {
+        const int k0 = juce::jmax (k - 1, 0), k1 = juce::jmin (k + 1, kBins - 1);
+        const double slope = (uw[k1] - uw[k0]) / (2.0 * pi * df * (k1 - k0));
+        m_groupMs[k] = (float) (-slope * 1000.0);
+
+        const double f = (double) k * df;
+        if (f >= 40.0 && f <= 16000.0 && m_meas.coh[k] > 0.5f)
+        { gdLo = juce::jmin (gdLo, m_groupMs[k]); gdHi = juce::jmax (gdHi, m_groupMs[k]); }
+    }
+    if (gdHi < gdLo) { gdLo = -2.0f; gdHi = 10.0f; }
+    const float pad = juce::jmax (1.0f, (gdHi - gdLo) * 0.15f);
+    m_gdLo = gdLo - pad; m_gdHi = gdHi + pad;
+}
+
+void LinearView::drawPanel (juce::Graphics& g, juce::Rectangle<float> r, const char* title,
+                            const std::array<float, kBins>& vals, float vMin, float vMax,
+                            const juce::String& /*unit*/, juce::Colour curve) const
+{
+    constexpr float kML = 46.0f, kMR = 12.0f, kMT = 15.0f, kMB = 14.0f;
+    const float px = r.getX() + kML, py = r.getY() + kMT;
+    const float pw = r.getWidth() - kML - kMR, ph = r.getHeight() - kMT - kMB;
+    if (pw <= 0 || ph <= 0) return;
+
+    g.setColour (PnsTheme::kBgPanel);
+    g.fillRect (px, py, pw, ph);
+
+    g.setFont (PnsTheme::fontLabel());
+    g.setColour (PnsTheme::kTextSecondary);
+    g.drawText (title, (int) r.getX(), (int) r.getY(), (int) r.getWidth(), 13,
+                juce::Justification::centred);
+
+    auto valToY = [&] (float v) { return py + ph * (vMax - v) / (vMax - vMin); };
+
+    const juce::Rectangle<float> plot (px, py, pw, ph);
+    const int dec = (std::abs (vMax - vMin) <= 8.0f) ? 1 : 0;
+    for (int i = 0; i <= 4; ++i)
+    {
+        const float v  = vMax - (vMax - vMin) * (float) i / 4.0f;
+        const float gy = valToY (v);
+        g.setColour (std::abs (v) < 1.0e-3f ? PnsTheme::kZeroLine : PnsTheme::kGridLine);
+        g.drawHorizontalLine (juce::roundToInt (gy), px, px + pw);
+        g.setColour (PnsTheme::kGridLabel);
+        g.drawText (juce::String (v, dec), (int) r.getX(), (int) gy - 6,
+                    (int) kML - 4, 12, juce::Justification::centredRight);
+    }
+
+    const double vfreqs[] = { 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000 };
+    for (double f : vfreqs)
+    {
+        const float gx = freqToX (f, plot);
+        g.setColour (PnsTheme::kGridLine);
+        g.drawVerticalLine (juce::roundToInt (gx), py, py + ph);
+        g.setColour (PnsTheme::kGridLabel);
+        const juce::String lbl = (f >= 1000.0) ? juce::String (f / 1000.0, 0) + "k"
+                                               : juce::String ((int) f);
+        g.drawText (lbl, juce::roundToInt (gx) - 14, juce::roundToInt (py + ph) + 1,
+                    28, 11, juce::Justification::centred);
+    }
+
+    if (m_meas.frames > 0)
+    {
+        const double sr = m_meas.sampleRate;
+        const int    N  = PlugNspectrPostProcessor::kMeasFftSize;
+        juce::Path path;
+        bool started = false;
+        for (int k = 1; k < kBins; ++k)
+        {
+            const double f = (double) k * sr / N;
+            if (f < 20.0 || f > 20000.0) continue;
+            const float x = freqToX (f, plot);
+            const float y = juce::jlimit (py, py + ph, valToY (juce::jlimit (vMin, vMax, vals[k])));
+            if (! started) { path.startNewSubPath (x, y); started = true; }
+            else             path.lineTo (x, y);
+        }
+        PnsTheme::drawGlowLine (g, path, curve, 1.5f);
+    }
+
+    g.setColour (PnsTheme::kBorderSubtle);
+    g.drawRect (px, py, pw, ph, 1.0f);
+}
+
+void LinearView::paint (juce::Graphics& g)
+{
+    g.fillAll (PnsTheme::kBgDark);
+
+    auto area = getLocalBounds().toFloat().reduced (8.0f);
+    area.removeFromTop ((float) PnsTheme::kButtonHeight + 4.0f);   // room for Measure button
+
+    const float h    = area.getHeight() / 3.0f;
+    const auto  magR = area.removeFromTop (h);
+    const auto  phR  = area.removeFromTop (h);
+    const auto  gdR  = area;
+
+    drawPanel (g, magR, "MAGNITUDE (dB)",   m_meas.magDb, -48.0f,  12.0f, "dB",  PnsTheme::kColorPost);
+    drawPanel (g, phR,  "PHASE (deg)",      m_phaseDeg,  -180.0f, 180.0f, "deg", PnsTheme::kColorPostAvg);
+    drawPanel (g, gdR,  "GROUP DELAY (ms)", m_groupMs,    m_gdLo,  m_gdHi, "ms",  PnsTheme::kColorGainRed);
+
+    if (m_meas.frames == 0)
+    {
+        g.setFont (PnsTheme::fontPrimary());
+        g.setColour (PnsTheme::kTextSecondary);
+        g.drawText ("Enable Measure to inject a noise stimulus and measure magnitude / phase / group delay",
+                    getLocalBounds().reduced (20), juce::Justification::centred);
+    }
+}
+
+//==============================================================================
 PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     : AudioProcessorEditor (&p),
       audioProcessor (p),
       m_specView (p),
       m_dynView  (p),
       m_oscView  (p),
-      m_harmView (p)
+      m_harmView (p),
+      m_linearView (p)
 {
     setLookAndFeel (&m_laf);
 
     m_biltroyLogo = juce::ImageCache::getFromMemory (BinaryData::BiltroyAudio_x09mxix09mxix09m_png,
                                                      BinaryData::BiltroyAudio_x09mxix09mxix09m_pngSize);
 
-    for (auto* btn : { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope, &m_tabHarmonics })
+    for (auto* btn : { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope,
+                       &m_tabHarmonics, &m_tabLinear })
     {
         btn->getProperties().set ("tabButton", true);
         addAndMakeVisible (btn);
@@ -2228,11 +2393,16 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     m_tabDynamics    .onClick = [this] { switchTab (1); };
     m_tabOscilloscope.onClick = [this] { switchTab (2); };
     m_tabHarmonics   .onClick = [this] { switchTab (3); };
+    m_tabLinear      .onClick = [this] { switchTab (4); };
 
     addAndMakeVisible (m_specView);
     addAndMakeVisible (m_dynView);
     addAndMakeVisible (m_oscView);
     addAndMakeVisible (m_harmView);
+    addAndMakeVisible (m_linearView);
+
+    // Linear tab's Measure toggle re-publishes the cmd block (noise on/off).
+    m_linearView.onMeasureChanged = [this] { writeCmdBlock(); };
 
     // ── Global footer — frequency knob ────────────────────────────────────
     m_footerFreqSlider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
@@ -2279,6 +2449,7 @@ PlugNspectrPostEditor::~PlugNspectrPostEditor()
     {
         m_pCmd->testToneActive    = 0;
         m_pCmd->testToneFrequency = 1000.0;
+        m_pCmd->measureActive     = 0;
     }
     closeCmdMemory();
     setLookAndFeel (nullptr);
@@ -2308,6 +2479,7 @@ void PlugNspectrPostEditor::openCmdMemory()
 
     m_pCmd->testToneActive    = 0;
     m_pCmd->testToneFrequency = m_toneFreq;
+    m_pCmd->measureActive     = 0;
 }
 
 void PlugNspectrPostEditor::closeCmdMemory()
@@ -2321,6 +2493,9 @@ void PlugNspectrPostEditor::writeCmdBlock()
     if (m_pCmd == nullptr) return;
     m_pCmd->testToneFrequency = m_toneFreq;
     m_pCmd->testToneActive    = m_toneActive ? 1u : 0u;
+    // Noise stimulus only while the Linear tab is showing AND Measure is on.
+    m_pCmd->measureActive     = (m_activeTab == 4 && m_linearView.isMeasureActive())
+                                ? 1u : 0u;
 }
 
 //==============================================================================
@@ -2359,6 +2534,9 @@ void PlugNspectrPostEditor::timerCallback()
 
         m_harmView.update();
         if (m_activeTab == 3) m_harmView.repaint();
+
+        m_linearView.update();
+        if (m_activeTab == 4) m_linearView.repaint();
     }
 }
 
@@ -2498,9 +2676,9 @@ void PlugNspectrPostEditor::switchTab (int index)
 {
     m_activeTab = index;
 
-    juce::TextButton* tabs[4] = { &m_tabSpectrum, &m_tabDynamics,
-                                   &m_tabOscilloscope, &m_tabHarmonics };
-    for (int i = 0; i < 4; ++i)
+    juce::TextButton* tabs[5] = { &m_tabSpectrum, &m_tabDynamics,
+                                   &m_tabOscilloscope, &m_tabHarmonics, &m_tabLinear };
+    for (int i = 0; i < 5; ++i)
     {
         const bool active = (i == index);
         tabs[i]->setColour (juce::TextButton::textColourOffId,
@@ -2509,11 +2687,13 @@ void PlugNspectrPostEditor::switchTab (int index)
         tabs[i]->repaint();
     }
 
-    m_specView.setVisible  (index == 0);
-    m_dynView .setVisible  (index == 1);
-    m_oscView .setVisible  (index == 2);
-    m_harmView.setVisible  (index == 3);
+    m_specView  .setVisible (index == 0);
+    m_dynView   .setVisible (index == 1);
+    m_oscView   .setVisible (index == 2);
+    m_harmView  .setVisible (index == 3);
+    m_linearView.setVisible (index == 4);
 
+    writeCmdBlock();   // start/stop the measurement noise with the tab
     repaint();
 }
 
@@ -2632,19 +2812,21 @@ void PlugNspectrPostEditor::resized()
     constexpr int kTabW  = 90;
     constexpr int kTabWO = 110;   // wider for "Oscilloscope"
 
-    m_tabSpectrum    .setBounds (0,                   hH, kTabW,  tbH);
-    m_tabDynamics    .setBounds (kTabW,               hH, kTabW,  tbH);
-    m_tabOscilloscope.setBounds (kTabW * 2,           hH, kTabWO, tbH);
-    m_tabHarmonics   .setBounds (kTabW * 2 + kTabWO,  hH, kTabW,  tbH);
+    m_tabSpectrum    .setBounds (0,                       hH, kTabW,  tbH);
+    m_tabDynamics    .setBounds (kTabW,                   hH, kTabW,  tbH);
+    m_tabOscilloscope.setBounds (kTabW * 2,               hH, kTabWO, tbH);
+    m_tabHarmonics   .setBounds (kTabW * 2 + kTabWO,      hH, kTabW,  tbH);
+    m_tabLinear      .setBounds (kTabW * 3 + kTabWO,      hH, kTabW,  tbH);
 
     constexpr int kFooterH = 36;
     const int W = getWidth(), H = getHeight();
 
     const auto content = getLocalBounds().withTrimmedTop (hH + tbH).withTrimmedBottom (kFooterH);
-    m_specView.setBounds (content);
-    m_dynView .setBounds (content);
-    m_oscView .setBounds (content);
-    m_harmView.setBounds (content);
+    m_specView  .setBounds (content);
+    m_dynView   .setBounds (content);
+    m_oscView   .setBounds (content);
+    m_harmView  .setBounds (content);
+    m_linearView.setBounds (content);
 
     // Footer controls
     m_footerFreqSlider.setBounds (PnsTheme::kPaddingLarge, H - kFooterH + 4, 28, 28);
