@@ -324,6 +324,8 @@ private:
     std::array<float, kBins> m_phaseDeg {};   // wrapped, degrees (display)
     std::array<float, kBins> m_groupMs  {};   // group delay, ms (from unwrapped phase)
     float m_gdLo = -2.0f, m_gdHi = 10.0f;     // auto-scaled group-delay range
+    int   m_latSamples = 0;                    // measured bulk latency (samples)
+    float m_latMs      = 0.0f;                  // …in ms (compensated out of phase)
 
     juce::TextButton m_measureBtn { "Measure" };
     bool m_measureActive = false;

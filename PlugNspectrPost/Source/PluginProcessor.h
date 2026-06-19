@@ -103,8 +103,9 @@ public:
         std::array<float, kMeasBins> magDb {};   // 20·log10|H|
         std::array<float, kMeasBins> phase {};   // arg(H), wrapped radians
         std::array<float, kMeasBins> coh   {};   // coherence 0..1 (estimate trust)
-        int    frames     = 0;                   // averaged frames (0 = no data yet)
-        double sampleRate = 0.0;
+        int    frames         = 0;               // averaged frames (0 = no data yet)
+        int    latencySamples = 0;               // measured bulk Pre→Post delay
+        double sampleRate     = 0.0;
     };
     void getMeasurement (MeasResult& out) const;
     void resetMeasurement ();
@@ -182,9 +183,18 @@ private:
     double                               m_measSampleRate = 0.0;
     mutable juce::CriticalSection        m_measLock;
 
+    // Bulk Pre→Post latency (samples), estimated from the cross-spectrum so the
+    // Linear view can de-rotate the pure-delay phase ramp.
+    std::array<float, 2 * kMeasFftSize>  m_measIfft {};
+    int                                  m_latencySamples = 0;
+
     // Pushes a block of time-aligned Pre/Post samples through the framed FFT,
     // accumulating the cross-spectrum once per full frame.
     void pushMeasurementSamples (const float* pre, const float* post, int n);
+
+    // PHAT-weighted cross-spectrum → impulse response; its peak is the bulk
+    // delay. Called under m_measLock from pushMeasurementSamples.
+    void computeLatency();
 
     void pushSamplesToAccum (const float* src, int count,
                              std::array<float, kFftSize>& accum,

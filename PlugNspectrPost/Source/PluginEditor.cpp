@@ -2242,20 +2242,33 @@ void LinearView::update()
     const int    N  = PlugNspectrPostProcessor::kMeasFftSize;
     const double pi = juce::MathConstants<double>::pi;
 
-    for (int k = 0; k < kBins; ++k)
-        m_phaseDeg[k] = m_meas.phase[k] * 180.0f / (float) pi;
+    // Latency compensation: a pure Pre→Post delay of L samples is a linear phase
+    // ramp (−2π·k·L/N). De-rotate it so the graphs show the plugin's *intrinsic*
+    // phase / group delay, with the bulk delay reported separately.
+    const int    L     = m_meas.latencySamples;
+    m_latSamples       = L;
+    m_latMs            = (float) (1000.0 * L / sr);
+    auto wrap = [&] (double a) { while (a >  pi) a -= 2.0 * pi;
+                                 while (a < -pi) a += 2.0 * pi; return a; };
 
-    // Unwrap phase, then central-difference → group delay (ms).
+    std::array<double, kBins> cph {};   // intrinsic phase, wrapped
+    for (int k = 0; k < kBins; ++k)
+        cph[k] = wrap (m_meas.phase[k] + 2.0 * pi * (double) k * L / N);
+
+    for (int k = 0; k < kBins; ++k)
+        m_phaseDeg[k] = (float) (cph[k] * 180.0 / pi);
+
+    // Unwrap the compensated phase, then central-difference → group delay (ms).
     std::array<double, kBins> uw {};
-    double off = 0.0, prev = m_meas.phase[0];
-    uw[0] = m_meas.phase[0];
+    double off = 0.0, prev = cph[0];
+    uw[0] = cph[0];
     for (int k = 1; k < kBins; ++k)
     {
-        const double d = m_meas.phase[k] - prev;
+        const double d = cph[k] - prev;
         if      (d >  pi) off -= 2.0 * pi;
         else if (d < -pi) off += 2.0 * pi;
-        prev  = m_meas.phase[k];
-        uw[k] = m_meas.phase[k] + off;
+        prev  = cph[k];
+        uw[k] = cph[k] + off;
     }
 
     const double df = sr / N;
@@ -2357,6 +2370,17 @@ void LinearView::paint (juce::Graphics& g)
     drawPanel (g, magR, "MAGNITUDE (dB)",   m_meas.magDb, -48.0f,  12.0f, "dB",  PnsTheme::kColorPost);
     drawPanel (g, phR,  "PHASE (deg)",      m_phaseDeg,  -180.0f, 180.0f, "deg", PnsTheme::kColorPostAvg);
     drawPanel (g, gdR,  "GROUP DELAY (ms)", m_groupMs,    m_gdLo,  m_gdHi, "ms",  PnsTheme::kColorGainRed);
+
+    // Measured latency readout (de-rotated out of the phase/group-delay above).
+    if (m_meas.frames > 0)
+    {
+        g.setFont (PnsTheme::fontLabel());
+        g.setColour (PnsTheme::kTextSecondary);
+        const juce::String txt = "Latency: " + juce::String (m_latSamples) + " smp  ("
+                               + juce::String (m_latMs, 2) + " ms)";
+        g.drawText (txt, 8, PnsTheme::kPaddingSmall, getWidth() - 100,
+                    PnsTheme::kButtonHeight, juce::Justification::centredLeft);
+    }
 
     if (m_meas.frames == 0)
     {
