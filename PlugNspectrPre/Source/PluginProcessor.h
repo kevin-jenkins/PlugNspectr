@@ -87,5 +87,8 @@ private:
     // White-noise measurement stimulus generator
     juce::Random m_noiseRng;
 
+    // Level-ramp (transfer-curve) stimulus position, in samples
+    double m_dynRampPhase = 0.0;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PlugNspectrPreProcessor)
 };

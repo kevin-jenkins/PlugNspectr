@@ -84,6 +84,7 @@ void PlugNspectrPostProcessor::prepareToPlay (double sampleRate, int samplesPerB
     }
 
     resetMeasurement();
+    resetDynamics();
 }
 
 void PlugNspectrPostProcessor::releaseResources()
@@ -262,6 +263,64 @@ void PlugNspectrPostProcessor::injectMeasurementBlock (const float* pre, const f
 }
 
 //==============================================================================
+// Dynamics transfer curve: windowed RMS of Pre (input) and Post (output), with
+// each window's output level binned against its input level.
+void PlugNspectrPostProcessor::pushDynamicsSamples (const float* pre, const float* post, int n)
+{
+    if (pre == nullptr || post == nullptr) return;
+    constexpr double kDecay = 0.9;
+
+    for (int i = 0; i < n; ++i)
+    {
+        m_dynSumSqPre  += (double) pre [i] * pre [i];
+        m_dynSumSqPost += (double) post[i] * post[i];
+
+        if (++m_dynWinCount < kDynWin) continue;
+
+        const double preRms  = std::sqrt (m_dynSumSqPre  / kDynWin);
+        const double postRms = std::sqrt (m_dynSumSqPost / kDynWin);
+        m_dynSumSqPre = m_dynSumSqPost = 0.0;
+        m_dynWinCount = 0;
+
+        const double inDb  = 20.0 * std::log10 (juce::jmax (preRms,  1.0e-7));
+        const double outDb = 20.0 * std::log10 (juce::jmax (postRms, 1.0e-7));
+        if (inDb < kDynMinDb || inDb > 0.0) continue;
+
+        const int b = juce::jlimit (0, kDynBins - 1,
+                                    (int) std::lround ((inDb - kDynMinDb) / kDynBinW));
+
+        juce::ScopedLock sl (m_dynLock);
+        if (m_dynValid[b]) m_dynOutDb[b] = (float) (m_dynOutDb[b] * kDecay + outDb * (1.0 - kDecay));
+        else             { m_dynOutDb[b] = (float) outDb; m_dynValid[b] = 1; }
+    }
+}
+
+void PlugNspectrPostProcessor::getDynamics (DynResult& out) const
+{
+    juce::ScopedLock sl (m_dynLock);
+    out.sampleRate = (m_measSampleRate > 0.0) ? m_measSampleRate : getSampleRate();
+    for (int b = 0; b < kDynBins; ++b)
+    {
+        out.outDb[b] = m_dynOutDb[b];
+        out.valid[b] = (m_dynValid[b] != 0);
+    }
+}
+
+void PlugNspectrPostProcessor::resetDynamics()
+{
+    juce::ScopedLock sl (m_dynLock);
+    m_dynOutDb.fill (0.0f);
+    m_dynValid.fill (0);
+    m_dynSumSqPre = m_dynSumSqPost = 0.0;
+    m_dynWinCount = 0;
+}
+
+void PlugNspectrPostProcessor::injectDynamicsBlock (const float* pre, const float* post, int n)
+{
+    pushDynamicsSamples (pre, post, n);
+}
+
+//==============================================================================
 void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                              juce::MidiBuffer& /*midiMessages*/)
 {
@@ -308,9 +367,13 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                             m_preAccum, m_preAccumPos, m_preSpectrum);
 
         // ── Linear transfer-function measurement (Pre → Post) ─────────────
+        const int measN = juce::jmin (preSmp, numSmp);
         pushMeasurementSamples (m_pShared->preData[0],
-                                buffer.getReadPointer (0),
-                                juce::jmin (preSmp, numSmp));
+                                buffer.getReadPointer (0), measN);
+
+        // ── Dynamics transfer-curve measurement (input vs output level) ───
+        pushDynamicsSamples (m_pShared->preData[0],
+                             buffer.getReadPointer (0), measN);
     }
 
     // ── RMS for dynamics display ───────────────────────────────────────────
