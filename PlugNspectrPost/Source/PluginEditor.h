@@ -302,6 +302,9 @@ public:
     void paint   (juce::Graphics& g) override;
     void resized ()                   override;
 
+    // Test seam for the offline render harness — select a tab programmatically.
+    void selectTabForTest (int index) { switchTab (index); }
+
 private:
     void timerCallback      () override;
     void paintOverChildren  (juce::Graphics& g) override;

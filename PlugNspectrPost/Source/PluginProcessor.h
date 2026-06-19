@@ -91,11 +91,21 @@ public:
     // Returns true if PlugNspectrPre has set a heartbeat within the last 500ms.
     bool isPreActive() const
     {
+        if (m_testPreActive) return true;   // forced on by the offline render harness
         if (m_pShared == nullptr || m_pShared->magic != kPNS_Magic) return false;
         const uint32_t age = juce::Time::getMillisecondCounter()
                            - m_pShared->preLastHeartbeat;
         return age < 500u;
     }
+
+    //==========================================================================
+    // Test seam — lets the offline render harness (tools/render-harness) drive
+    // the editor with synthetic audio, no DAW or live PlugNspectrPre needed.
+    // Unused by the normal plugin runtime.
+    void injectTestCapture (const juce::AudioBuffer<float>& pre,
+                            const juce::AudioBuffer<float>& post,
+                            float preDb, float postDb);
+    void setTestPreActive (bool active) { m_testPreActive = active; }
 
 
 private:
@@ -105,6 +115,7 @@ private:
 
     mutable juce::CriticalSection m_captureLock;
     CaptureBufs                   m_capture;
+    bool                          m_testPreActive = false;   // forced by render harness
 
     void openSharedMemory();
     void closeSharedMemory();
