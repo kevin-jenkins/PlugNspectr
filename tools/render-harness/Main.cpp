@@ -5,9 +5,11 @@
 // processor's test seam, ticks the editor's 60fps timer, and writes a sequence
 // of PNG frames — all without a DAW or a live PlugNspectrPre.
 //
-// Usage:  PnsRenderHarness [scenario] [numFrames]
+// Usage:  PnsRenderHarness [scenario] [numFrames] [grDb]
 //   scenario: "dynamics" (default) — quiet mix-bus-level signal with swelling
-//             dynamics and light compression, to exercise the waveform + GR.
+//             dynamics and a fixed gain reduction, to exercise the waveform + GR.
+//   grDb:     simulated gain reduction in dB (default 1.4). e.g. 0.5 to check the
+//             detector resolves small GR; 0 for a transparent (no-GR) pass.
 // Output:  ./frames/frame_000.png …  (in the current working directory)
 // ───────────────────────────────────────────────────────────────────────────
 #include <JuceHeader.h>
@@ -23,9 +25,9 @@ constexpr double kSampleRate = 48000.0;
 constexpr int    kBlock      = 4800;   // 0.1s per injected frame
 
 // Synthetic "mix bus" block: a ~-42 dBFS tone whose level swells over time, with
-// the post signal lightly attenuated to stand in for compression.
+// the post signal attenuated by postGain to stand in for a fixed gain reduction.
 void makeFrame (juce::AudioBuffer<float>& pre, juce::AudioBuffer<float>& post,
-                double& phase, int frameIdx, float& preDb, float& postDb)
+                double& phase, int frameIdx, float postGain, float& preDb, float& postDb)
 {
     pre .setSize (1, kBlock, false, false, true);
     post.setSize (1, kBlock, false, false, true);
@@ -39,7 +41,7 @@ void makeFrame (juce::AudioBuffer<float>& pre, juce::AudioBuffer<float>& post,
         const float s  = env * std::sin ((float) phase);
         phase += juce::MathConstants<double>::twoPi * freq / kSampleRate;
         const float ps = s;
-        const float qs = s * 0.85f;   // post a touch quieter → visible GR
+        const float qs = s * postGain;   // post attenuated → simulated GR
 
         pre .setSample (0, i, ps);
         post.setSample (0, i, qs);
@@ -57,6 +59,9 @@ int main (int argc, char* argv[])
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     const int numFrames = (argc > 2) ? juce::String (argv[2]).getIntValue() : 90;
+    // Optional 3rd arg: simulated gain reduction in dB (post attenuation).
+    const float grDb     = (argc > 3) ? juce::String (argv[3]).getFloatValue() : 1.4f;
+    const float postGain = std::pow (10.0f, -grDb / 20.0f);
 
     juce::File outDir = juce::File::getCurrentWorkingDirectory().getChildFile ("frames");
     outDir.createDirectory();
@@ -80,7 +85,7 @@ int main (int argc, char* argv[])
     {
         juce::AudioBuffer<float> pre, post;
         float preDb = -90.0f, postDb = -90.0f;
-        makeFrame (pre, post, phase, f, preDb, postDb);
+        makeFrame (pre, post, phase, f, postGain, preDb, postDb);
         proc.injectTestCapture (pre, post, preDb, postDb);
 
         // Let the editor's 60fps timer fire a few times so update() consumes the
