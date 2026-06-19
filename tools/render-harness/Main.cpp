@@ -30,7 +30,7 @@ void makeFrame (juce::AudioBuffer<float>& pre, juce::AudioBuffer<float>& post,
     pre .setSize (1, kBlock, false, false, true);
     post.setSize (1, kBlock, false, false, true);
 
-    const float env  = 0.008f * (1.0f + 0.8f * std::sin (frameIdx * 0.12f));  // ≈ -42 dB, swelling
+    const float env  = 0.30f * (1.0f + 0.5f * std::sin (frameIdx * 0.12f));   // ≈ -12 dBFS RMS, swelling
     const float freq = 220.0f;
 
     double preSq = 0.0, postSq = 0.0;
