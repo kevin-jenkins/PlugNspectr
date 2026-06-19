@@ -108,7 +108,8 @@ void runLinearTest (PlugNspectrPostProcessor& proc)
         const double f1 = (double) k1 * sr / N, f2 = (double) k2 * sr / N;
         const double gdMs = -(r.phase[k2] - r.phase[k1]) / (2.0 * pi * (f2 - f1)) * 1000.0;
         std::cout << "[delay 10smp] mag@1k=" << r.magDb[bin (1000)] << " dB (exp ~0)"
-                  << "  groupDelay=" << gdMs << " ms (exp 0.2083)\n";
+                  << "  groupDelay=" << gdMs << " ms (exp 0.2083)"
+                  << "  latency=" << r.latencySamples << " smp (exp 10)\n";
     }
 
     // 3) One-pole low-pass at fc=1000 Hz: −3 dB and −45° at fc.
@@ -174,18 +175,24 @@ int main (int argc, char* argv[])
     juce::Random rng;
     const float lpA = (float) (1.0 - std::exp (-2.0 * juce::MathConstants<double>::pi * 1000.0 / kSampleRate));
     float lpY = 0.0f;
+    constexpr int kDelay = 64;                 // bulk latency to exercise compensation
+    std::array<float, kDelay> dl {}; int dp = 0;
 
     for (int f = 0; f < numFrames; ++f)
     {
         if (linearRender)
         {
-            // White noise → one-pole LP @1kHz, straight into the measurement.
+            // White noise → one-pole LP @1kHz → 64-sample delay (a plugin that
+            // both colours AND delays), straight into the measurement.
             std::vector<float> pre ((size_t) kBlock), post ((size_t) kBlock);
             for (int i = 0; i < kBlock; ++i)
             {
                 const float x = rng.nextFloat() * 2.0f - 1.0f;
                 lpY += lpA * (x - lpY);
-                pre[(size_t) i] = x; post[(size_t) i] = lpY;
+                post[(size_t) i] = dl[(size_t) dp];   // lpY delayed by kDelay
+                dl[(size_t) dp] = lpY;
+                dp = (dp + 1) % kDelay;
+                pre[(size_t) i] = x;
             }
             proc.injectMeasurementBlock (pre.data(), post.data(), kBlock);
         }
