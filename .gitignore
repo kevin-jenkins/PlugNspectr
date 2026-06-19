@@ -16,6 +16,11 @@ JuceLibraryCode/
 */JuceLibraryCode/BinaryData.cpp
 */JuceLibraryCode/BinaryData.h
 
+# Render-harness / CMake build + output
+tools/render-harness/build/
+tools/render-harness/out/
+frames/
+
 # OS files
 .DS_Store
 Thumbs.db

@@ -222,6 +222,22 @@ PlugNspectrPostProcessor::CaptureBufs PlugNspectrPostProcessor::getCapture() con
     return m_capture;
 }
 
+void PlugNspectrPostProcessor::injectTestCapture (const juce::AudioBuffer<float>& pre,
+                                                  const juce::AudioBuffer<float>& post,
+                                                  float preDb, float postDb)
+{
+    {
+        juce::ScopedLock sl (m_captureLock);
+        m_capture.pre  = pre;
+        m_capture.post = post;
+        ++m_capture.captureCount;
+    }
+    {
+        juce::ScopedLock sl (m_rmsLock);
+        m_lastRms = { preDb, postDb, true };
+    }
+}
+
 void PlugNspectrPostProcessor::getSpectra (
     std::array<float, kNumSpecBins>& outPre,
     std::array<float, kNumSpecBins>& outPost) const
