@@ -182,14 +182,46 @@ void PlugNspectrPostProcessor::pushMeasurementSamples (const float* pre,
             m_SxyIm[k] = m_SxyIm[k] * kDecay + sxyIm * (1.0 - kDecay);
         }
         m_measFrames = juce::jmin (m_measFrames + 1, 1 << 20);
+
+        // Re-estimate bulk latency periodically (cheap; reuses m_measFft).
+        if (m_measFrames % 8 == 0) computeLatency();
     }
+}
+
+void PlugNspectrPostProcessor::computeLatency()
+{
+    // PHAT (phase-transform) weighting → unit-magnitude cross-spectrum, whose
+    // inverse FFT is a sharp correlation peak at the bulk delay.
+    for (int k = 0; k <= kMeasFftSize / 2; ++k)
+    {
+        const double mag = std::sqrt (m_SxyRe[k] * m_SxyRe[k] + m_SxyIm[k] * m_SxyIm[k]);
+        if (mag > 1.0e-12)
+        {
+            m_measIfft[k * 2]     = (float) (m_SxyRe[k] / mag);
+            m_measIfft[k * 2 + 1] = (float) (m_SxyIm[k] / mag);
+        }
+        else { m_measIfft[k * 2] = 0.0f; m_measIfft[k * 2 + 1] = 0.0f; }
+    }
+
+    m_measFft.performRealOnlyInverseTransform (m_measIfft.data());
+
+    int   peak = 0;
+    float best = -1.0f;
+    for (int n = 0; n < kMeasFftSize; ++n)
+    {
+        const float v = std::abs (m_measIfft[n]);
+        if (v > best) { best = v; peak = n; }
+    }
+    // Indices past N/2 are negative lags; Post lagging Pre (causal) is positive.
+    m_latencySamples = (peak <= kMeasFftSize / 2) ? peak : peak - kMeasFftSize;
 }
 
 void PlugNspectrPostProcessor::getMeasurement (MeasResult& out) const
 {
     juce::ScopedLock sl (m_measLock);
-    out.frames     = m_measFrames;
-    out.sampleRate = (m_measSampleRate > 0.0) ? m_measSampleRate : getSampleRate();
+    out.frames         = m_measFrames;
+    out.latencySamples = m_latencySamples;
+    out.sampleRate     = (m_measSampleRate > 0.0) ? m_measSampleRate : getSampleRate();
 
     for (int k = 0; k < kMeasBins; ++k)
     {
@@ -219,8 +251,9 @@ void PlugNspectrPostProcessor::resetMeasurement()
 {
     juce::ScopedLock sl (m_measLock);
     m_Sxx.fill (0.0); m_Syy.fill (0.0); m_SxyRe.fill (0.0); m_SxyIm.fill (0.0);
-    m_measFrames = 0;
-    m_measPos    = 0;
+    m_measFrames     = 0;
+    m_measPos        = 0;
+    m_latencySamples = 0;
 }
 
 void PlugNspectrPostProcessor::injectMeasurementBlock (const float* pre, const float* post, int n)
