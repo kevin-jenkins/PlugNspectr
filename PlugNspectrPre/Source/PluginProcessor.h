@@ -84,5 +84,8 @@ private:
     // Sine test-tone generator state
     double m_tonePhase = 0.0;
 
+    // White-noise measurement stimulus generator
+    juce::Random m_noiseRng;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PlugNspectrPreProcessor)
 };

@@ -70,15 +70,20 @@ void PlugNspectrPostProcessor::closeSharedMemory()
 }
 
 //==============================================================================
-void PlugNspectrPostProcessor::prepareToPlay (double /*sampleRate*/, int samplesPerBlock)
+void PlugNspectrPostProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     openSharedMemory();
+    m_measSampleRate = sampleRate;
 
     const int safeSamples = juce::jmax (samplesPerBlock, kPNS_MaxSamplesPerBlock);
 
-    juce::ScopedLock sl (m_captureLock);
-    m_capture.pre .setSize (kPNS_MaxChannels, safeSamples, false, true, false);
-    m_capture.post.setSize (kPNS_MaxChannels, safeSamples, false, true, false);
+    {
+        juce::ScopedLock sl (m_captureLock);
+        m_capture.pre .setSize (kPNS_MaxChannels, safeSamples, false, true, false);
+        m_capture.post.setSize (kPNS_MaxChannels, safeSamples, false, true, false);
+    }
+
+    resetMeasurement();
 }
 
 void PlugNspectrPostProcessor::releaseResources()
@@ -130,6 +135,100 @@ void PlugNspectrPostProcessor::pushSamplesToAccum (
 }
 
 //==============================================================================
+// Linear measurement: frame time-aligned Pre/Post, FFT both, and accumulate the
+// cross-spectrum (H1 estimator) with exponential averaging.
+void PlugNspectrPostProcessor::pushMeasurementSamples (const float* pre,
+                                                       const float* post, int n)
+{
+    if (pre == nullptr || post == nullptr) return;
+
+    // Exponential forgetting — converges in ~1 s at typical frame rates while
+    // still tracking parameter changes on the plugin under analysis.
+    constexpr double kDecay = 0.9;
+
+    for (int i = 0; i < n; ++i)
+    {
+        m_measPreAccum [m_measPos] = pre [i];
+        m_measPostAccum[m_measPos] = post[i];
+        ++m_measPos;
+
+        if (m_measPos < kMeasFftSize) continue;
+        m_measPos = 0;
+
+        std::copy (m_measPreAccum.begin(),  m_measPreAccum.end(),  m_measPreFft.begin());
+        std::copy (m_measPostAccum.begin(), m_measPostAccum.end(), m_measPostFft.begin());
+        std::fill (m_measPreFft.begin()  + kMeasFftSize, m_measPreFft.end(),  0.0f);
+        std::fill (m_measPostFft.begin() + kMeasFftSize, m_measPostFft.end(), 0.0f);
+
+        m_measWindow.multiplyWithWindowingTable (m_measPreFft.data(),  kMeasFftSize);
+        m_measWindow.multiplyWithWindowingTable (m_measPostFft.data(), kMeasFftSize);
+        m_measFft.performRealOnlyForwardTransform (m_measPreFft.data(),  true);
+        m_measFft.performRealOnlyForwardTransform (m_measPostFft.data(), true);
+
+        juce::ScopedLock sl (m_measLock);
+        for (int k = 0; k < kMeasBins; ++k)
+        {
+            const double pr = m_measPreFft [k * 2],     pi = m_measPreFft [k * 2 + 1];
+            const double qr = m_measPostFft[k * 2],     qi = m_measPostFft[k * 2 + 1];
+
+            const double sxx = pr * pr + pi * pi;
+            const double syy = qr * qr + qi * qi;
+            const double sxyRe = pr * qr + pi * qi;   // Re{conj(P)·Q}
+            const double sxyIm = pr * qi - pi * qr;   // Im{conj(P)·Q}
+
+            m_Sxx  [k] = m_Sxx  [k] * kDecay + sxx   * (1.0 - kDecay);
+            m_Syy  [k] = m_Syy  [k] * kDecay + syy   * (1.0 - kDecay);
+            m_SxyRe[k] = m_SxyRe[k] * kDecay + sxyRe * (1.0 - kDecay);
+            m_SxyIm[k] = m_SxyIm[k] * kDecay + sxyIm * (1.0 - kDecay);
+        }
+        m_measFrames = juce::jmin (m_measFrames + 1, 1 << 20);
+    }
+}
+
+void PlugNspectrPostProcessor::getMeasurement (MeasResult& out) const
+{
+    juce::ScopedLock sl (m_measLock);
+    out.frames     = m_measFrames;
+    out.sampleRate = (m_measSampleRate > 0.0) ? m_measSampleRate : getSampleRate();
+
+    for (int k = 0; k < kMeasBins; ++k)
+    {
+        const double sxx = m_Sxx[k];
+        if (sxx > 1.0e-20)
+        {
+            const double hre = m_SxyRe[k] / sxx;          // H = Sxy / Sxx
+            const double him = m_SxyIm[k] / sxx;
+            const double mag = std::sqrt (hre * hre + him * him);
+            out.magDb[k] = 20.0f * std::log10 ((float) juce::jmax (mag, 1.0e-9));
+            out.phase[k] = std::atan2 ((float) him, (float) hre);
+
+            const double sxy2 = m_SxyRe[k] * m_SxyRe[k] + m_SxyIm[k] * m_SxyIm[k];
+            const double den  = sxx * m_Syy[k];
+            out.coh[k] = (den > 1.0e-20) ? (float) juce::jlimit (0.0, 1.0, sxy2 / den) : 0.0f;
+        }
+        else
+        {
+            out.magDb[k] = -120.0f;
+            out.phase[k] = 0.0f;
+            out.coh  [k] = 0.0f;
+        }
+    }
+}
+
+void PlugNspectrPostProcessor::resetMeasurement()
+{
+    juce::ScopedLock sl (m_measLock);
+    m_Sxx.fill (0.0); m_Syy.fill (0.0); m_SxyRe.fill (0.0); m_SxyIm.fill (0.0);
+    m_measFrames = 0;
+    m_measPos    = 0;
+}
+
+void PlugNspectrPostProcessor::injectMeasurementBlock (const float* pre, const float* post, int n)
+{
+    pushMeasurementSamples (pre, post, n);
+}
+
+//==============================================================================
 void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                              juce::MidiBuffer& /*midiMessages*/)
 {
@@ -174,6 +273,11 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                        kPNS_MaxSamplesPerBlock);
         pushSamplesToAccum (m_pShared->preData[0], preSmp,
                             m_preAccum, m_preAccumPos, m_preSpectrum);
+
+        // ── Linear transfer-function measurement (Pre → Post) ─────────────
+        pushMeasurementSamples (m_pShared->preData[0],
+                                buffer.getReadPointer (0),
+                                juce::jmin (preSmp, numSmp));
     }
 
     // ── RMS for dynamics display ───────────────────────────────────────────

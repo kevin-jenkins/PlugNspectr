@@ -297,7 +297,42 @@ private:
 };
 
 //==============================================================================
-// Main editor — dark tab bar + four views
+// Linear view — transfer-function magnitude / phase / group-delay measurement
+//==============================================================================
+class LinearView : public juce::Component
+{
+public:
+    explicit LinearView (PlugNspectrPostProcessor& p);
+    void paint   (juce::Graphics& g) override;
+    void resized ()                   override;
+    void update  ();
+
+    bool isMeasureActive() const { return m_measureActive; }
+    std::function<void()> onMeasureChanged;   // editor wires this to writeCmdBlock()
+
+private:
+    static constexpr int kBins = PlugNspectrPostProcessor::kMeasBins;
+
+    void drawPanel (juce::Graphics& g, juce::Rectangle<float> r, const char* title,
+                    const std::array<float, kBins>& vals, float vMin, float vMax,
+                    const juce::String& unit, juce::Colour curve) const;
+    float freqToX (double f, juce::Rectangle<float> r) const;
+
+    PlugNspectrPostProcessor& m_proc;
+
+    PlugNspectrPostProcessor::MeasResult m_meas;
+    std::array<float, kBins> m_phaseDeg {};   // wrapped, degrees (display)
+    std::array<float, kBins> m_groupMs  {};   // group delay, ms (from unwrapped phase)
+    float m_gdLo = -2.0f, m_gdHi = 10.0f;     // auto-scaled group-delay range
+
+    juce::TextButton m_measureBtn { "Measure" };
+    bool m_measureActive = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LinearView)
+};
+
+//==============================================================================
+// Main editor — dark tab bar + five views
 //==============================================================================
 class PlugNspectrPostEditor : public juce::AudioProcessorEditor,
                               private juce::Timer
@@ -323,6 +358,7 @@ private:
     juce::TextButton m_tabDynamics     { "Dynamics"     };
     juce::TextButton m_tabOscilloscope { "Oscilloscope" };
     juce::TextButton m_tabHarmonics    { "Harmonics"    };
+    juce::TextButton m_tabLinear       { "Linear"       };
     int              m_activeTab   = 0;
     int              m_tickCounter = 0;
 
@@ -350,6 +386,7 @@ private:
     DynamicsView      m_dynView;
     OscilloscopeView  m_oscView;
     HarmonicsView     m_harmView;
+    LinearView        m_linearView;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PlugNspectrPostEditor)
 };
