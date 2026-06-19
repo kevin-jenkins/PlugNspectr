@@ -1098,9 +1098,12 @@ void DynamicsView::update()
         const auto rms = m_proc.getRms();
         m_preConnected = rms.preValid;
 
-        // If RMS levels are within 0.5 dB, treat as no compression (avoids false
-        // GR readings caused by peak-timing skew between Pre and Post captures).
-        if (rms.preValid && std::abs (rms.postDb - rms.preDb) < 0.5f)
+        // Reject the peak-timing-skew false positive (a transparent plugin showed
+        // GR while In/Out RMS were identical, i.e. RMS delta ≈ 0). Keep the gate
+        // small — 0.2 dB — so a genuine 0.5 dB gain reduction (RMS delta ≈ 0.5)
+        // still registers; the original false case had a 0.0 dB delta, so it's
+        // still caught.
+        if (rms.preValid && std::abs (rms.postDb - rms.preDb) < 0.2f)
             currentGr = 0.0f;
 
         if (rms.preValid)
