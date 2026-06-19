@@ -134,7 +134,14 @@ private:
     // so the song's natural loud/soft dynamics stay visible. Re-arms after ~1s
     // of silence (transport stop) so the next playback recalibrates.
     // 1.0 = no zoom (true amplitude).
-    float m_waveScale        = 1.0f;
+    //
+    // The initial value (before calibration locks) assumes the signal opens at
+    // ~-12 dBFS RMS — a safe floor for typical program material — so the view
+    // starts at a sensible zoom instead of all the way out. Sized so a -12 dB
+    // RMS level sits at ~half the display height (0.5 / 10^(-12/20) ≈ 2.0),
+    // leaving headroom for peaks. Calibration refines it within ~2s.
+    static constexpr float kInitialWaveScale = 2.0f;
+    float m_waveScale        = kInitialWaveScale;
     bool  m_waveScaleLocked  = false;
     int   m_waveCalibSamples = 0;      // audio samples accumulated this calibration
     float m_waveCalibPeak    = 0.0f;   // running peak during calibration
