@@ -368,10 +368,17 @@ public:
     bool isMeasureActive() const { return m_measureActive; }
     std::function<void()> onMeasureChanged;
     void freezeForTest();
+    void setCursorForTest (int x) { m_cursorX = (float) x; m_cursorLocked = true; }
+
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
+    void mouseDown (const juce::MouseEvent&) override;
 
 private:
     static constexpr int kBins = PlugNspectrPostProcessor::kDynBins;
     void doFreeze();
+    float m_cursorX = -1.0f;
+    bool  m_cursorLocked = false;
 
     PlugNspectrPostProcessor& m_proc;
     PlugNspectrPostProcessor::DynResult m_dyn;
@@ -400,9 +407,16 @@ public:
 
     bool isMeasureActive() const { return m_measureActive; }
     std::function<void()> onMeasureChanged;
+    void setCursorForTest (int x) { m_cursorX = (float) x; m_cursorLocked = true; }
+
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
+    void mouseDown (const juce::MouseEvent&) override;
 
 private:
     static constexpr int kBins = PlugNspectrPostProcessor::kEnvBins;
+    float m_cursorX = -1.0f;
+    bool  m_cursorLocked = false;
 
     PlugNspectrPostProcessor& m_proc;
     PlugNspectrPostProcessor::EnvResult m_env;
@@ -428,10 +442,17 @@ public:
     bool isMeasureActive() const { return m_measureActive; }
     std::function<void()> onMeasureChanged;
     void freezeForTest();
+    void setCursorForTest (int x) { m_cursorX = (float) x; m_cursorLocked = true; }
+
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
+    void mouseDown (const juce::MouseEvent&) override;
 
 private:
     static constexpr int kBins = PlugNspectrPostProcessor::kThdBins;
     void doFreeze();
+    float m_cursorX = -1.0f;
+    bool  m_cursorLocked = false;
 
     PlugNspectrPostProcessor& m_proc;
     PlugNspectrPostProcessor::ThdResult m_thd;
@@ -465,7 +486,10 @@ public:
     void selectTabForTest     (int index) { switchTab (index); }
     void freezeLinearForTest()            { m_linearView.freezeForTest(); }
     void armMeasureForTest()              { m_linearView.setMeasureForTest (true); writeCmdBlock(); repaint(); }
-    void setLinearCursorForTest (int x)   { m_linearView.setCursorForTest (x); m_linearView.repaint(); }
+    void setLinearCursorForTest (int x)   { m_linearView.setCursorForTest (x);   m_linearView.repaint(); }
+    void setTransferCursorForTest (int x) { m_transferView.setCursorForTest (x); m_transferView.repaint(); }
+    void setEnvelopeCursorForTest (int x) { m_envelopeView.setCursorForTest (x); m_envelopeView.repaint(); }
+    void setThdCursorForTest (int x)      { m_thdView.setCursorForTest (x);      m_thdView.repaint(); }
     void freezeTransferForTest()          { m_transferView.freezeForTest(); }
     void freezeThdForTest()               { m_thdView.freezeForTest(); }
 

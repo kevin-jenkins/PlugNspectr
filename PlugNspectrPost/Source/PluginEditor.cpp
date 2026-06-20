@@ -2521,6 +2521,58 @@ void LinearView::paint (juce::Graphics& g)
 }
 
 //==============================================================================
+// Shared single-plot cursor: hairline + dot + readout chip.
+static void drawCursorChip (juce::Graphics& g, juce::Rectangle<float> plot, float cx,
+                            float dotY, juce::Colour dotCol,
+                            const juce::StringArray& rows, bool locked)
+{
+    cx = juce::jlimit (plot.getX(), plot.getRight(), cx);
+    g.setColour (PnsTheme::kAccentPrimary.withAlpha (0.45f));
+    g.drawVerticalLine (juce::roundToInt (cx), plot.getY(), plot.getBottom());
+    g.setColour (dotCol);
+    g.fillEllipse (cx - 3.0f, dotY - 3.0f, 6.0f, 6.0f);
+
+    const float boxW = 104.0f, boxH = 8.0f + (float) rows.size() * 13.0f;
+    float bx = cx + 10.0f;
+    if (bx + boxW > plot.getRight()) bx = cx - 10.0f - boxW;
+    bx = juce::jmax (plot.getX(), bx);
+    const float by = plot.getY() + 6.0f;
+    g.setColour (juce::Colour (10, 10, 10));
+    g.fillRect (bx, by, boxW, boxH);
+    g.setColour (PnsTheme::kAccentPrimary.withAlpha (0.7f));
+    g.drawRect (bx, by, boxW, boxH, 1.0f);
+    g.setFont (PnsTheme::fontLabel());
+    for (int i = 0; i < rows.size(); ++i)
+    {
+        g.setColour (i == 0 ? PnsTheme::kTextPrimary : PnsTheme::kTextSecondary);
+        g.drawText (rows[i], juce::roundToInt (bx) + 6, juce::roundToInt (by) + 4 + i * 13,
+                    (int) boxW - 10, 12, juce::Justification::centredLeft);
+    }
+    if (locked) { g.setColour (PnsTheme::kAccentPrimary); g.fillEllipse (bx + boxW - 12.0f, by + 4.0f, 5.0f, 5.0f); }
+}
+
+static juce::Rectangle<float> transferPlot (juce::Component& c)
+{
+    auto a = c.getLocalBounds().toFloat().reduced (8.0f);
+    a.removeFromTop ((float) PnsTheme::kButtonHeight + 4.0f);
+    const float side = juce::jmin (a.getWidth(), a.getHeight());
+    const juce::Rectangle<float> r (a.getX() + (a.getWidth() - side) * 0.5f, a.getY(), side, side);
+    return { r.getX() + 40.0f, r.getY() + 16.0f, r.getWidth() - 52.0f, r.getHeight() - 36.0f };
+}
+static juce::Rectangle<float> envPlot (juce::Component& c)
+{
+    auto a = c.getLocalBounds().toFloat().reduced (8.0f);
+    a.removeFromTop ((float) PnsTheme::kButtonHeight + 4.0f);
+    return { a.getX() + 42.0f, a.getY() + 16.0f, a.getWidth() - 54.0f, a.getHeight() - 36.0f };
+}
+static juce::Rectangle<float> thdPlot (juce::Component& c)
+{
+    auto a = c.getLocalBounds().toFloat().reduced (8.0f);
+    a.removeFromTop ((float) PnsTheme::kButtonHeight + 4.0f);
+    return { a.getX() + 46.0f, a.getY() + 16.0f, a.getWidth() - 58.0f, a.getHeight() - 36.0f };
+}
+
+//==============================================================================
 // TransferView — measured dynamics transfer curve (output vs input level)
 //==============================================================================
 TransferView::TransferView (PlugNspectrPostProcessor& p) : m_proc (p)
@@ -2552,6 +2604,22 @@ void TransferView::doFreeze()
 }
 
 void TransferView::freezeForTest() { doFreeze(); repaint(); }
+
+void TransferView::mouseMove (const juce::MouseEvent& e)
+{
+    if (m_cursorLocked) return;
+    m_cursorX = transferPlot (*this).contains (e.position) ? e.position.x : -1.0f;
+    repaint();
+}
+void TransferView::mouseExit (const juce::MouseEvent&)
+{
+    if (! m_cursorLocked) { m_cursorX = -1.0f; repaint(); }
+}
+void TransferView::mouseDown (const juce::MouseEvent& e)
+{
+    if (transferPlot (*this).contains (e.position))
+    { m_cursorX = e.position.x; m_cursorLocked = ! m_cursorLocked; repaint(); }
+}
 
 void TransferView::resized()
 {
@@ -2646,6 +2714,25 @@ void TransferView::paint (juce::Graphics& g)
     if (nValid > 1)
         PnsTheme::drawGlowLine (g, path, PnsTheme::kColorPost, 1.5f);
 
+    // Cursor readout — input level → output level / gain reduction.
+    if (nValid > 1 && m_cursorX >= 0.0f)
+    {
+        const float cx = juce::jlimit (px, px + pw, m_cursorX);
+        const float inDb = lo + (cx - px) / pw * (hi - lo);
+        const int b = juce::jlimit (0, kBins - 1,
+                                    (int) std::lround ((inDb - PlugNspectrPostProcessor::kDynMinDb)
+                                                       / PlugNspectrPostProcessor::kDynBinW));
+        if (m_dyn.valid[(size_t) b])
+        {
+            const float outDb = juce::jlimit (lo, hi, m_dyn.outDb[(size_t) b]);
+            juce::StringArray rows;
+            rows.add (juce::String (inDb, 1) + " dB in");
+            rows.add (juce::String (outDb, 1) + " dB out");
+            rows.add ("GR " + juce::String (inDb - outDb, 1) + " dB");
+            drawCursorChip (g, { px, py, pw, ph }, cx, Y (outDb), PnsTheme::kColorPost, rows, m_cursorLocked);
+        }
+    }
+
     g.setColour (PnsTheme::kBorderSubtle);
     g.drawRect (px, py, pw, ph, 1.0f);
 
@@ -2688,6 +2775,22 @@ void EnvelopeView::update()
     for (int b = 0; b < kBins; ++b)
         if (m_env.valid[(size_t) b]) hi = juce::jmax (hi, m_env.grDb[(size_t) b]);
     m_grHi = juce::jmax (6.0f, hi * 1.2f);
+}
+
+void EnvelopeView::mouseMove (const juce::MouseEvent& e)
+{
+    if (m_cursorLocked) return;
+    m_cursorX = envPlot (*this).contains (e.position) ? e.position.x : -1.0f;
+    repaint();
+}
+void EnvelopeView::mouseExit (const juce::MouseEvent&)
+{
+    if (! m_cursorLocked) { m_cursorX = -1.0f; repaint(); }
+}
+void EnvelopeView::mouseDown (const juce::MouseEvent& e)
+{
+    if (envPlot (*this).contains (e.position))
+    { m_cursorX = e.position.x; m_cursorLocked = ! m_cursorLocked; repaint(); }
 }
 
 void EnvelopeView::paint (juce::Graphics& g)
@@ -2759,6 +2862,23 @@ void EnvelopeView::paint (juce::Graphics& g)
     if (nValid > 1)
         PnsTheme::drawGlowLine (g, path, PnsTheme::kColorGainRed, 1.5f);
 
+    // Cursor readout — time → gain reduction.
+    if (nValid > 1 && m_cursorX >= 0.0f)
+    {
+        const float cx = juce::jlimit (px, px + pw, m_cursorX);
+        const float ms = (cx - px) / pw * 1000.0f;
+        const int b = juce::jlimit (0, kBins - 1, (int) (ms / 1000.0f * kBins));
+        if (m_env.valid[(size_t) b])
+        {
+            const float gr = m_env.grDb[(size_t) b];
+            juce::StringArray rows;
+            rows.add (juce::String (juce::roundToInt (ms)) + " ms");
+            rows.add ("GR " + juce::String (gr, 2) + " dB");
+            drawCursorChip (g, { px, py, pw, ph }, cx, Y (juce::jlimit (0.0f, m_grHi, gr)),
+                            PnsTheme::kColorGainRed, rows, m_cursorLocked);
+        }
+    }
+
     g.setColour (PnsTheme::kBorderSubtle);
     g.drawRect (px, py, pw, ph, 1.0f);
 
@@ -2815,6 +2935,22 @@ void ThdSweepView::resized()
 void ThdSweepView::update()
 {
     m_proc.getThdSweep (m_thd);
+}
+
+void ThdSweepView::mouseMove (const juce::MouseEvent& e)
+{
+    if (m_cursorLocked) return;
+    m_cursorX = thdPlot (*this).contains (e.position) ? e.position.x : -1.0f;
+    repaint();
+}
+void ThdSweepView::mouseExit (const juce::MouseEvent&)
+{
+    if (! m_cursorLocked) { m_cursorX = -1.0f; repaint(); }
+}
+void ThdSweepView::mouseDown (const juce::MouseEvent& e)
+{
+    if (thdPlot (*this).contains (e.position))
+    { m_cursorX = e.position.x; m_cursorLocked = ! m_cursorLocked; repaint(); }
 }
 
 void ThdSweepView::paint (juce::Graphics& g)
@@ -2900,6 +3036,25 @@ void ThdSweepView::paint (juce::Graphics& g)
     const juce::Path path = buildPath (m_thd.thdPct, m_thd.valid, nValid);
     if (nValid > 1)
         PnsTheme::drawGlowLine (g, path, PnsTheme::kColorPostAvg, 1.5f);
+
+    // Cursor readout — frequency → THD %.
+    if (nValid > 1 && m_cursorX >= 0.0f)
+    {
+        const float cx = juce::jlimit (px, px + pw, m_cursorX);
+        const double t = (double) (cx - px) / pw;
+        const double f = (double) lo * std::pow ((double) hi / lo, t);
+        const int b = juce::jlimit (0, kBins - 1, (int) std::lround (t * (kBins - 1)));
+        if (m_thd.valid[(size_t) b])
+        {
+            const float pct = m_thd.thdPct[(size_t) b];
+            const juce::String fStr = (f >= 1000.0) ? juce::String (f / 1000.0, 2) + " kHz"
+                                                    : juce::String ((int) f) + " Hz";
+            juce::StringArray rows;
+            rows.add (fStr);
+            rows.add ("THD " + juce::String (pct, pct < 1.0f ? 2 : 1) + " %");
+            drawCursorChip (g, { px, py, pw, ph }, cx, Y (pct), PnsTheme::kColorPostAvg, rows, m_cursorLocked);
+        }
+    }
 
     g.setColour (PnsTheme::kBorderSubtle);
     g.drawRect (px, py, pw, ph, 1.0f);
