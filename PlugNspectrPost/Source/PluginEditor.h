@@ -310,13 +310,18 @@ public:
     bool isMeasureActive() const { return m_measureActive; }
     std::function<void()> onMeasureChanged;   // editor wires this to writeCmdBlock()
 
+    // Snapshot the current curves as a dimmed reference overlay (A/B compare).
+    void freezeForTest();
+
 private:
     static constexpr int kBins = PlugNspectrPostProcessor::kMeasBins;
 
     void drawPanel (juce::Graphics& g, juce::Rectangle<float> r, const char* title,
                     const std::array<float, kBins>& vals, float vMin, float vMax,
-                    const juce::String& unit, juce::Colour curve) const;
+                    const juce::String& unit, juce::Colour curve,
+                    const std::array<float, kBins>* frozen) const;
     float freqToX (double f, juce::Rectangle<float> r) const;
+    void doFreeze();
 
     PlugNspectrPostProcessor& m_proc;
 
@@ -327,7 +332,14 @@ private:
     int   m_latSamples = 0;                    // measured bulk latency (samples)
     float m_latMs      = 0.0f;                  // …in ms (compensated out of phase)
 
+    // Frozen reference (A/B compare)
+    bool m_hasFrozen = false;
+    std::array<float, kBins> m_frozenMag {};
+    std::array<float, kBins> m_frozenPhase {};
+    std::array<float, kBins> m_frozenGroup {};
+
     juce::TextButton m_measureBtn { "Measure" };
+    juce::TextButton m_freezeBtn  { "Freeze"  };
     bool m_measureActive = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LinearView)
@@ -426,8 +438,9 @@ public:
     void paint   (juce::Graphics& g) override;
     void resized ()                   override;
 
-    // Test seam for the offline render harness — select a tab programmatically.
-    void selectTabForTest (int index) { switchTab (index); }
+    // Test seams for the offline render harness.
+    void selectTabForTest   (int index) { switchTab (index); }
+    void freezeLinearForTest()          { m_linearView.freezeForTest(); }
 
 private:
     void timerCallback      () override;

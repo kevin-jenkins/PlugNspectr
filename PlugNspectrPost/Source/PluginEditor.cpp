@@ -2219,11 +2219,33 @@ LinearView::LinearView (PlugNspectrPostProcessor& p) : m_proc (p)
         repaint();
     };
     addAndMakeVisible (m_measureBtn);
+
+    // Freeze: snapshot the current curves as a dimmed A/B reference (toggle off
+    // to clear). Lets you compare two plugin settings / two plugins.
+    m_freezeBtn.onClick = [this]
+    {
+        if (m_hasFrozen) m_hasFrozen = false;
+        else             doFreeze();
+        repaint();
+    };
+    addAndMakeVisible (m_freezeBtn);
 }
+
+void LinearView::doFreeze()
+{
+    m_frozenMag   = m_meas.magDb;
+    m_frozenPhase = m_phaseDeg;
+    m_frozenGroup = m_groupMs;
+    m_hasFrozen   = (m_meas.frames > 0);
+}
+
+void LinearView::freezeForTest() { doFreeze(); repaint(); }
 
 void LinearView::resized()
 {
     m_measureBtn.setBounds (getWidth() - 90, PnsTheme::kPaddingSmall,
+                            78, PnsTheme::kButtonHeight);
+    m_freezeBtn .setBounds (getWidth() - 90 - 84, PnsTheme::kPaddingSmall,
                             78, PnsTheme::kButtonHeight);
 }
 
@@ -2290,7 +2312,8 @@ void LinearView::update()
 
 void LinearView::drawPanel (juce::Graphics& g, juce::Rectangle<float> r, const char* title,
                             const std::array<float, kBins>& vals, float vMin, float vMax,
-                            const juce::String& /*unit*/, juce::Colour curve) const
+                            const juce::String& /*unit*/, juce::Colour curve,
+                            const std::array<float, kBins>* frozen) const
 {
     constexpr float kML = 46.0f, kMR = 12.0f, kMT = 15.0f, kMB = 14.0f;
     const float px = r.getX() + kML, py = r.getY() + kMT;
@@ -2333,10 +2356,11 @@ void LinearView::drawPanel (juce::Graphics& g, juce::Rectangle<float> r, const c
                     28, 11, juce::Justification::centred);
     }
 
-    if (m_meas.frames > 0)
+    const double sr = (m_meas.sampleRate > 0.0) ? m_meas.sampleRate
+                                                 : (double) PlugNspectrPostProcessor::kMeasFftSize;
+    const int    N  = PlugNspectrPostProcessor::kMeasFftSize;
+    auto buildPath = [&] (const std::array<float, kBins>& v) -> juce::Path
     {
-        const double sr = m_meas.sampleRate;
-        const int    N  = PlugNspectrPostProcessor::kMeasFftSize;
         juce::Path path;
         bool started = false;
         for (int k = 1; k < kBins; ++k)
@@ -2344,12 +2368,22 @@ void LinearView::drawPanel (juce::Graphics& g, juce::Rectangle<float> r, const c
             const double f = (double) k * sr / N;
             if (f < 20.0 || f > 20000.0) continue;
             const float x = freqToX (f, plot);
-            const float y = juce::jlimit (py, py + ph, valToY (juce::jlimit (vMin, vMax, vals[k])));
+            const float y = juce::jlimit (py, py + ph, valToY (juce::jlimit (vMin, vMax, v[k])));
             if (! started) { path.startNewSubPath (x, y); started = true; }
             else             path.lineTo (x, y);
         }
-        PnsTheme::drawGlowLine (g, path, curve, 1.5f);
+        return path;
+    };
+
+    // Frozen reference first (dimmed grey), then the live curve over it.
+    if (frozen != nullptr)
+    {
+        g.setColour (PnsTheme::kTextSecondary.withAlpha (0.5f));
+        g.strokePath (buildPath (*frozen), juce::PathStrokeType (1.0f));
     }
+
+    if (m_meas.frames > 0)
+        PnsTheme::drawGlowLine (g, buildPath (vals), curve, 1.5f);
 
     g.setColour (PnsTheme::kBorderSubtle);
     g.drawRect (px, py, pw, ph, 1.0f);
@@ -2367,9 +2401,12 @@ void LinearView::paint (juce::Graphics& g)
     const auto  phR  = area.removeFromTop (h);
     const auto  gdR  = area;
 
-    drawPanel (g, magR, "MAGNITUDE (dB)",   m_meas.magDb, -48.0f,  12.0f, "dB",  PnsTheme::kColorPost);
-    drawPanel (g, phR,  "PHASE (deg)",      m_phaseDeg,  -180.0f, 180.0f, "deg", PnsTheme::kColorPostAvg);
-    drawPanel (g, gdR,  "GROUP DELAY (ms)", m_groupMs,    m_gdLo,  m_gdHi, "ms",  PnsTheme::kColorGainRed);
+    drawPanel (g, magR, "MAGNITUDE (dB)",   m_meas.magDb, -48.0f,  12.0f, "dB",  PnsTheme::kColorPost,
+               m_hasFrozen ? &m_frozenMag   : nullptr);
+    drawPanel (g, phR,  "PHASE (deg)",      m_phaseDeg,  -180.0f, 180.0f, "deg", PnsTheme::kColorPostAvg,
+               m_hasFrozen ? &m_frozenPhase : nullptr);
+    drawPanel (g, gdR,  "GROUP DELAY (ms)", m_groupMs,    m_gdLo,  m_gdHi, "ms",  PnsTheme::kColorGainRed,
+               m_hasFrozen ? &m_frozenGroup : nullptr);
 
     // Measured latency readout (de-rotated out of the phase/group-delay above).
     if (m_meas.frames > 0)
