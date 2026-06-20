@@ -314,9 +314,16 @@ public:
     void freezeForTest();
     void setMeasureForTest (bool on) { m_measureActive = on;
                                        m_measureBtn.setToggleState (on, juce::dontSendNotification); }
+    void setCursorForTest (int x) { m_cursorX = (float) x; m_cursorLocked = true; }
+
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
+    void mouseDown (const juce::MouseEvent&) override;
 
 private:
     static constexpr int kBins = PlugNspectrPostProcessor::kMeasBins;
+    float m_cursorX = -1.0f;     // hairline x in view coords (-1 = hidden)
+    bool  m_cursorLocked = false;
 
     void drawPanel (juce::Graphics& g, juce::Rectangle<float> r, const char* title,
                     const std::array<float, kBins>& vals, float vMin, float vMax,
@@ -458,6 +465,7 @@ public:
     void selectTabForTest     (int index) { switchTab (index); }
     void freezeLinearForTest()            { m_linearView.freezeForTest(); }
     void armMeasureForTest()              { m_linearView.setMeasureForTest (true); writeCmdBlock(); repaint(); }
+    void setLinearCursorForTest (int x)   { m_linearView.setCursorForTest (x); m_linearView.repaint(); }
     void freezeTransferForTest()          { m_transferView.freezeForTest(); }
     void freezeThdForTest()               { m_thdView.freezeForTest(); }
 

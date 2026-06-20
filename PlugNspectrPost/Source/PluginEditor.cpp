@@ -2311,6 +2311,39 @@ void LinearView::update()
     m_gdLo = gdLo - pad; m_gdHi = gdHi + pad;
 }
 
+// Hairline cursor: hover to read values; click to lock/unlock.
+static bool linearCursorInPlot (juce::Component& c, juce::Point<float> p, float& outX)
+{
+    auto a = c.getLocalBounds().toFloat().reduced (8.0f);
+    a.removeFromTop ((float) PnsTheme::kButtonHeight + 4.0f);
+    const float px = a.getX() + 46.0f, pw = a.getWidth() - 46.0f - 12.0f;
+    outX = p.x;
+    return (p.x >= px && p.x <= px + pw && p.y >= a.getY());
+}
+
+void LinearView::mouseMove (const juce::MouseEvent& e)
+{
+    if (m_cursorLocked) return;
+    float x; m_cursorX = linearCursorInPlot (*this, e.position, x) ? x : -1.0f;
+    repaint();
+}
+
+void LinearView::mouseExit (const juce::MouseEvent&)
+{
+    if (! m_cursorLocked) { m_cursorX = -1.0f; repaint(); }
+}
+
+void LinearView::mouseDown (const juce::MouseEvent& e)
+{
+    float x;
+    if (linearCursorInPlot (*this, e.position, x))
+    {
+        m_cursorX = x;
+        m_cursorLocked = ! m_cursorLocked;
+        repaint();
+    }
+}
+
 void LinearView::drawPanel (juce::Graphics& g, juce::Rectangle<float> r, const char* title,
                             const std::array<float, kBins>& vals, float vMin, float vMax,
                             const juce::String& /*unit*/, juce::Colour curve,
@@ -2408,6 +2441,64 @@ void LinearView::paint (juce::Graphics& g)
                m_hasFrozen ? &m_frozenPhase : nullptr);
     drawPanel (g, gdR,  "GROUP DELAY (ms)", m_groupMs,    m_gdLo,  m_gdHi, "ms",  PnsTheme::kColorGainRed,
                m_hasFrozen ? &m_frozenGroup : nullptr);
+
+    // ── Cursor readout — hairline across all panels + dot + value chip ─────
+    if (m_meas.frames > 0 && m_cursorX >= 0.0f)
+    {
+        constexpr float kML = 46.0f, kMR = 12.0f, kMT = 15.0f, kMB = 14.0f;
+        const float px = magR.getX() + kML, pw = magR.getWidth() - kML - kMR;
+        const float cx = juce::jlimit (px, px + pw, m_cursorX);
+        const double t  = (double) (cx - px) / pw;
+        const double f  = 20.0 * std::pow (1000.0, t);                 // inverse of freqToX
+        const double sr = (m_meas.sampleRate > 0.0) ? m_meas.sampleRate
+                                                    : (double) PlugNspectrPostProcessor::kMeasFftSize;
+        const int N = PlugNspectrPostProcessor::kMeasFftSize;
+        const int k = juce::jlimit (1, kBins - 1, (int) std::lround (f * N / sr));
+
+        struct P { juce::Rectangle<float> r; float v, vMin, vMax; juce::Colour col; };
+        const P panels[3] = {
+            { magR, m_meas.magDb[k], -48.0f,  12.0f, PnsTheme::kColorPost    },
+            { phR,  m_phaseDeg[k],  -180.0f, 180.0f, PnsTheme::kColorPostAvg },
+            { gdR,  m_groupMs[k],    m_gdLo,  m_gdHi, PnsTheme::kColorGainRed },
+        };
+        for (const auto& p : panels)
+        {
+            const float pyTop = p.r.getY() + kMT, ph2 = p.r.getHeight() - kMT - kMB;
+            g.setColour (PnsTheme::kAccentPrimary.withAlpha (0.45f));
+            g.drawVerticalLine (juce::roundToInt (cx), pyTop, pyTop + ph2);
+            const float y = pyTop + ph2 * (p.vMax - juce::jlimit (p.vMin, p.vMax, p.v)) / (p.vMax - p.vMin);
+            g.setColour (p.col);
+            g.fillEllipse (cx - 3.0f, y - 3.0f, 6.0f, 6.0f);
+        }
+
+        const juce::String fStr = (f >= 1000.0) ? juce::String (f / 1000.0, 2) + " kHz"
+                                                : juce::String ((int) f) + " Hz";
+        const juce::String rows[4] = {
+            fStr,
+            "mag  "  + juce::String (panels[0].v, 1) + " dB",
+            "phase " + juce::String (juce::roundToInt (panels[1].v)) + " deg",
+            "gd   "  + juce::String (panels[2].v, 2) + " ms" };
+        constexpr float boxW = 100.0f, boxH = 60.0f;
+        float bx = cx + 10.0f;
+        if (bx + boxW > magR.getRight()) bx = cx - 10.0f - boxW;
+        const float by = magR.getY() + kMT + 4.0f;
+        g.setColour (juce::Colour (10, 10, 10));
+        g.fillRect (bx, by, boxW, boxH);
+        g.setColour (PnsTheme::kAccentPrimary.withAlpha (0.7f));
+        g.drawRect (bx, by, boxW, boxH, 1.0f);
+        g.setFont (PnsTheme::fontLabel());
+        for (int i = 0; i < 4; ++i)
+        {
+            g.setColour (i == 0 ? PnsTheme::kTextPrimary : PnsTheme::kTextSecondary);
+            g.drawText (rows[i], juce::roundToInt (bx) + 6, juce::roundToInt (by) + 4 + i * 13,
+                        (int) boxW - 10, 12, juce::Justification::centredLeft);
+        }
+        if (m_cursorLocked)
+        {
+            g.setColour (PnsTheme::kAccentPrimary);
+            g.fillEllipse (bx + boxW - 12.0f, by + 4.0f, 5.0f, 5.0f);
+        }
+    }
 
     // Measured latency readout (de-rotated out of the phase/group-delay above).
     if (m_meas.frames > 0)
