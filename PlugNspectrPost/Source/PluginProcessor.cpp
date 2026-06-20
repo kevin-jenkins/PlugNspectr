@@ -483,6 +483,12 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 {
     juce::ScopedNoDenormals noDenormals;
 
+    // Track host transport so the editor can auto-stop a measurement stimulus
+    // when playback stops. Leave the last value if the host reports no playhead.
+    if (auto* ph = getPlayHead())
+        if (const auto pos = ph->getPosition())
+            m_transportPlaying.store (pos->getIsPlaying());
+
     if (m_pShared == nullptr)
         openSharedMemory();
 

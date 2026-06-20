@@ -318,6 +318,25 @@ int main (int argc, char* argv[])
     auto* editor = dynamic_cast<PlugNspectrPostEditor*> (editorBase.get());
     if (editor == nullptr) { std::cerr << "Failed to create editor\n"; return 1; }
 
+    // Transport-stop auto-defeat check (no rendering): arm a measure while the
+    // transport is "playing", then stop it and confirm the stimulus auto-disarms.
+    if (argc > 1 && juce::String (argv[1]) == "transport-test")
+    {
+        editor->setSize (1000, 640);
+        editor->selectTabForTest (4);
+        editor->armMeasureForTest();                                      // transport defaults to playing
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (60);   // settle (no edge yet)
+        const bool armed = editor->isStimulusActiveForTest();
+
+        proc.setTestTransportPlaying (false);                             // host stops the transport
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (60);   // timer sees play->stop edge
+        const bool afterStop = editor->isStimulusActiveForTest();
+
+        std::cout << "transport-test: armed=" << (armed ? "yes" : "no")
+                  << "  after stop=" << (afterStop ? "STILL ON (FAIL)" : "off (PASS)") << "\n";
+        return (armed && ! afterStop) ? 0 : 2;
+    }
+
     // Render modes feed a known plugin into the matching measurement tab.
     const bool linearRender   = (argc > 1 && juce::String (argv[1]) == "linear-render");
     const bool transferRender = (argc > 1 && juce::String (argv[1]) == "transfer-render");
