@@ -312,6 +312,8 @@ public:
 
     // Snapshot the current curves as a dimmed reference overlay (A/B compare).
     void freezeForTest();
+    void setMeasureForTest (bool on) { m_measureActive = on;
+                                       m_measureBtn.setToggleState (on, juce::dontSendNotification); }
 
 private:
     static constexpr int kBins = PlugNspectrPostProcessor::kMeasBins;
@@ -455,6 +457,7 @@ public:
     // Test seams for the offline render harness.
     void selectTabForTest     (int index) { switchTab (index); }
     void freezeLinearForTest()            { m_linearView.freezeForTest(); }
+    void armMeasureForTest()              { m_linearView.setMeasureForTest (true); writeCmdBlock(); repaint(); }
     void freezeTransferForTest()          { m_transferView.freezeForTest(); }
     void freezeThdForTest()               { m_thdView.freezeForTest(); }
 
@@ -465,14 +468,18 @@ private:
 
     PlugNspectrPostProcessor& audioProcessor;
 
-    juce::TextButton m_tabSpectrum     { "Spectrum"     };
-    juce::TextButton m_tabDynamics     { "Dynamics"     };
-    juce::TextButton m_tabOscilloscope { "Oscilloscope" };
-    juce::TextButton m_tabHarmonics    { "Harmonics"    };
-    juce::TextButton m_tabLinear       { "Linear"       };
-    juce::TextButton m_tabTransfer     { "Transfer"     };
-    juce::TextButton m_tabEnvelope     { "Envelope"     };
-    juce::TextButton m_tabThd          { "THD"          };
+    juce::TextButton m_tabSpectrum     { "Spectrum"        };
+    juce::TextButton m_tabDynamics     { "Dynamics"        };
+    juce::TextButton m_tabOscilloscope { "Oscilloscope"    };
+    juce::TextButton m_tabHarmonics    { "Harmonics"       };
+    juce::TextButton m_tabLinear       { "Freq Response"   };
+    juce::TextButton m_tabTransfer     { "Compression"     };
+    juce::TextButton m_tabEnvelope     { "Attack / Release"};
+    juce::TextButton m_tabThd          { "Distortion"      };
+
+    // Test-signal tabs (indices 3..7) sit on a recessed amber tray; the live
+    // tabs (0..2) sit plain to the left. Tray bounds computed in resized().
+    juce::Rectangle<int> m_trayBounds;
     int              m_activeTab   = 0;
     int              m_tickCounter = 0;
 
@@ -492,8 +499,12 @@ private:
     juce::Slider     m_footerLevelSlider;
     juce::TextButton m_footerToneBtn { "Test Tone" };
 
-    // Header channel selector — L / R / Mid / Side for all analysis.
-    juce::ComboBox   m_channelBox;
+    // Header channel selector — L / R / Mid / Side segmented control (all analysis).
+    juce::TextButton m_chL { "L" }, m_chR { "R" }, m_chM { "M" }, m_chS { "S" };
+
+    // True while any stimulus (test tone, noise, ramp, step, sweep) is being
+    // emitted — drives the amber "measuring" border + banner.
+    bool isStimulusActive() const;
 
     void openCmdMemory  ();
     void closeCmdMemory ();

@@ -2211,6 +2211,7 @@ void HarmonicsView::drawReadouts (juce::Graphics& g, juce::Rectangle<float> area
 LinearView::LinearView (PlugNspectrPostProcessor& p) : m_proc (p)
 {
     m_measureBtn.setClickingTogglesState (true);
+    m_measureBtn.getProperties().set ("armed", true);
     m_measureBtn.onClick = [this]
     {
         m_measureActive = m_measureBtn.getToggleState();
@@ -2434,6 +2435,7 @@ void LinearView::paint (juce::Graphics& g)
 TransferView::TransferView (PlugNspectrPostProcessor& p) : m_proc (p)
 {
     m_measureBtn.setClickingTogglesState (true);
+    m_measureBtn.getProperties().set ("armed", true);
     m_measureBtn.onClick = [this]
     {
         m_measureActive = m_measureBtn.getToggleState();
@@ -2571,6 +2573,7 @@ void TransferView::paint (juce::Graphics& g)
 EnvelopeView::EnvelopeView (PlugNspectrPostProcessor& p) : m_proc (p)
 {
     m_measureBtn.setClickingTogglesState (true);
+    m_measureBtn.getProperties().set ("armed", true);
     m_measureBtn.onClick = [this]
     {
         m_measureActive = m_measureBtn.getToggleState();
@@ -2683,6 +2686,7 @@ void EnvelopeView::paint (juce::Graphics& g)
 ThdSweepView::ThdSweepView (PlugNspectrPostProcessor& p) : m_proc (p)
 {
     m_measureBtn.setClickingTogglesState (true);
+    m_measureBtn.getProperties().set ("armed", true);
     m_measureBtn.onClick = [this]
     {
         m_measureActive = m_measureBtn.getToggleState();
@@ -2863,10 +2867,10 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     addAndMakeVisible (m_thdView);
 
     // Measure toggles re-publish the cmd block (stimulus on/off).
-    m_linearView.onMeasureChanged   = [this] { writeCmdBlock(); };
-    m_transferView.onMeasureChanged = [this] { writeCmdBlock(); };
-    m_envelopeView.onMeasureChanged = [this] { writeCmdBlock(); };
-    m_thdView.onMeasureChanged      = [this] { writeCmdBlock(); };
+    m_linearView.onMeasureChanged   = [this] { writeCmdBlock(); repaint(); };
+    m_transferView.onMeasureChanged = [this] { writeCmdBlock(); repaint(); };
+    m_envelopeView.onMeasureChanged = [this] { writeCmdBlock(); repaint(); };
+    m_thdView.onMeasureChanged      = [this] { writeCmdBlock(); repaint(); };
 
     // ── Global footer — frequency knob ────────────────────────────────────
     m_footerFreqSlider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
@@ -2898,6 +2902,7 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
 
     // ── Global footer — test tone button ──────────────────────────────────
     m_footerToneBtn.setToggleable (true);
+    m_footerToneBtn.getProperties().set ("armed", true);
     m_footerToneBtn.setToggleState (false, juce::dontSendNotification);
     m_footerToneBtn.onClick = [this]
     {
@@ -2909,25 +2914,31 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     };
     addAndMakeVisible (m_footerToneBtn);
 
-    // ── Header — L/R/Mid/Side channel selector (applies to all analysis) ───
-    m_channelBox.addItem ("Left",  1);
-    m_channelBox.addItem ("Right", 2);
-    m_channelBox.addItem ("Mid",   3);
-    m_channelBox.addItem ("Side",  4);
-    m_channelBox.setSelectedId (audioProcessor.getChannelMode() + 1, juce::dontSendNotification);
-    m_channelBox.onChange = [this]
+    // ── Header — L/R/Mid/Side segmented channel selector (all analysis) ────
     {
-        audioProcessor.setChannelMode (m_channelBox.getSelectedId() - 1);
-    };
-    addAndMakeVisible (m_channelBox);
+        juce::TextButton* segs[4] = { &m_chL, &m_chR, &m_chM, &m_chS };
+        const char* tip[4] = { "Left", "Right", "Mid (L+R)/2", "Side (L-R)/2" };
+        for (int i = 0; i < 4; ++i)
+        {
+            segs[i]->setClickingTogglesState (true);
+            segs[i]->setRadioGroupId (7001);
+            segs[i]->setTooltip (tip[i]);
+            segs[i]->setColour (juce::TextButton::buttonOnColourId,  PnsTheme::kAccentPrimary.withAlpha (0.22f));
+            segs[i]->setColour (juce::TextButton::textColourOnId,    PnsTheme::kAccentPrimary);
+            segs[i]->setColour (juce::TextButton::textColourOffId,   PnsTheme::kTextSecondary);
+            segs[i]->onClick = [this, i] { audioProcessor.setChannelMode (i); };
+            addAndMakeVisible (segs[i]);
+        }
+        segs[juce::jlimit (0, 3, audioProcessor.getChannelMode())]->setToggleState (true, juce::dontSendNotification);
+    }
 
     openCmdMemory();
 
     switchTab (0);
 
-    setSize (800, 576);   // +36px for footer
+    setSize (900, 576);   // wider for the renamed tabs; +36px footer
     setResizable (true, true);
-    setResizeLimits (640, 486, 2000, 1436);   // 640 fits the 8-tab bar
+    setResizeLimits (820, 486, 2000, 1436);   // 820 fits the renamed 8-tab bar
     startTimerHz (60);
 }
 
@@ -2997,6 +3008,16 @@ void PlugNspectrPostEditor::writeCmdBlock()
                                                                                        : 0u;
 }
 
+bool PlugNspectrPostEditor::isStimulusActive() const
+{
+    if (m_toneActive) return true;
+    if (m_activeTab == 4 && m_linearView  .isMeasureActive()) return true;
+    if (m_activeTab == 5 && m_transferView.isMeasureActive()) return true;
+    if (m_activeTab == 6 && m_envelopeView.isMeasureActive()) return true;
+    if (m_activeTab == 7 && m_thdView     .isMeasureActive()) return true;
+    return false;
+}
+
 //==============================================================================
 void PlugNspectrPostEditor::timerCallback()
 {
@@ -3051,6 +3072,14 @@ void PlugNspectrPostEditor::timerCallback()
 //==============================================================================
 void PlugNspectrPostEditor::paintOverChildren (juce::Graphics& g)
 {
+    // Amber "measuring" border around the whole window whenever a test signal
+    // is being emitted — an unmissable cue that the audio is being replaced.
+    if (isStimulusActive())
+    {
+        g.setColour (PnsTheme::kColorPostAvg);
+        g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (1.5f), 6.0f, 3.0f);
+    }
+
     if (m_overlayAlpha < 0.005f) return;
 
     const float alpha = m_overlayAlpha;
@@ -3268,10 +3297,46 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
                 getWidth() - marginR2 - 40, (hH - 12) / 2, 40, 12,
                 juce::Justification::centredRight);
 
+    // "CH" label left of the L/R/M/S segmented selector
+    g.drawText ("CH", m_chL.getX() - 26, (hH - 12) / 2, 22, 12, juce::Justification::centredRight);
+
+    // ── Test-signal tray — recessed amber group behind the test-signal tabs ─
+    {
+        const auto tray = m_trayBounds.toFloat();
+        g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.07f));
+        g.fillRoundedRectangle (tray, 5.0f);
+        g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.55f));
+        g.fillRect (tray.getX(), tray.getY(), tray.getWidth(), 2.0f);
+        g.setColour (PnsTheme::kColorPostAvg);
+        g.fillEllipse (tray.getX() + 7.0f, tray.getCentreY() - 3.0f, 6.0f, 6.0f);
+    }
+
     // ── Tab bar bottom border ─────────────────────────────────────────────
     constexpr int tbBottom = hH + PnsTheme::kTabBarHeight;
     g.setColour (PnsTheme::kBorderSubtle);
     g.drawHorizontalLine (tbBottom - 1, 0.0f, (float) getWidth());
+
+    // ── Measuring banner — reserved strip below the tab bar ────────────────
+    {
+        constexpr int kBannerH = 20;
+        if (isStimulusActive())
+        {
+            g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.16f));
+            g.fillRect (0, tbBottom, getWidth(), kBannerH);
+            g.setColour (PnsTheme::kColorPostAvg);
+            g.fillRect (0, tbBottom, 4, kBannerH);
+            g.fillEllipse (16.0f, (float) tbBottom + (float) kBannerH * 0.5f - 3.0f, 6.0f, 6.0f);
+            g.setFont (PnsTheme::fontLabel());
+            g.setColour (PnsTheme::kColorPostAvg);
+            g.drawText ("Measuring - your audio is replaced by a test signal. Auto-stops when you leave this tab.",
+                        30, tbBottom, getWidth() - 40, kBannerH, juce::Justification::centredLeft);
+        }
+        else
+        {
+            g.setColour (PnsTheme::kBorderSubtle);
+            g.drawHorizontalLine (tbBottom + kBannerH - 1, 0.0f, (float) getWidth());
+        }
+    }
 
     // ── Footer bar ────────────────────────────────────────────────────────
     constexpr int kFooterH = 36;
@@ -3329,26 +3394,44 @@ void PlugNspectrPostEditor::resized()
 {
     constexpr int hH     = PnsTheme::kHeaderHeight;
     constexpr int tbH    = PnsTheme::kTabBarHeight;
-    constexpr int kTabW  = 74;
-    constexpr int kTabWO = 98;    // wider for "Oscilloscope"
+    constexpr int kBannerH = 20;   // reserved strip below the tab bar (measuring banner)
 
-    m_tabSpectrum    .setBounds (0,                       hH, kTabW,  tbH);
-    m_tabDynamics    .setBounds (kTabW,                   hH, kTabW,  tbH);
-    m_tabOscilloscope.setBounds (kTabW * 2,               hH, kTabWO, tbH);
-    m_tabHarmonics   .setBounds (kTabW * 2 + kTabWO,      hH, kTabW,  tbH);
-    m_tabLinear      .setBounds (kTabW * 3 + kTabWO,      hH, kTabW,  tbH);
-    m_tabTransfer    .setBounds (kTabW * 4 + kTabWO,      hH, kTabW,  tbH);
-    m_tabEnvelope    .setBounds (kTabW * 5 + kTabWO,      hH, kTabW,  tbH);
-    m_tabThd         .setBounds (kTabW * 6 + kTabWO,      hH, kTabW,  tbH);
+    // Variable-width tabs: live group (left), then test-signal group on the
+    // amber tray. Width = label width + padding so the renamed tabs all fit.
+    auto tabW = [] (juce::TextButton& b)
+    {
+        juce::GlyphArrangement ga;
+        ga.addLineOfText (PnsTheme::fontPrimary(), b.getButtonText(), 0.0f, 0.0f);
+        return (int) std::ceil (ga.getBoundingBox (0, -1, true).getWidth()) + 22;
+    };
+    int x = 8;
+    auto place = [&] (juce::TextButton& b) { const int w = tabW (b); b.setBounds (x, hH, w, tbH); x += w; };
 
-    // Channel selector in the header, just left of the "v1.0" version text.
-    m_channelBox.setBounds (getWidth() - PnsTheme::kPaddingMid - 40 - 8 - 92,
-                            (hH - 22) / 2, 92, 22);
+    place (m_tabSpectrum); place (m_tabDynamics); place (m_tabOscilloscope);
+
+    constexpr int trayGap = 12, trayPadL = 18, trayPadR = 10;
+    x += trayGap;
+    const int trayLeft = x;
+    x += trayPadL;
+    place (m_tabHarmonics); place (m_tabLinear); place (m_tabTransfer);
+    place (m_tabEnvelope);  place (m_tabThd);
+    m_trayBounds = { trayLeft, hH, (x + trayPadR) - trayLeft, tbH };
+
+    // Segmented L/R/M/S selector in the header, left of the version text.
+    {
+        constexpr int segW = 28, segH = 22;
+        const int segRight = getWidth() - PnsTheme::kPaddingMid - 40 - 8;
+        const int segTop   = (hH - segH) / 2;
+        m_chL.setBounds (segRight - segW * 4, segTop, segW, segH);
+        m_chR.setBounds (segRight - segW * 3, segTop, segW, segH);
+        m_chM.setBounds (segRight - segW * 2, segTop, segW, segH);
+        m_chS.setBounds (segRight - segW,     segTop, segW, segH);
+    }
 
     constexpr int kFooterH = 36;
     const int W = getWidth(), H = getHeight();
 
-    const auto content = getLocalBounds().withTrimmedTop (hH + tbH).withTrimmedBottom (kFooterH);
+    const auto content = getLocalBounds().withTrimmedTop (hH + tbH + kBannerH).withTrimmedBottom (kFooterH);
     m_specView  .setBounds (content);
     m_dynView   .setBounds (content);
     m_oscView   .setBounds (content);

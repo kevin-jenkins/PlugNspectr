@@ -327,6 +327,7 @@ int main (int argc, char* argv[])
     editor->setSize (1000, 640);
     editor->selectTabForTest (linearRender ? 4 : transferRender ? 5 : envelopeRender ? 6
                               : thdRender ? 7 : 1);
+    if (linearRender) editor->armMeasureForTest();   // show the measuring border/banner
 
     juce::PNGImageFormat png;
     double phase = 0.0;
