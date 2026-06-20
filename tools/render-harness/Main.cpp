@@ -328,7 +328,10 @@ int main (int argc, char* argv[])
     editor->selectTabForTest (linearRender ? 4 : transferRender ? 5 : envelopeRender ? 6
                               : thdRender ? 7 : 1);
     if (linearRender) editor->armMeasureForTest();   // show the measuring border/banner
-    if (linearRender) editor->setLinearCursorForTest (700);   // hairline ~3 kHz
+    if (linearRender)   editor->setLinearCursorForTest (700);    // hairline ~3 kHz
+    if (transferRender) editor->setTransferCursorForTest (520);  // ~-15 dB input
+    if (envelopeRender) editor->setEnvelopeCursorForTest (560);  // ~mid attack
+    if (thdRender)      editor->setThdCursorForTest (560);       // ~1 kHz
 
     juce::PNGImageFormat png;
     double phase = 0.0;
