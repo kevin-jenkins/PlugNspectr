@@ -85,6 +85,7 @@ void PlugNspectrPostProcessor::prepareToPlay (double sampleRate, int samplesPerB
 
     resetMeasurement();
     resetDynamics();
+    resetEnvelope();
 }
 
 void PlugNspectrPostProcessor::releaseResources()
@@ -321,6 +322,74 @@ void PlugNspectrPostProcessor::injectDynamicsBlock (const float* pre, const floa
 }
 
 //==============================================================================
+// Attack/release envelope: short-window gain reduction (in dB) binned by the
+// Pre stimulus's cycle phase, so repeated step cycles synchronously average.
+void PlugNspectrPostProcessor::pushEnvelopeSamples (const float* pre, const float* post,
+                                                    int n, uint32_t envPosAtStart)
+{
+    if (pre == nullptr || post == nullptr) return;
+    const double sr = (m_measSampleRate > 0.0) ? m_measSampleRate : getSampleRate();
+    if (sr <= 0.0) return;
+
+    const uint32_t period = juce::jmax (1u, (uint32_t) sr);   // 1 s cycle
+    constexpr double kDecay = 0.85;
+    m_envPos = envPosAtStart % period;
+
+    for (int i = 0; i < n; ++i)
+    {
+        m_envSumSqPre  += (double) pre [i] * pre [i];
+        m_envSumSqPost += (double) post[i] * post[i];
+        if (++m_envPos >= period) m_envPos = 0;
+
+        if (++m_envWinCount < kEnvWin) continue;
+
+        const double preRms  = std::sqrt (m_envSumSqPre  / kEnvWin);
+        const double postRms = std::sqrt (m_envSumSqPost / kEnvWin);
+        m_envSumSqPre = m_envSumSqPost = 0.0;
+        m_envWinCount = 0;
+
+        const double inDb  = 20.0 * std::log10 (juce::jmax (preRms,  1.0e-7));
+        const double outDb = 20.0 * std::log10 (juce::jmax (postRms, 1.0e-7));
+        if (inDb < -70.0) continue;                 // no stimulus present
+        const double gr = inDb - outDb;             // gain reduction (dB, +)
+
+        const int b = juce::jlimit (0, kEnvBins - 1,
+                                    (int) ((uint64_t) m_envPos * kEnvBins / period));
+
+        juce::ScopedLock sl (m_envLock);
+        if (m_envValid[b]) m_envGrDb[b] = (float) (m_envGrDb[b] * kDecay + gr * (1.0 - kDecay));
+        else             { m_envGrDb[b] = (float) gr; m_envValid[b] = 1; }
+    }
+}
+
+void PlugNspectrPostProcessor::getEnvelope (EnvResult& out) const
+{
+    juce::ScopedLock sl (m_envLock);
+    out.sampleRate = (m_measSampleRate > 0.0) ? m_measSampleRate : getSampleRate();
+    for (int b = 0; b < kEnvBins; ++b)
+    {
+        out.grDb[b]  = m_envGrDb[b];
+        out.valid[b] = (m_envValid[b] != 0);
+    }
+}
+
+void PlugNspectrPostProcessor::resetEnvelope()
+{
+    juce::ScopedLock sl (m_envLock);
+    m_envGrDb.fill (0.0f);
+    m_envValid.fill (0);
+    m_envSumSqPre = m_envSumSqPost = 0.0;
+    m_envWinCount = 0;
+    m_envPos = 0;
+}
+
+void PlugNspectrPostProcessor::injectEnvelopeBlock (const float* pre, const float* post,
+                                                    int n, uint32_t envPosAtStart)
+{
+    pushEnvelopeSamples (pre, post, n, envPosAtStart);
+}
+
+//==============================================================================
 void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                              juce::MidiBuffer& /*midiMessages*/)
 {
@@ -374,6 +443,10 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         // ── Dynamics transfer-curve measurement (input vs output level) ───
         pushDynamicsSamples (m_pShared->preData[0],
                              buffer.getReadPointer (0), measN);
+
+        // ── Attack/release envelope (GR vs time over the step cycle) ──────
+        pushEnvelopeSamples (m_pShared->preData[0],
+                             buffer.getReadPointer (0), measN, m_pShared->dynEnvPos);
     }
 
     // ── RMS for dynamics display ───────────────────────────────────────────

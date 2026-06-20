@@ -163,8 +163,41 @@ void PlugNspectrPreProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const bool toneActive    = (m_pCmd != nullptr && m_pCmd->testToneActive != 0);
     const bool measureActive = (m_pCmd != nullptr && m_pCmd->measureActive  != 0);
     const bool dynRamp       = (m_pCmd != nullptr && m_pCmd->dynMeasureMode == 1);
+    const bool dynStep       = (m_pCmd != nullptr && m_pCmd->dynMeasureMode == 2);
 
-    if (dynRamp && ! toneActive)
+    if (dynStep && ! toneActive)
+    {
+        // Level-stepped 1 kHz sine for attack/release measurement: HIGH (-10 dBFS)
+        // for the first half-second of a 1 s cycle (step up → attack), LOW
+        // (-40 dBFS) for the second half (step down → release). The cycle position
+        // is published so Post can synchronously average GR vs time.
+        const double sr       = getSampleRate();
+        const double phaseInc = (2.0 * juce::MathConstants<double>::pi * 1000.0) / sr;
+        const double period   = 1.0 * sr;
+        const double half     = period * 0.5;
+        const int    numCh    = buffer.getNumChannels();
+        const int    numSmp   = buffer.getNumSamples();
+
+        m_dynEnvBlockStart = (uint32_t) m_dynRampPhase;   // reuse ramp counter as cycle pos
+
+        float* ch0 = buffer.getWritePointer (0);
+        for (int i = 0; i < numSmp; ++i)
+        {
+            m_tonePhase += phaseInc;
+            if (m_tonePhase > juce::MathConstants<double>::twoPi) m_tonePhase -= juce::MathConstants<double>::twoPi;
+
+            const double levelDb = (m_dynRampPhase < half) ? -10.0 : -40.0;
+            const double amp     = std::pow (10.0, levelDb / 20.0);
+            ch0[i] = (float) (amp * std::sin (m_tonePhase));
+
+            m_dynRampPhase += 1.0;
+            if (m_dynRampPhase >= period) m_dynRampPhase = 0.0;
+        }
+        for (int ch = 1; ch < numCh; ++ch)
+            std::memcpy (buffer.getWritePointer (ch), ch0,
+                         static_cast<size_t> (numSmp) * sizeof (float));
+    }
+    else if (dynRamp && ! toneActive)
     {
         // Level-ramped 1 kHz sine: amplitude sweeps -60 → 0 dBFS over 6 s and
         // repeats. Slow enough for a compressor to settle, so Post can plot the
@@ -253,6 +286,7 @@ void PlugNspectrPreProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                          static_cast<size_t> (numSmp) * sizeof (float));
         }
 
+        m_pShared->dynEnvPos = m_dynEnvBlockStart;
         ++m_pShared->writeCount;
         m_pShared->preLastHeartbeat = juce::Time::getMillisecondCounter();
     }

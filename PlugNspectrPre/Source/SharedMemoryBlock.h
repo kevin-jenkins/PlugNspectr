@@ -35,6 +35,7 @@ struct PNS_SharedBlock
     volatile uint32_t writeCount;        // incremented by Pre after every block write
     volatile uint32_t preLastHeartbeat;  // set by Pre each processBlock (ms counter)
     volatile uint32_t postLastHeartbeat; // set by Post each processBlock (ms counter)
+    volatile uint32_t dynEnvPos;         // Pre's envelope-stimulus position (samples into cycle)
     float             preData[kPNS_MaxChannels][kPNS_MaxSamplesPerBlock];
 };
 #pragma pack(pop)

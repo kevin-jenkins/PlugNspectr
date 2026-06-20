@@ -35,6 +35,10 @@ public:
     static constexpr float kDynBinW  = 0.5f;
     static constexpr int   kDynBins  = 121;
 
+    // Attack/release envelope: gain reduction vs time, synchronously averaged
+    // over a 1 s level-step cycle (250 bins → 4 ms resolution).
+    static constexpr int   kEnvBins  = 250;
+
     //==========================================================================
     // Thread-safe snapshot of the most recent pre + post audio block.
     struct CaptureBufs
@@ -133,6 +137,19 @@ public:
     void resetDynamics ();
     void injectDynamicsBlock (const float* pre, const float* post, int n);
 
+    //==========================================================================
+    // Attack/release envelope — gain reduction (Pre−Post level) vs time, phase-
+    // aligned to Pre's level-step cycle and synchronously averaged.
+    struct EnvResult
+    {
+        std::array<float, kEnvBins> grDb  {};   // gain reduction (dB) per time bin
+        std::array<bool,  kEnvBins> valid {};
+        double sampleRate = 0.0;
+    };
+    void getEnvelope (EnvResult& out) const;
+    void resetEnvelope ();
+    void injectEnvelopeBlock (const float* pre, const float* post, int n, uint32_t envPosAtStart);
+
     // Returns true if PlugNspectrPre has set a heartbeat within the last 500ms.
     bool isPreActive() const
     {
@@ -226,6 +243,19 @@ private:
     mutable juce::CriticalSection        m_dynLock;
 
     void pushDynamicsSamples (const float* pre, const float* post, int n);
+
+    //==========================================================================
+    // Attack/release envelope engine — short-window GR binned by cycle phase.
+    static constexpr int                 kEnvWin = 128;   // level-follower window
+    double                               m_envSumSqPre  = 0.0;
+    double                               m_envSumSqPost = 0.0;
+    int                                  m_envWinCount  = 0;
+    uint32_t                             m_envPos = 0;     // current cycle position (samples)
+    std::array<float,   kEnvBins>        m_envGrDb {};
+    std::array<uint8_t, kEnvBins>        m_envValid {};
+    mutable juce::CriticalSection        m_envLock;
+
+    void pushEnvelopeSamples (const float* pre, const float* post, int n, uint32_t envPosAtStart);
 
     void pushSamplesToAccum (const float* src, int count,
                              std::array<float, kFftSize>& accum,

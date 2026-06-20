@@ -360,7 +360,34 @@ private:
 };
 
 //==============================================================================
-// Main editor — dark tab bar + six views
+// Envelope view — measured attack/release (gain reduction vs time)
+//==============================================================================
+class EnvelopeView : public juce::Component
+{
+public:
+    explicit EnvelopeView (PlugNspectrPostProcessor& p);
+    void paint   (juce::Graphics& g) override;
+    void resized ()                   override;
+    void update  ();
+
+    bool isMeasureActive() const { return m_measureActive; }
+    std::function<void()> onMeasureChanged;
+
+private:
+    static constexpr int kBins = PlugNspectrPostProcessor::kEnvBins;
+
+    PlugNspectrPostProcessor& m_proc;
+    PlugNspectrPostProcessor::EnvResult m_env;
+    float m_grHi = 6.0f;   // auto-scaled GR range top
+
+    juce::TextButton m_measureBtn { "Measure" };
+    bool m_measureActive = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EnvelopeView)
+};
+
+//==============================================================================
+// Main editor — dark tab bar + seven views
 //==============================================================================
 class PlugNspectrPostEditor : public juce::AudioProcessorEditor,
                               private juce::Timer
@@ -388,6 +415,7 @@ private:
     juce::TextButton m_tabHarmonics    { "Harmonics"    };
     juce::TextButton m_tabLinear       { "Linear"       };
     juce::TextButton m_tabTransfer     { "Transfer"     };
+    juce::TextButton m_tabEnvelope     { "Envelope"     };
     int              m_activeTab   = 0;
     int              m_tickCounter = 0;
 
@@ -417,6 +445,7 @@ private:
     HarmonicsView     m_harmView;
     LinearView        m_linearView;
     TransferView      m_transferView;
+    EnvelopeView      m_envelopeView;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PlugNspectrPostEditor)
 };
