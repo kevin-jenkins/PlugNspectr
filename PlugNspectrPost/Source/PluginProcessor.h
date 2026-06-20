@@ -39,6 +39,11 @@ public:
     // over a 1 s level-step cycle (250 bins → 4 ms resolution).
     static constexpr int   kEnvBins  = 250;
 
+    // THD-vs-frequency sweep: %THD measured per log-frequency bin (50 Hz..5 kHz).
+    static constexpr int   kThdBins = 120;
+    static constexpr float kThdLoHz = 50.0f;
+    static constexpr float kThdHiHz = 5000.0f;
+
     //==========================================================================
     // Thread-safe snapshot of the most recent pre + post audio block.
     struct CaptureBufs
@@ -150,6 +155,19 @@ public:
     void resetEnvelope ();
     void injectEnvelopeBlock (const float* pre, const float* post, int n, uint32_t envPosAtStart);
 
+    //==========================================================================
+    // THD vs frequency — total harmonic distortion of the Post signal measured
+    // per log-frequency bin as Pre sweeps a tone across the spectrum.
+    struct ThdResult
+    {
+        std::array<float, kThdBins> thdPct {};   // %THD per frequency bin
+        std::array<bool,  kThdBins> valid  {};
+        double sampleRate = 0.0;
+    };
+    void getThdSweep (ThdResult& out) const;
+    void resetThdSweep ();
+    void injectThdSweepBlock (const float* post, int n, double fundamentalHz);
+
     // Returns true if PlugNspectrPre has set a heartbeat within the last 500ms.
     bool isPreActive() const
     {
@@ -256,6 +274,18 @@ private:
     mutable juce::CriticalSection        m_envLock;
 
     void pushEnvelopeSamples (const float* pre, const float* post, int n, uint32_t envPosAtStart);
+
+    //==========================================================================
+    // THD-vs-frequency engine — frame the Post signal, FFT, pick harmonic peaks.
+    std::array<float, kMeasFftSize>      m_thdAccum {};
+    int                                  m_thdPos = 0;
+    std::array<float, 2 * kMeasFftSize>  m_thdWork {};
+    double                               m_thdLastFundHz = 0.0;
+    std::array<float,   kThdBins>        m_thdPct {};
+    std::array<uint8_t, kThdBins>        m_thdValid {};
+    mutable juce::CriticalSection        m_thdLock;
+
+    void pushThdSweepSamples (const float* post, int n, double fundamentalHz);
 
     void pushSamplesToAccum (const float* src, int count,
                              std::array<float, kFftSize>& accum,

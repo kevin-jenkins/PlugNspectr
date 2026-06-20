@@ -230,6 +230,50 @@ void runEnvelopeTest (PlugNspectrPostProcessor& proc)
               << "  GR@900ms=" << at (900) << " (exp ~0)"
               << "  GR@600ms=" << at (600) << " (exp ~1.8, 1 rel TC)\n";
 }
+
+// ── THD-vs-frequency verification ───────────────────────────────────────────
+// Sweep a tone with a fixed 5% 2nd harmonic and check the measured THD per freq.
+void runThdTest (PlugNspectrPostProcessor& proc)
+{
+    constexpr double sr  = kSampleRate;
+    constexpr int    blk = kBlock;
+    const double pi = juce::MathConstants<double>::pi;
+    const double a  = 0.05;                          // 2nd-harmonic amplitude → 5% THD
+
+    proc.resetThdSweep();
+    std::vector<float> post ((size_t) blk);
+    double ph = 0.0;
+
+    for (int pass = 0; pass < 3; ++pass)
+        for (int s = 0; s < 100; ++s)
+        {
+            const double f   = 50.0 * std::pow (100.0, (double) s / 99.0);   // 50..5000 Hz log
+            const double inc = 2.0 * pi * f / sr;
+            for (int blkN = 0; blkN < 4; ++blkN)        // hold each frequency for 4 blocks
+            {
+                for (int i = 0; i < blk; ++i)
+                {
+                    ph += inc; if (ph > 2.0 * pi) ph -= 2.0 * pi;
+                    post[(size_t) i] = (float) (std::sin (ph) + a * std::sin (2.0 * ph));
+                }
+                proc.injectThdSweepBlock (post.data(), blk, f);
+            }
+        }
+
+    PlugNspectrPostProcessor::ThdResult r;
+    proc.getThdSweep (r);
+    auto at = [&] (double f)
+    {
+        const double t = std::log (f / (double) PlugNspectrPostProcessor::kThdLoHz)
+                       / std::log ((double) PlugNspectrPostProcessor::kThdHiHz
+                                   / PlugNspectrPostProcessor::kThdLoHz);
+        const int b = juce::jlimit (0, PlugNspectrPostProcessor::kThdBins - 1,
+                                    (int) std::lround (t * (PlugNspectrPostProcessor::kThdBins - 1)));
+        return r.valid[(size_t) b] ? r.thdPct[(size_t) b] : -999.0f;
+    };
+    std::cout << "[THD 5% 2nd harm]  @100=" << at (100) << "  @500=" << at (500)
+              << "  @1k=" << at (1000) << "  @3k=" << at (3000) << "  (exp ~5.0%)\n";
+}
 }
 
 int main (int argc, char* argv[])
@@ -264,6 +308,11 @@ int main (int argc, char* argv[])
         runEnvelopeTest (proc);
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "thdtest")
+    {
+        runThdTest (proc);
+        return 0;
+    }
 
     std::unique_ptr<juce::AudioProcessorEditor> editorBase (proc.createEditor());
     auto* editor = dynamic_cast<PlugNspectrPostEditor*> (editorBase.get());
@@ -273,9 +322,11 @@ int main (int argc, char* argv[])
     const bool linearRender   = (argc > 1 && juce::String (argv[1]) == "linear-render");
     const bool transferRender = (argc > 1 && juce::String (argv[1]) == "transfer-render");
     const bool envelopeRender = (argc > 1 && juce::String (argv[1]) == "envelope-render");
+    const bool thdRender      = (argc > 1 && juce::String (argv[1]) == "thd-render");
 
     editor->setSize (1000, 640);
-    editor->selectTabForTest (linearRender ? 4 : transferRender ? 5 : envelopeRender ? 6 : 1);
+    editor->selectTabForTest (linearRender ? 4 : transferRender ? 5 : envelopeRender ? 6
+                              : thdRender ? 7 : 1);
 
     juce::PNGImageFormat png;
     double phase = 0.0;
@@ -287,10 +338,25 @@ int main (int argc, char* argv[])
     std::array<float, kDelay> dl {}; int dp = 0;
     double trPhase = 0.0; int trStep = 0;      // transfer-curve level sweep state
     double enPhase = 0.0, enGr = 0.0; uint32_t enPos = 0;   // envelope step + compressor state
+    double thdPh = 0.0; int thdStep = 0;       // THD sweep state (5% 2nd-harmonic plugin)
 
     for (int f = 0; f < numFrames; ++f)
     {
-        if (envelopeRender)
+        if (thdRender)
+        {
+            std::vector<float> pre ((size_t) kBlock), post ((size_t) kBlock);
+            const double fHz = 50.0 * std::pow (100.0, (double) ((thdStep / 3) % 100) / 99.0);
+            const double inc = 2.0 * juce::MathConstants<double>::pi * fHz / kSampleRate;
+            for (int i = 0; i < kBlock; ++i)
+            {
+                thdPh += inc; if (thdPh > 2.0 * juce::MathConstants<double>::pi) thdPh -= 2.0 * juce::MathConstants<double>::pi;
+                const float s = (float) (0.25 * (std::sin (thdPh) + 0.05 * std::sin (2.0 * thdPh)));
+                pre[(size_t) i] = s; post[(size_t) i] = s;
+            }
+            proc.injectThdSweepBlock (post.data(), kBlock, fHz);
+            ++thdStep;
+        }
+        else if (envelopeRender)
         {
             // Level-step sine → compressor (T=-20, 2:1, attack 10ms, release 100ms).
             std::vector<float> pre ((size_t) kBlock), post ((size_t) kBlock);

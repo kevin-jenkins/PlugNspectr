@@ -2608,6 +2608,112 @@ void EnvelopeView::paint (juce::Graphics& g)
 }
 
 //==============================================================================
+// ThdSweepView — total harmonic distortion vs frequency (log-log)
+//==============================================================================
+ThdSweepView::ThdSweepView (PlugNspectrPostProcessor& p) : m_proc (p)
+{
+    m_measureBtn.setClickingTogglesState (true);
+    m_measureBtn.onClick = [this]
+    {
+        m_measureActive = m_measureBtn.getToggleState();
+        m_proc.resetThdSweep();
+        if (onMeasureChanged) onMeasureChanged();
+        repaint();
+    };
+    addAndMakeVisible (m_measureBtn);
+}
+
+void ThdSweepView::resized()
+{
+    m_measureBtn.setBounds (getWidth() - 90, PnsTheme::kPaddingSmall,
+                            78, PnsTheme::kButtonHeight);
+}
+
+void ThdSweepView::update()
+{
+    m_proc.getThdSweep (m_thd);
+}
+
+void ThdSweepView::paint (juce::Graphics& g)
+{
+    g.fillAll (PnsTheme::kBgDark);
+
+    auto area = getLocalBounds().toFloat().reduced (8.0f);
+    area.removeFromTop ((float) PnsTheme::kButtonHeight + 4.0f);
+
+    constexpr float kML = 46.0f, kMR = 12.0f, kMT = 16.0f, kMB = 20.0f;
+    const float px = area.getX() + kML, py = area.getY() + kMT;
+    const float pw = area.getWidth() - kML - kMR, ph = area.getHeight() - kMT - kMB;
+    if (pw <= 0 || ph <= 0) return;
+
+    const float lo = PlugNspectrPostProcessor::kThdLoHz, hi = PlugNspectrPostProcessor::kThdHiHz;
+    auto X = [&] (double f) { return px + pw * (float) (std::log (juce::jlimit ((double) lo, (double) hi, f) / lo)
+                                                        / std::log ((double) hi / lo)); };
+    // Log-% Y axis: 0.001% (bottom) .. 100% (top), 5 decades.
+    constexpr float yHi = 2.0f, yLo = -3.0f;
+    auto Y = [&] (float pct) { const float lv = juce::jlimit (yLo, yHi, std::log10 (juce::jmax (pct, 1.0e-4f)));
+                               return py + ph * (yHi - lv) / (yHi - yLo); };
+
+    g.setFont (PnsTheme::fontLabel());
+    g.setColour (PnsTheme::kTextSecondary);
+    g.drawText ("THD vs FREQUENCY (%)", (int) area.getX(), (int) area.getY(),
+                (int) area.getWidth(), 13, juce::Justification::centred);
+
+    g.setColour (PnsTheme::kBgPanel);
+    g.fillRect (px, py, pw, ph);
+
+    const float decades[] = { 100.0f, 10.0f, 1.0f, 0.1f, 0.01f, 0.001f };
+    for (float d : decades)
+    {
+        const float gy = Y (d);
+        g.setColour (PnsTheme::kGridLine);
+        g.drawHorizontalLine (juce::roundToInt (gy), px, px + pw);
+        g.setColour (PnsTheme::kGridLabel);
+        const juce::String lbl = (d >= 1.0f) ? juce::String ((int) d) + "%"
+                                             : juce::String (d, (d >= 0.1f ? 1 : (d >= 0.01f ? 2 : 3))) + "%";
+        g.drawText (lbl, (int) area.getX(), juce::roundToInt (gy) - 6, (int) kML - 4, 12,
+                    juce::Justification::centredRight);
+    }
+    const double vfreqs[] = { 50, 100, 200, 500, 1000, 2000, 5000 };
+    for (double f : vfreqs)
+    {
+        const float gx = X (f);
+        g.setColour (PnsTheme::kGridLine);
+        g.drawVerticalLine (juce::roundToInt (gx), py, py + ph);
+        g.setColour (PnsTheme::kGridLabel);
+        const juce::String lbl = (f >= 1000.0) ? juce::String (f / 1000.0, 0) + "k" : juce::String ((int) f);
+        g.drawText (lbl, juce::roundToInt (gx) - 14, juce::roundToInt (py + ph) + 2, 28, 11,
+                    juce::Justification::centred);
+    }
+
+    juce::Path path;
+    bool started = false;
+    int  nValid = 0;
+    for (int b = 0; b < kBins; ++b)
+    {
+        if (! m_thd.valid[(size_t) b]) continue;
+        const double f = lo * std::pow ((double) hi / lo, (double) b / (kBins - 1));
+        const float x = X (f), y = Y (m_thd.thdPct[(size_t) b]);
+        if (! started) { path.startNewSubPath (x, y); started = true; }
+        else             path.lineTo (x, y);
+        ++nValid;
+    }
+    if (nValid > 1)
+        PnsTheme::drawGlowLine (g, path, PnsTheme::kColorPostAvg, 1.5f);
+
+    g.setColour (PnsTheme::kBorderSubtle);
+    g.drawRect (px, py, pw, ph, 1.0f);
+
+    if (nValid < 2)
+    {
+        g.setFont (PnsTheme::fontPrimary());
+        g.setColour (PnsTheme::kTextSecondary);
+        g.drawText ("Enable Measure to sweep a tone across frequency and plot THD",
+                    getLocalBounds().reduced (20), juce::Justification::centred);
+    }
+}
+
+//==============================================================================
 PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     : AudioProcessorEditor (&p),
       audioProcessor (p),
@@ -2617,7 +2723,8 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
       m_harmView (p),
       m_linearView (p),
       m_transferView (p),
-      m_envelopeView (p)
+      m_envelopeView (p),
+      m_thdView (p)
 {
     setLookAndFeel (&m_laf);
 
@@ -2625,7 +2732,8 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
                                                      BinaryData::BiltroyAudio_x09mxix09mxix09m_pngSize);
 
     for (auto* btn : { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope,
-                       &m_tabHarmonics, &m_tabLinear, &m_tabTransfer, &m_tabEnvelope })
+                       &m_tabHarmonics, &m_tabLinear, &m_tabTransfer, &m_tabEnvelope,
+                       &m_tabThd })
     {
         btn->getProperties().set ("tabButton", true);
         addAndMakeVisible (btn);
@@ -2638,6 +2746,7 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     m_tabLinear      .onClick = [this] { switchTab (4); };
     m_tabTransfer    .onClick = [this] { switchTab (5); };
     m_tabEnvelope    .onClick = [this] { switchTab (6); };
+    m_tabThd         .onClick = [this] { switchTab (7); };
 
     addAndMakeVisible (m_specView);
     addAndMakeVisible (m_dynView);
@@ -2646,11 +2755,13 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     addAndMakeVisible (m_linearView);
     addAndMakeVisible (m_transferView);
     addAndMakeVisible (m_envelopeView);
+    addAndMakeVisible (m_thdView);
 
-    // Linear / Transfer / Envelope Measure toggles re-publish the cmd block.
+    // Measure toggles re-publish the cmd block (stimulus on/off).
     m_linearView.onMeasureChanged   = [this] { writeCmdBlock(); };
     m_transferView.onMeasureChanged = [this] { writeCmdBlock(); };
     m_envelopeView.onMeasureChanged = [this] { writeCmdBlock(); };
+    m_thdView.onMeasureChanged      = [this] { writeCmdBlock(); };
 
     // ── Global footer — frequency knob ────────────────────────────────────
     m_footerFreqSlider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
@@ -2666,6 +2777,19 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
         repaint();   // update footer freq label
     };
     addAndMakeVisible (m_footerFreqSlider);
+
+    // ── Global footer — test tone level ───────────────────────────────────
+    m_footerLevelSlider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    m_footerLevelSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    m_footerLevelSlider.setRange (-48.0, 0.0, 0.5);
+    m_footerLevelSlider.setValue (m_toneLevel, juce::dontSendNotification);
+    m_footerLevelSlider.onValueChange = [this]
+    {
+        m_toneLevel = m_footerLevelSlider.getValue();
+        writeCmdBlock();
+        repaint();
+    };
+    addAndMakeVisible (m_footerLevelSlider);
 
     // ── Global footer — test tone button ──────────────────────────────────
     m_footerToneBtn.setToggleable (true);
@@ -2686,7 +2810,7 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
 
     setSize (800, 576);   // +36px for footer
     setResizable (true, true);
-    setResizeLimits (600, 486, 2000, 1436);
+    setResizeLimits (640, 486, 2000, 1436);   // 640 fits the 8-tab bar
     startTimerHz (60);
 }
 
@@ -2728,6 +2852,7 @@ void PlugNspectrPostEditor::openCmdMemory()
 
     m_pCmd->testToneActive    = 0;
     m_pCmd->testToneFrequency = m_toneFreq;
+    m_pCmd->testToneLevelDb   = m_toneLevel;
     m_pCmd->measureActive     = 0;
     m_pCmd->dynMeasureMode    = 0;
 }
@@ -2742,6 +2867,7 @@ void PlugNspectrPostEditor::writeCmdBlock()
 {
     if (m_pCmd == nullptr) return;
     m_pCmd->testToneFrequency = m_toneFreq;
+    m_pCmd->testToneLevelDb   = m_toneLevel;
     m_pCmd->testToneActive    = m_toneActive ? 1u : 0u;
     // Noise stimulus only while the Linear tab is showing AND Measure is on.
     m_pCmd->measureActive     = (m_activeTab == 4 && m_linearView.isMeasureActive())
@@ -2750,6 +2876,7 @@ void PlugNspectrPostEditor::writeCmdBlock()
     // Envelope tab — only while that tab is showing AND Measure is on.
     m_pCmd->dynMeasureMode    = (m_activeTab == 5 && m_transferView.isMeasureActive()) ? 1u
                               : (m_activeTab == 6 && m_envelopeView.isMeasureActive()) ? 2u
+                              : (m_activeTab == 7 && m_thdView.isMeasureActive())      ? 3u
                                                                                        : 0u;
 }
 
@@ -2798,6 +2925,9 @@ void PlugNspectrPostEditor::timerCallback()
 
         m_envelopeView.update();
         if (m_activeTab == 6) m_envelopeView.repaint();
+
+        m_thdView.update();
+        if (m_activeTab == 7) m_thdView.repaint();
     }
 }
 
@@ -2937,9 +3067,10 @@ void PlugNspectrPostEditor::switchTab (int index)
 {
     m_activeTab = index;
 
-    juce::TextButton* tabs[7] = { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope,
-                                   &m_tabHarmonics, &m_tabLinear, &m_tabTransfer, &m_tabEnvelope };
-    for (int i = 0; i < 7; ++i)
+    juce::TextButton* tabs[8] = { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope,
+                                   &m_tabHarmonics, &m_tabLinear, &m_tabTransfer,
+                                   &m_tabEnvelope, &m_tabThd };
+    for (int i = 0; i < 8; ++i)
     {
         const bool active = (i == index);
         tabs[i]->setColour (juce::TextButton::textColourOffId,
@@ -2955,6 +3086,7 @@ void PlugNspectrPostEditor::switchTab (int index)
     m_linearView  .setVisible (index == 4);
     m_transferView.setVisible (index == 5);
     m_envelopeView.setVisible (index == 6);
+    m_thdView     .setVisible (index == 7);
 
     writeCmdBlock();   // start/stop the measurement noise with the tab
     repaint();
@@ -3053,6 +3185,14 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
     g.setColour (m_toneActive ? PnsTheme::kTextAccent : PnsTheme::kTextSecondary);
     g.drawText (freqStr, freqLabelX + 36, footerY, 64, kFooterH, juce::Justification::centredLeft);
 
+    // "LEVEL" label + value — knob is positioned in resized() just before this.
+    const int lvlLabelX = freqLabelX + 100 + 28 + 6;
+    g.setColour (PnsTheme::kTextSecondary);
+    g.drawText ("LEVEL", lvlLabelX, footerY, 40, kFooterH, juce::Justification::centredLeft);
+    g.setColour (m_toneActive ? PnsTheme::kTextAccent : PnsTheme::kTextSecondary);
+    g.drawText (juce::String (m_toneLevel, 1) + " dB", lvlLabelX + 40, footerY, 64, kFooterH,
+                juce::Justification::centredLeft);
+
     // Warning label — only when test tone is active
     if (m_toneActive)
     {
@@ -3072,8 +3212,8 @@ void PlugNspectrPostEditor::resized()
 {
     constexpr int hH     = PnsTheme::kHeaderHeight;
     constexpr int tbH    = PnsTheme::kTabBarHeight;
-    constexpr int kTabW  = 82;
-    constexpr int kTabWO = 104;   // wider for "Oscilloscope"
+    constexpr int kTabW  = 74;
+    constexpr int kTabWO = 98;    // wider for "Oscilloscope"
 
     m_tabSpectrum    .setBounds (0,                       hH, kTabW,  tbH);
     m_tabDynamics    .setBounds (kTabW,                   hH, kTabW,  tbH);
@@ -3082,6 +3222,7 @@ void PlugNspectrPostEditor::resized()
     m_tabLinear      .setBounds (kTabW * 3 + kTabWO,      hH, kTabW,  tbH);
     m_tabTransfer    .setBounds (kTabW * 4 + kTabWO,      hH, kTabW,  tbH);
     m_tabEnvelope    .setBounds (kTabW * 5 + kTabWO,      hH, kTabW,  tbH);
+    m_tabThd         .setBounds (kTabW * 6 + kTabWO,      hH, kTabW,  tbH);
 
     constexpr int kFooterH = 36;
     const int W = getWidth(), H = getHeight();
@@ -3094,8 +3235,12 @@ void PlugNspectrPostEditor::resized()
     m_linearView  .setBounds (content);
     m_transferView.setBounds (content);
     m_envelopeView.setBounds (content);
+    m_thdView     .setBounds (content);
 
     // Footer controls
     m_footerFreqSlider.setBounds (PnsTheme::kPaddingLarge, H - kFooterH + 4, 28, 28);
+    // Level knob sits after the FREQ knob + label + value (~100px of text).
+    const int lvlKnobX = PnsTheme::kPaddingLarge + 28 + 4 + 100;
+    m_footerLevelSlider.setBounds (lvlKnobX, H - kFooterH + 4, 28, 28);
     m_footerToneBtn   .setBounds ((W - 80) / 2, H - kFooterH + 7, 80, 22);
 }

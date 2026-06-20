@@ -387,7 +387,34 @@ private:
 };
 
 //==============================================================================
-// Main editor — dark tab bar + seven views
+// THD-sweep view — total harmonic distortion vs frequency
+//==============================================================================
+class ThdSweepView : public juce::Component
+{
+public:
+    explicit ThdSweepView (PlugNspectrPostProcessor& p);
+    void paint   (juce::Graphics& g) override;
+    void resized ()                   override;
+    void update  ();
+
+    bool isMeasureActive() const { return m_measureActive; }
+    std::function<void()> onMeasureChanged;
+
+private:
+    static constexpr int kBins = PlugNspectrPostProcessor::kThdBins;
+
+    PlugNspectrPostProcessor& m_proc;
+    PlugNspectrPostProcessor::ThdResult m_thd;
+    float m_thdHi = 1.0f;   // auto-scaled %THD range top
+
+    juce::TextButton m_measureBtn { "Measure" };
+    bool m_measureActive = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ThdSweepView)
+};
+
+//==============================================================================
+// Main editor — dark tab bar + eight views
 //==============================================================================
 class PlugNspectrPostEditor : public juce::AudioProcessorEditor,
                               private juce::Timer
@@ -416,6 +443,7 @@ private:
     juce::TextButton m_tabLinear       { "Linear"       };
     juce::TextButton m_tabTransfer     { "Transfer"     };
     juce::TextButton m_tabEnvelope     { "Envelope"     };
+    juce::TextButton m_tabThd          { "THD"          };
     int              m_activeTab   = 0;
     int              m_tickCounter = 0;
 
@@ -429,8 +457,10 @@ private:
     PNS_CmdBlock* m_pCmd       = nullptr;
     bool          m_toneActive = false;
     double        m_toneFreq   = 1000.0;
+    double        m_toneLevel  = -6.0;   // test-tone level, dBFS
 
     juce::Slider     m_footerFreqSlider;
+    juce::Slider     m_footerLevelSlider;
     juce::TextButton m_footerToneBtn { "Test Tone" };
 
     void openCmdMemory  ();
@@ -446,6 +476,7 @@ private:
     LinearView        m_linearView;
     TransferView      m_transferView;
     EnvelopeView      m_envelopeView;
+    ThdSweepView      m_thdView;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PlugNspectrPostEditor)
 };
