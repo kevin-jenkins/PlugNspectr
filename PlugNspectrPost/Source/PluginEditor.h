@@ -358,14 +358,21 @@ public:
 
     bool isMeasureActive() const { return m_measureActive; }
     std::function<void()> onMeasureChanged;
+    void freezeForTest();
 
 private:
     static constexpr int kBins = PlugNspectrPostProcessor::kDynBins;
+    void doFreeze();
 
     PlugNspectrPostProcessor& m_proc;
     PlugNspectrPostProcessor::DynResult m_dyn;
 
+    bool m_hasFrozen = false;
+    std::array<float, kBins> m_frozenOut {};
+    std::array<bool,  kBins> m_frozenValid {};
+
     juce::TextButton m_measureBtn { "Measure" };
+    juce::TextButton m_freezeBtn  { "Freeze"  };
     bool m_measureActive = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TransferView)
@@ -411,15 +418,22 @@ public:
 
     bool isMeasureActive() const { return m_measureActive; }
     std::function<void()> onMeasureChanged;
+    void freezeForTest();
 
 private:
     static constexpr int kBins = PlugNspectrPostProcessor::kThdBins;
+    void doFreeze();
 
     PlugNspectrPostProcessor& m_proc;
     PlugNspectrPostProcessor::ThdResult m_thd;
     float m_thdHi = 1.0f;   // auto-scaled %THD range top
 
+    bool m_hasFrozen = false;
+    std::array<float, kBins> m_frozenThd {};
+    std::array<bool,  kBins> m_frozenValid {};
+
     juce::TextButton m_measureBtn { "Measure" };
+    juce::TextButton m_freezeBtn  { "Freeze"  };
     bool m_measureActive = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ThdSweepView)
@@ -439,8 +453,10 @@ public:
     void resized ()                   override;
 
     // Test seams for the offline render harness.
-    void selectTabForTest   (int index) { switchTab (index); }
-    void freezeLinearForTest()          { m_linearView.freezeForTest(); }
+    void selectTabForTest     (int index) { switchTab (index); }
+    void freezeLinearForTest()            { m_linearView.freezeForTest(); }
+    void freezeTransferForTest()          { m_transferView.freezeForTest(); }
+    void freezeThdForTest()               { m_thdView.freezeForTest(); }
 
 private:
     void timerCallback      () override;

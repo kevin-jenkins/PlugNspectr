@@ -2442,11 +2442,29 @@ TransferView::TransferView (PlugNspectrPostProcessor& p) : m_proc (p)
         repaint();
     };
     addAndMakeVisible (m_measureBtn);
+
+    m_freezeBtn.onClick = [this]
+    {
+        if (m_hasFrozen) m_hasFrozen = false; else doFreeze();
+        repaint();
+    };
+    addAndMakeVisible (m_freezeBtn);
 }
+
+void TransferView::doFreeze()
+{
+    m_frozenOut   = m_dyn.outDb;
+    m_frozenValid = m_dyn.valid;
+    m_hasFrozen   = true;
+}
+
+void TransferView::freezeForTest() { doFreeze(); repaint(); }
 
 void TransferView::resized()
 {
     m_measureBtn.setBounds (getWidth() - 90, PnsTheme::kPaddingSmall,
+                            78, PnsTheme::kButtonHeight);
+    m_freezeBtn .setBounds (getWidth() - 90 - 84, PnsTheme::kPaddingSmall,
                             78, PnsTheme::kButtonHeight);
 }
 
@@ -2502,21 +2520,36 @@ void TransferView::paint (juce::Graphics& g)
     g.setColour (PnsTheme::kZeroLine);
     g.drawLine (X (lo), Y (lo), X (hi), Y (hi), 1.0f);
 
-    // Measured curve.
-    juce::Path path;
-    bool started = false;
-    int  nValid = 0;
-    for (int b = 0; b < kBins; ++b)
+    auto buildPath = [&] (const std::array<float, kBins>& out,
+                          const std::array<bool, kBins>& valid, int& count) -> juce::Path
     {
-        if (! m_dyn.valid[(size_t) b]) continue;
-        const float inDb  = PlugNspectrPostProcessor::kDynMinDb
-                          + (float) b * PlugNspectrPostProcessor::kDynBinW;
-        const float outDb = juce::jlimit (lo, hi, m_dyn.outDb[(size_t) b]);
-        const float x = X (inDb), y = Y (outDb);
-        if (! started) { path.startNewSubPath (x, y); started = true; }
-        else             path.lineTo (x, y);
-        ++nValid;
+        juce::Path path;
+        bool started = false;
+        count = 0;
+        for (int b = 0; b < kBins; ++b)
+        {
+            if (! valid[(size_t) b]) continue;
+            const float inDb  = PlugNspectrPostProcessor::kDynMinDb
+                              + (float) b * PlugNspectrPostProcessor::kDynBinW;
+            const float x = X (inDb), y = Y (juce::jlimit (lo, hi, out[(size_t) b]));
+            if (! started) { path.startNewSubPath (x, y); started = true; }
+            else             path.lineTo (x, y);
+            ++count;
+        }
+        return path;
+    };
+
+    // Frozen reference (dimmed grey) under the live curve.
+    if (m_hasFrozen)
+    {
+        int fc = 0;
+        const juce::Path fp = buildPath (m_frozenOut, m_frozenValid, fc);
+        if (fc > 1) { g.setColour (PnsTheme::kTextSecondary.withAlpha (0.5f));
+                      g.strokePath (fp, juce::PathStrokeType (1.0f)); }
     }
+
+    int nValid = 0;
+    const juce::Path path = buildPath (m_dyn.outDb, m_dyn.valid, nValid);
     if (nValid > 1)
         PnsTheme::drawGlowLine (g, path, PnsTheme::kColorPost, 1.5f);
 
@@ -2658,11 +2691,29 @@ ThdSweepView::ThdSweepView (PlugNspectrPostProcessor& p) : m_proc (p)
         repaint();
     };
     addAndMakeVisible (m_measureBtn);
+
+    m_freezeBtn.onClick = [this]
+    {
+        if (m_hasFrozen) m_hasFrozen = false; else doFreeze();
+        repaint();
+    };
+    addAndMakeVisible (m_freezeBtn);
 }
+
+void ThdSweepView::doFreeze()
+{
+    m_frozenThd   = m_thd.thdPct;
+    m_frozenValid = m_thd.valid;
+    m_hasFrozen   = true;
+}
+
+void ThdSweepView::freezeForTest() { doFreeze(); repaint(); }
 
 void ThdSweepView::resized()
 {
     m_measureBtn.setBounds (getWidth() - 90, PnsTheme::kPaddingSmall,
+                            78, PnsTheme::kButtonHeight);
+    m_freezeBtn .setBounds (getWidth() - 90 - 84, PnsTheme::kPaddingSmall,
                             78, PnsTheme::kButtonHeight);
 }
 
@@ -2723,18 +2774,35 @@ void ThdSweepView::paint (juce::Graphics& g)
                     juce::Justification::centred);
     }
 
-    juce::Path path;
-    bool started = false;
-    int  nValid = 0;
-    for (int b = 0; b < kBins; ++b)
+    auto buildPath = [&] (const std::array<float, kBins>& thd,
+                          const std::array<bool, kBins>& valid, int& count) -> juce::Path
     {
-        if (! m_thd.valid[(size_t) b]) continue;
-        const double f = lo * std::pow ((double) hi / lo, (double) b / (kBins - 1));
-        const float x = X (f), y = Y (m_thd.thdPct[(size_t) b]);
-        if (! started) { path.startNewSubPath (x, y); started = true; }
-        else             path.lineTo (x, y);
-        ++nValid;
+        juce::Path path;
+        bool started = false;
+        count = 0;
+        for (int b = 0; b < kBins; ++b)
+        {
+            if (! valid[(size_t) b]) continue;
+            const double f = lo * std::pow ((double) hi / lo, (double) b / (kBins - 1));
+            const float x = X (f), y = Y (thd[(size_t) b]);
+            if (! started) { path.startNewSubPath (x, y); started = true; }
+            else             path.lineTo (x, y);
+            ++count;
+        }
+        return path;
+    };
+
+    // Frozen reference (dimmed grey) under the live curve.
+    if (m_hasFrozen)
+    {
+        int fc = 0;
+        const juce::Path fp = buildPath (m_frozenThd, m_frozenValid, fc);
+        if (fc > 1) { g.setColour (PnsTheme::kTextSecondary.withAlpha (0.5f));
+                      g.strokePath (fp, juce::PathStrokeType (1.0f)); }
     }
+
+    int nValid = 0;
+    const juce::Path path = buildPath (m_thd.thdPct, m_thd.valid, nValid);
     if (nValid > 1)
         PnsTheme::drawGlowLine (g, path, PnsTheme::kColorPostAvg, 1.5f);
 

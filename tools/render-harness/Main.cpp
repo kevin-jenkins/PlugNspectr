@@ -343,13 +343,16 @@ int main (int argc, char* argv[])
     {
         if (thdRender)
         {
+            // Halfway through, FREEZE and drop the distortion (5% → 2%) to A/B.
+            if (f == numFrames / 2) { editor->freezeThdForTest(); proc.resetThdSweep(); }
+            const double a2 = (f < numFrames / 2) ? 0.05 : 0.02;
             std::vector<float> pre ((size_t) kBlock), post ((size_t) kBlock);
             const double fHz = 50.0 * std::pow (100.0, (double) ((thdStep / 3) % 100) / 99.0);
             const double inc = 2.0 * juce::MathConstants<double>::pi * fHz / kSampleRate;
             for (int i = 0; i < kBlock; ++i)
             {
                 thdPh += inc; if (thdPh > 2.0 * juce::MathConstants<double>::pi) thdPh -= 2.0 * juce::MathConstants<double>::pi;
-                const float s = (float) (0.25 * (std::sin (thdPh) + 0.05 * std::sin (2.0 * thdPh)));
+                const float s = (float) (0.25 * (std::sin (thdPh) + a2 * std::sin (2.0 * thdPh)));
                 pre[(size_t) i] = s; post[(size_t) i] = s;
             }
             proc.injectThdSweepBlock (post.data(), kBlock, fHz);
@@ -379,9 +382,11 @@ int main (int argc, char* argv[])
         }
         else if (transferRender)
         {
-            // Static compressor (-20 dB, 2:1); input level held constant per
-            // block and swept -58..-2 dB across frames so every bin fills.
-            auto compOut = [] (double Ld) { return Ld <= -20.0 ? Ld : -20.0 + (Ld + 20.0) / 2.0; };
+            // Static compressor at -20 dB; halfway through, FREEZE and change
+            // the ratio (2:1 → 4:1) to demonstrate A/B compare.
+            if (f == numFrames / 2) { editor->freezeTransferForTest(); proc.resetDynamics(); }
+            const double ratio = (f < numFrames / 2) ? 2.0 : 4.0;
+            auto compOut = [ratio] (double Ld) { return Ld <= -20.0 ? Ld : -20.0 + (Ld + 20.0) / ratio; };
             std::vector<float> pre ((size_t) kBlock), post ((size_t) kBlock);
             const double pinc = 2.0 * juce::MathConstants<double>::pi * 1000.0 / kSampleRate;
             const double Ld   = -58.0 + (trStep % 113) * 0.5;     // step the level each block
