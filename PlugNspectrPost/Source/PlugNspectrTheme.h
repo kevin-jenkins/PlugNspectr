@@ -190,13 +190,15 @@ public:
         }
 
         const bool active = button.getToggleState() || down;
+        const bool armed  = (bool) button.getProperties().getWithDefault ("armed", false);
         const auto bounds = button.getLocalBounds().toFloat().reduced (0.5f);
         const float r     = (float) PnsTheme::kCornerRadius;
 
-        g.setColour (active ? PnsTheme::kBtnActiveBg : PnsTheme::kBgWidget);
+        g.setColour (active ? (armed ? PnsTheme::kColorPostAvg : PnsTheme::kBtnActiveBg)
+                            : PnsTheme::kBgWidget);
         g.fillRoundedRectangle (bounds, r);
 
-        const auto borderCol = active      ? PnsTheme::kAccentPrimary
+        const auto borderCol = active      ? (armed ? PnsTheme::kColorPostAvg : PnsTheme::kAccentPrimary)
                              : highlighted ? PnsTheme::kBorderActive
                                            : PnsTheme::kBorderSubtle;
         g.setColour (borderCol);
@@ -218,8 +220,10 @@ public:
         }
 
         const bool active = button.getToggleState() || down;
+        const bool armed  = (bool) button.getProperties().getWithDefault ("armed", false);
         g.setFont (PnsTheme::fontLabel());
-        g.setColour (active ? PnsTheme::kAccentPrimary : PnsTheme::kTextSecondary);
+        g.setColour (active ? (armed ? PnsTheme::kBgDark : PnsTheme::kAccentPrimary)
+                            : PnsTheme::kTextSecondary);
         g.drawText (button.getButtonText(),
                     button.getLocalBounds().reduced (PnsTheme::kPaddingSmall, 0),
                     juce::Justification::centred);
