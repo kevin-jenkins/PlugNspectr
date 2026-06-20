@@ -2496,6 +2496,118 @@ void TransferView::paint (juce::Graphics& g)
 }
 
 //==============================================================================
+// EnvelopeView — measured attack/release (gain reduction vs time)
+//==============================================================================
+EnvelopeView::EnvelopeView (PlugNspectrPostProcessor& p) : m_proc (p)
+{
+    m_measureBtn.setClickingTogglesState (true);
+    m_measureBtn.onClick = [this]
+    {
+        m_measureActive = m_measureBtn.getToggleState();
+        m_proc.resetEnvelope();
+        if (onMeasureChanged) onMeasureChanged();
+        repaint();
+    };
+    addAndMakeVisible (m_measureBtn);
+}
+
+void EnvelopeView::resized()
+{
+    m_measureBtn.setBounds (getWidth() - 90, PnsTheme::kPaddingSmall,
+                            78, PnsTheme::kButtonHeight);
+}
+
+void EnvelopeView::update()
+{
+    m_proc.getEnvelope (m_env);
+    float hi = 0.0f;
+    for (int b = 0; b < kBins; ++b)
+        if (m_env.valid[(size_t) b]) hi = juce::jmax (hi, m_env.grDb[(size_t) b]);
+    m_grHi = juce::jmax (6.0f, hi * 1.2f);
+}
+
+void EnvelopeView::paint (juce::Graphics& g)
+{
+    g.fillAll (PnsTheme::kBgDark);
+
+    auto area = getLocalBounds().toFloat().reduced (8.0f);
+    area.removeFromTop ((float) PnsTheme::kButtonHeight + 4.0f);
+
+    constexpr float kML = 42.0f, kMR = 12.0f, kMT = 16.0f, kMB = 20.0f;
+    const float px = area.getX() + kML, py = area.getY() + kMT;
+    const float pw = area.getWidth() - kML - kMR, ph = area.getHeight() - kMT - kMB;
+    if (pw <= 0 || ph <= 0) return;
+
+    auto X = [&] (float ms) { return px + pw * ms / 1000.0f; };
+    auto Y = [&] (float gr) { return py + ph * (m_grHi - gr) / m_grHi; };
+
+    g.setFont (PnsTheme::fontLabel());
+    g.setColour (PnsTheme::kTextSecondary);
+    g.drawText ("ATTACK / RELEASE: gain reduction vs time (ms)",
+                (int) area.getX(), (int) area.getY(), (int) area.getWidth(), 13,
+                juce::Justification::centred);
+
+    g.setColour (PnsTheme::kBgPanel);
+    g.fillRect (px, py, pw, ph);
+
+    for (int i = 0; i <= 4; ++i)
+    {
+        const float gr = m_grHi * (float) i / 4.0f;
+        const float gy = Y (gr);
+        g.setColour (i == 0 ? PnsTheme::kZeroLine : PnsTheme::kGridLine);
+        g.drawHorizontalLine (juce::roundToInt (gy), px, px + pw);
+        g.setColour (PnsTheme::kGridLabel);
+        g.drawText (juce::String (gr, 1), (int) area.getX(), juce::roundToInt (gy) - 6,
+                    (int) kML - 4, 12, juce::Justification::centredRight);
+    }
+    for (int ms = 0; ms <= 1000; ms += 100)
+    {
+        const float gx = X ((float) ms);
+        g.setColour (PnsTheme::kGridLine);
+        g.drawVerticalLine (juce::roundToInt (gx), py, py + ph);
+        g.setColour (PnsTheme::kGridLabel);
+        g.drawText (juce::String (ms), juce::roundToInt (gx) - 16, juce::roundToInt (py + ph) + 2,
+                    32, 11, juce::Justification::centred);
+    }
+
+    // Step markers: attack onset at 0 ms, release onset at 500 ms.
+    g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.6f));
+    g.drawVerticalLine (juce::roundToInt (X (0.0f)),   py, py + ph);
+    g.drawVerticalLine (juce::roundToInt (X (500.0f)), py, py + ph);
+    g.setColour (PnsTheme::kColorPostAvg);
+    g.setFont (PnsTheme::fontLabel());
+    g.drawText ("attack",  juce::roundToInt (X (4.0f)),   (int) py + 2, 60, 11, juce::Justification::centredLeft);
+    g.drawText ("release", juce::roundToInt (X (504.0f)), (int) py + 2, 60, 11, juce::Justification::centredLeft);
+
+    juce::Path path;
+    bool started = false;
+    int  nValid = 0;
+    for (int b = 0; b < kBins; ++b)
+    {
+        if (! m_env.valid[(size_t) b]) continue;
+        const float ms = (float) b / (float) kBins * 1000.0f;
+        const float gr = juce::jlimit (0.0f, m_grHi, m_env.grDb[(size_t) b]);
+        const float x = X (ms), y = Y (gr);
+        if (! started) { path.startNewSubPath (x, y); started = true; }
+        else             path.lineTo (x, y);
+        ++nValid;
+    }
+    if (nValid > 1)
+        PnsTheme::drawGlowLine (g, path, PnsTheme::kColorGainRed, 1.5f);
+
+    g.setColour (PnsTheme::kBorderSubtle);
+    g.drawRect (px, py, pw, ph, 1.0f);
+
+    if (nValid < 2)
+    {
+        g.setFont (PnsTheme::fontPrimary());
+        g.setColour (PnsTheme::kTextSecondary);
+        g.drawText ("Enable Measure to send a level-step stimulus and plot attack / release",
+                    getLocalBounds().reduced (20), juce::Justification::centred);
+    }
+}
+
+//==============================================================================
 PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     : AudioProcessorEditor (&p),
       audioProcessor (p),
@@ -2504,7 +2616,8 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
       m_oscView  (p),
       m_harmView (p),
       m_linearView (p),
-      m_transferView (p)
+      m_transferView (p),
+      m_envelopeView (p)
 {
     setLookAndFeel (&m_laf);
 
@@ -2512,7 +2625,7 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
                                                      BinaryData::BiltroyAudio_x09mxix09mxix09m_pngSize);
 
     for (auto* btn : { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope,
-                       &m_tabHarmonics, &m_tabLinear, &m_tabTransfer })
+                       &m_tabHarmonics, &m_tabLinear, &m_tabTransfer, &m_tabEnvelope })
     {
         btn->getProperties().set ("tabButton", true);
         addAndMakeVisible (btn);
@@ -2524,6 +2637,7 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     m_tabHarmonics   .onClick = [this] { switchTab (3); };
     m_tabLinear      .onClick = [this] { switchTab (4); };
     m_tabTransfer    .onClick = [this] { switchTab (5); };
+    m_tabEnvelope    .onClick = [this] { switchTab (6); };
 
     addAndMakeVisible (m_specView);
     addAndMakeVisible (m_dynView);
@@ -2531,10 +2645,12 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     addAndMakeVisible (m_harmView);
     addAndMakeVisible (m_linearView);
     addAndMakeVisible (m_transferView);
+    addAndMakeVisible (m_envelopeView);
 
-    // Linear / Transfer Measure toggles re-publish the cmd block (stimulus on/off).
+    // Linear / Transfer / Envelope Measure toggles re-publish the cmd block.
     m_linearView.onMeasureChanged   = [this] { writeCmdBlock(); };
     m_transferView.onMeasureChanged = [this] { writeCmdBlock(); };
+    m_envelopeView.onMeasureChanged = [this] { writeCmdBlock(); };
 
     // ── Global footer — frequency knob ────────────────────────────────────
     m_footerFreqSlider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
@@ -2630,9 +2746,11 @@ void PlugNspectrPostEditor::writeCmdBlock()
     // Noise stimulus only while the Linear tab is showing AND Measure is on.
     m_pCmd->measureActive     = (m_activeTab == 4 && m_linearView.isMeasureActive())
                                 ? 1u : 0u;
-    // Level-ramp stimulus only while the Transfer tab is showing AND Measure is on.
-    m_pCmd->dynMeasureMode    = (m_activeTab == 5 && m_transferView.isMeasureActive())
-                                ? 1u : 0u;
+    // Dynamics stimulus: level ramp on the Transfer tab, level step on the
+    // Envelope tab — only while that tab is showing AND Measure is on.
+    m_pCmd->dynMeasureMode    = (m_activeTab == 5 && m_transferView.isMeasureActive()) ? 1u
+                              : (m_activeTab == 6 && m_envelopeView.isMeasureActive()) ? 2u
+                                                                                       : 0u;
 }
 
 //==============================================================================
@@ -2677,6 +2795,9 @@ void PlugNspectrPostEditor::timerCallback()
 
         m_transferView.update();
         if (m_activeTab == 5) m_transferView.repaint();
+
+        m_envelopeView.update();
+        if (m_activeTab == 6) m_envelopeView.repaint();
     }
 }
 
@@ -2816,9 +2937,9 @@ void PlugNspectrPostEditor::switchTab (int index)
 {
     m_activeTab = index;
 
-    juce::TextButton* tabs[6] = { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope,
-                                   &m_tabHarmonics, &m_tabLinear, &m_tabTransfer };
-    for (int i = 0; i < 6; ++i)
+    juce::TextButton* tabs[7] = { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope,
+                                   &m_tabHarmonics, &m_tabLinear, &m_tabTransfer, &m_tabEnvelope };
+    for (int i = 0; i < 7; ++i)
     {
         const bool active = (i == index);
         tabs[i]->setColour (juce::TextButton::textColourOffId,
@@ -2833,6 +2954,7 @@ void PlugNspectrPostEditor::switchTab (int index)
     m_harmView    .setVisible (index == 3);
     m_linearView  .setVisible (index == 4);
     m_transferView.setVisible (index == 5);
+    m_envelopeView.setVisible (index == 6);
 
     writeCmdBlock();   // start/stop the measurement noise with the tab
     repaint();
@@ -2950,8 +3072,8 @@ void PlugNspectrPostEditor::resized()
 {
     constexpr int hH     = PnsTheme::kHeaderHeight;
     constexpr int tbH    = PnsTheme::kTabBarHeight;
-    constexpr int kTabW  = 90;
-    constexpr int kTabWO = 110;   // wider for "Oscilloscope"
+    constexpr int kTabW  = 82;
+    constexpr int kTabWO = 104;   // wider for "Oscilloscope"
 
     m_tabSpectrum    .setBounds (0,                       hH, kTabW,  tbH);
     m_tabDynamics    .setBounds (kTabW,                   hH, kTabW,  tbH);
@@ -2959,6 +3081,7 @@ void PlugNspectrPostEditor::resized()
     m_tabHarmonics   .setBounds (kTabW * 2 + kTabWO,      hH, kTabW,  tbH);
     m_tabLinear      .setBounds (kTabW * 3 + kTabWO,      hH, kTabW,  tbH);
     m_tabTransfer    .setBounds (kTabW * 4 + kTabWO,      hH, kTabW,  tbH);
+    m_tabEnvelope    .setBounds (kTabW * 5 + kTabWO,      hH, kTabW,  tbH);
 
     constexpr int kFooterH = 36;
     const int W = getWidth(), H = getHeight();
@@ -2970,6 +3093,7 @@ void PlugNspectrPostEditor::resized()
     m_harmView    .setBounds (content);
     m_linearView  .setBounds (content);
     m_transferView.setBounds (content);
+    m_envelopeView.setBounds (content);
 
     // Footer controls
     m_footerFreqSlider.setBounds (PnsTheme::kPaddingLarge, H - kFooterH + 4, 28, 28);

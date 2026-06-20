@@ -179,6 +179,57 @@ void runDynamicsTest (PlugNspectrPostProcessor& proc)
               << "  out@-10=" << at (-10) << " (exp -15)"
               << "  out@-4="  << at (-4)  << " (exp -12)\n";
 }
+
+// ── Attack/release envelope verification ────────────────────────────────────
+// Drive a compressor (T=-20, 2:1, attack 10 ms, release 100 ms) with the level
+// step and check the measured GR-vs-time against the expected one-pole curves.
+void runEnvelopeTest (PlugNspectrPostProcessor& proc)
+{
+    constexpr double sr  = kSampleRate;
+    constexpr int    blk = kBlock;
+    const double pi = juce::MathConstants<double>::pi;
+    const double T = -20.0, R = 2.0;
+    const double atkCoef = 1.0 - std::exp (-1.0 / (0.010 * sr));
+    const double relCoef = 1.0 - std::exp (-1.0 / (0.100 * sr));
+    const uint32_t period = (uint32_t) sr, half = period / 2;
+
+    proc.resetEnvelope();
+    std::vector<float> pre ((size_t) blk), post ((size_t) blk);
+    double phase = 0.0, gr = 0.0;
+    const double pinc = 2.0 * pi * 1000.0 / sr;
+    uint32_t pos = 0;
+
+    for (int b = 0; b < 240; ++b)                       // ~20 cycles
+    {
+        const uint32_t blockStart = pos;
+        for (int i = 0; i < blk; ++i)
+        {
+            const double levelDb = (pos < half) ? -10.0 : -40.0;
+            const double amp     = std::pow (10.0, levelDb / 20.0) * std::sqrt (2.0);
+            const double target  = (levelDb > T) ? (levelDb - T) * (1.0 - 1.0 / R) : 0.0;
+            gr += (target - gr) * (target > gr ? atkCoef : relCoef);
+            phase += pinc; if (phase > 2.0 * pi) phase -= 2.0 * pi;
+            const float s = (float) (amp * std::sin (phase));
+            pre[(size_t) i]  = s;
+            post[(size_t) i] = (float) (s * std::pow (10.0, -gr / 20.0));
+            if (++pos >= period) pos = 0;
+        }
+        proc.injectEnvelopeBlock (pre.data(), post.data(), blk, blockStart);
+    }
+
+    PlugNspectrPostProcessor::EnvResult e;
+    proc.getEnvelope (e);
+    auto at = [&] (double ms)
+    {
+        const int b = juce::jlimit (0, PlugNspectrPostProcessor::kEnvBins - 1,
+                                    (int) (ms / 1000.0 * PlugNspectrPostProcessor::kEnvBins));
+        return e.valid[(size_t) b] ? e.grDb[(size_t) b] : -999.0f;
+    };
+    std::cout << "[comp atk10 rel100]  GR@400ms=" << at (400) << " (exp ~5, steady)"
+              << "  GR@10ms=" << at (10) << " (exp ~3.2, 1 atk TC)"
+              << "  GR@900ms=" << at (900) << " (exp ~0)"
+              << "  GR@600ms=" << at (600) << " (exp ~1.8, 1 rel TC)\n";
+}
 }
 
 int main (int argc, char* argv[])
@@ -208,18 +259,23 @@ int main (int argc, char* argv[])
         runDynamicsTest (proc);
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "envtest")
+    {
+        runEnvelopeTest (proc);
+        return 0;
+    }
 
     std::unique_ptr<juce::AudioProcessorEditor> editorBase (proc.createEditor());
     auto* editor = dynamic_cast<PlugNspectrPostEditor*> (editorBase.get());
     if (editor == nullptr) { std::cerr << "Failed to create editor\n"; return 1; }
 
-    // "linear-render" renders the Linear tab fed a known one-pole low-pass;
-    // "transfer-render" renders the Transfer tab fed a known compressor.
+    // Render modes feed a known plugin into the matching measurement tab.
     const bool linearRender   = (argc > 1 && juce::String (argv[1]) == "linear-render");
     const bool transferRender = (argc > 1 && juce::String (argv[1]) == "transfer-render");
+    const bool envelopeRender = (argc > 1 && juce::String (argv[1]) == "envelope-render");
 
     editor->setSize (1000, 640);
-    editor->selectTabForTest (linearRender ? 4 : transferRender ? 5 : 1);
+    editor->selectTabForTest (linearRender ? 4 : transferRender ? 5 : envelopeRender ? 6 : 1);
 
     juce::PNGImageFormat png;
     double phase = 0.0;
@@ -230,10 +286,33 @@ int main (int argc, char* argv[])
     constexpr int kDelay = 64;                 // bulk latency to exercise compensation
     std::array<float, kDelay> dl {}; int dp = 0;
     double trPhase = 0.0; int trStep = 0;      // transfer-curve level sweep state
+    double enPhase = 0.0, enGr = 0.0; uint32_t enPos = 0;   // envelope step + compressor state
 
     for (int f = 0; f < numFrames; ++f)
     {
-        if (transferRender)
+        if (envelopeRender)
+        {
+            // Level-step sine → compressor (T=-20, 2:1, attack 10ms, release 100ms).
+            std::vector<float> pre ((size_t) kBlock), post ((size_t) kBlock);
+            const uint32_t period = (uint32_t) kSampleRate, half = period / 2;
+            const double pinc = 2.0 * juce::MathConstants<double>::pi * 1000.0 / kSampleRate;
+            const double atkCoef = 1.0 - std::exp (-1.0 / (0.010 * kSampleRate));
+            const double relCoef = 1.0 - std::exp (-1.0 / (0.100 * kSampleRate));
+            const uint32_t blockStart = enPos;
+            for (int i = 0; i < kBlock; ++i)
+            {
+                const double levelDb = (enPos < half) ? -10.0 : -40.0;
+                const double amp     = std::pow (10.0, levelDb / 20.0) * std::sqrt (2.0);
+                const double target  = (levelDb > -20.0) ? (levelDb + 20.0) * 0.5 : 0.0;
+                enGr += (target - enGr) * (target > enGr ? atkCoef : relCoef);
+                enPhase += pinc; if (enPhase > 2.0 * juce::MathConstants<double>::pi) enPhase -= 2.0 * juce::MathConstants<double>::pi;
+                const float s = (float) (amp * std::sin (enPhase));
+                pre[(size_t) i] = s; post[(size_t) i] = (float) (s * std::pow (10.0, -enGr / 20.0));
+                if (++enPos >= period) enPos = 0;
+            }
+            proc.injectEnvelopeBlock (pre.data(), post.data(), kBlock, blockStart);
+        }
+        else if (transferRender)
         {
             // Static compressor (-20 dB, 2:1); input level held constant per
             // block and swept -58..-2 dB across frames so every bin fills.
