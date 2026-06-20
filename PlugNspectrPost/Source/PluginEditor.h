@@ -314,6 +314,10 @@ public:
     void freezeForTest();
     void setMeasureForTest (bool on) { m_measureActive = on;
                                        m_measureBtn.setToggleState (on, juce::dontSendNotification); }
+    bool disarm() { if (! m_measureActive) return false;
+                    m_measureActive = false;
+                    m_measureBtn.setToggleState (false, juce::dontSendNotification);
+                    repaint(); return true; }
     void setCursorForTest (int x) { m_cursorX = (float) x; m_cursorLocked = true; }
 
     void mouseMove (const juce::MouseEvent&) override;
@@ -369,6 +373,10 @@ public:
     std::function<void()> onMeasureChanged;
     void freezeForTest();
     void setCursorForTest (int x) { m_cursorX = (float) x; m_cursorLocked = true; }
+    bool disarm() { if (! m_measureActive) return false;
+                    m_measureActive = false;
+                    m_measureBtn.setToggleState (false, juce::dontSendNotification);
+                    repaint(); return true; }
 
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
@@ -408,6 +416,10 @@ public:
     bool isMeasureActive() const { return m_measureActive; }
     std::function<void()> onMeasureChanged;
     void setCursorForTest (int x) { m_cursorX = (float) x; m_cursorLocked = true; }
+    bool disarm() { if (! m_measureActive) return false;
+                    m_measureActive = false;
+                    m_measureBtn.setToggleState (false, juce::dontSendNotification);
+                    repaint(); return true; }
 
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
@@ -443,6 +455,10 @@ public:
     std::function<void()> onMeasureChanged;
     void freezeForTest();
     void setCursorForTest (int x) { m_cursorX = (float) x; m_cursorLocked = true; }
+    bool disarm() { if (! m_measureActive) return false;
+                    m_measureActive = false;
+                    m_measureBtn.setToggleState (false, juce::dontSendNotification);
+                    repaint(); return true; }
 
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
@@ -486,6 +502,7 @@ public:
     void selectTabForTest     (int index) { switchTab (index); }
     void freezeLinearForTest()            { m_linearView.freezeForTest(); }
     void armMeasureForTest()              { m_linearView.setMeasureForTest (true); writeCmdBlock(); repaint(); }
+    bool isStimulusActiveForTest() const  { return isStimulusActive(); }
     void setLinearCursorForTest (int x)   { m_linearView.setCursorForTest (x);   m_linearView.repaint(); }
     void setTransferCursorForTest (int x) { m_transferView.setCursorForTest (x); m_transferView.repaint(); }
     void setEnvelopeCursorForTest (int x) { m_envelopeView.setCursorForTest (x); m_envelopeView.repaint(); }
@@ -537,6 +554,11 @@ private:
     // True while any stimulus (test tone, noise, ramp, step, sweep) is being
     // emitted — drives the amber "measuring" border + banner.
     bool isStimulusActive() const;
+
+    // Turn off every active stimulus (tone + all measure toggles). Returns true
+    // if anything was actually disarmed. Used by the transport-stop auto-defeat.
+    bool disarmAllStimuli();
+    bool m_wasTransportPlaying = true;   // edge-detect playing -> stopped
 
     void openCmdMemory  ();
     void closeCmdMemory ();

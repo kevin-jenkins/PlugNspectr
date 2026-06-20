@@ -3264,9 +3264,35 @@ bool PlugNspectrPostEditor::isStimulusActive() const
     return false;
 }
 
+bool PlugNspectrPostEditor::disarmAllStimuli()
+{
+    bool changed = false;
+    if (m_toneActive)
+    {
+        m_toneActive = false;
+        m_footerToneBtn.setToggleState (false, juce::dontSendNotification);
+        m_harmView.setToneActive (false);
+        changed = true;
+    }
+    changed |= m_linearView  .disarm();
+    changed |= m_transferView.disarm();
+    changed |= m_envelopeView.disarm();
+    changed |= m_thdView     .disarm();
+    if (changed) { writeCmdBlock(); repaint(); }
+    return changed;
+}
+
 //==============================================================================
 void PlugNspectrPostEditor::timerCallback()
 {
+    // ── Transport-stop auto-defeat ──────────────────────────────────────────
+    // A measurement stimulus replaces your audio; when the host transport goes
+    // from playing to stopped, auto-disarm it so a tone can't keep running.
+    const bool playing = audioProcessor.isTransportPlaying();
+    if (m_wasTransportPlaying && ! playing)
+        disarmAllStimuli();
+    m_wasTransportPlaying = playing;
+
     // ── Overlay animation ──────────────────────────────────────────────────
     // Check Pre active every 200ms (every 12 ticks at 60fps)
     if (m_tickCounter % 12 == 0)
@@ -3574,7 +3600,7 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
             g.fillEllipse (16.0f, (float) tbBottom + (float) kBannerH * 0.5f - 3.0f, 6.0f, 6.0f);
             g.setFont (PnsTheme::fontLabel());
             g.setColour (PnsTheme::kColorPostAvg);
-            g.drawText ("Measuring - your audio is replaced by a test signal. Auto-stops when you leave this tab.",
+            g.drawText ("Measuring - your audio is replaced by a test signal. Auto-stops when you stop playback or leave this tab.",
                         30, tbBottom, getWidth() - 40, kBannerH, juce::Justification::centredLeft);
         }
         else

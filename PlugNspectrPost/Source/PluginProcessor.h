@@ -182,6 +182,12 @@ public:
         return age < 500u;
     }
 
+    // Host transport state — used by the editor to auto-stop a measurement
+    // stimulus when playback stops (the test signal replaces your audio, so it
+    // shouldn't keep running once you stop the transport). Defaults to "playing"
+    // so hosts that don't report a playhead never trigger a false auto-stop.
+    bool isTransportPlaying() const { return m_transportPlaying.load(); }
+
     //==========================================================================
     // Test seam — lets the offline render harness (tools/render-harness) drive
     // the editor with synthetic audio, no DAW or live PlugNspectrPre needed.
@@ -190,6 +196,7 @@ public:
                             const juce::AudioBuffer<float>& post,
                             float preDb, float postDb);
     void setTestPreActive (bool active) { m_testPreActive = active; }
+    void setTestTransportPlaying (bool p) { m_transportPlaying.store (p); }
 
 
 private:
@@ -200,6 +207,7 @@ private:
     mutable juce::CriticalSection m_captureLock;
     CaptureBufs                   m_capture;
     bool                          m_testPreActive = false;   // forced by render harness
+    std::atomic<bool>             m_transportPlaying { true };
 
     // L/R/Mid/Side channel selection + derived per-block analysis signals.
     std::atomic<int>                            m_channelMode { 0 };
