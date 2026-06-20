@@ -248,7 +248,10 @@ void PlugNspectrPreProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const double frequency = (m_pCmd != nullptr) ? m_pCmd->testToneFrequency : 1000.0;
         const double freq      = juce::jlimit (20.0, 20000.0, frequency);
         const double phaseInc  = (2.0 * juce::MathConstants<double>::pi * freq) / sr;
-        constexpr float kAmp   = 0.5f;   // -6 dBFS
+        // Tone level from the command block (dBFS), clamped; default -6 dBFS.
+        double levelDb = (m_pCmd != nullptr) ? m_pCmd->testToneLevelDb : -6.0;
+        if (levelDb > -0.5 || levelDb < -90.0) levelDb = -6.0;   // 0/unset → default
+        const float kAmp = (float) std::pow (10.0, levelDb / 20.0);
 
         const int numCh  = buffer.getNumChannels();
         const int numSmp = buffer.getNumSamples();

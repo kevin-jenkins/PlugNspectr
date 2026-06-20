@@ -53,6 +53,7 @@ struct PNS_CmdBlock
     double   testToneFrequency; // Hz (100 – 8000)
     uint32_t measureActive;     // non-zero → emit white-noise measurement stimulus
     uint32_t dynMeasureMode;    // 0 = off, 1 = level-ramp sine (transfer curve)
+    double   testToneLevelDb;   // test-tone level in dBFS (e.g. -60 .. 0)
 };
 #pragma pack(pop)
 

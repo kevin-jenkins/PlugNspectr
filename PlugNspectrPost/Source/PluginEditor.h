@@ -429,8 +429,10 @@ private:
     PNS_CmdBlock* m_pCmd       = nullptr;
     bool          m_toneActive = false;
     double        m_toneFreq   = 1000.0;
+    double        m_toneLevel  = -6.0;   // test-tone level, dBFS
 
     juce::Slider     m_footerFreqSlider;
+    juce::Slider     m_footerLevelSlider;
     juce::TextButton m_footerToneBtn { "Test Tone" };
 
     void openCmdMemory  ();

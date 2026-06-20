@@ -2667,6 +2667,19 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     };
     addAndMakeVisible (m_footerFreqSlider);
 
+    // ── Global footer — test tone level ───────────────────────────────────
+    m_footerLevelSlider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    m_footerLevelSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    m_footerLevelSlider.setRange (-48.0, 0.0, 0.5);
+    m_footerLevelSlider.setValue (m_toneLevel, juce::dontSendNotification);
+    m_footerLevelSlider.onValueChange = [this]
+    {
+        m_toneLevel = m_footerLevelSlider.getValue();
+        writeCmdBlock();
+        repaint();
+    };
+    addAndMakeVisible (m_footerLevelSlider);
+
     // ── Global footer — test tone button ──────────────────────────────────
     m_footerToneBtn.setToggleable (true);
     m_footerToneBtn.setToggleState (false, juce::dontSendNotification);
@@ -2728,6 +2741,7 @@ void PlugNspectrPostEditor::openCmdMemory()
 
     m_pCmd->testToneActive    = 0;
     m_pCmd->testToneFrequency = m_toneFreq;
+    m_pCmd->testToneLevelDb   = m_toneLevel;
     m_pCmd->measureActive     = 0;
     m_pCmd->dynMeasureMode    = 0;
 }
@@ -2742,6 +2756,7 @@ void PlugNspectrPostEditor::writeCmdBlock()
 {
     if (m_pCmd == nullptr) return;
     m_pCmd->testToneFrequency = m_toneFreq;
+    m_pCmd->testToneLevelDb   = m_toneLevel;
     m_pCmd->testToneActive    = m_toneActive ? 1u : 0u;
     // Noise stimulus only while the Linear tab is showing AND Measure is on.
     m_pCmd->measureActive     = (m_activeTab == 4 && m_linearView.isMeasureActive())
@@ -3053,6 +3068,14 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
     g.setColour (m_toneActive ? PnsTheme::kTextAccent : PnsTheme::kTextSecondary);
     g.drawText (freqStr, freqLabelX + 36, footerY, 64, kFooterH, juce::Justification::centredLeft);
 
+    // "LEVEL" label + value — knob is positioned in resized() just before this.
+    const int lvlLabelX = freqLabelX + 100 + 28 + 6;
+    g.setColour (PnsTheme::kTextSecondary);
+    g.drawText ("LEVEL", lvlLabelX, footerY, 40, kFooterH, juce::Justification::centredLeft);
+    g.setColour (m_toneActive ? PnsTheme::kTextAccent : PnsTheme::kTextSecondary);
+    g.drawText (juce::String (m_toneLevel, 1) + " dB", lvlLabelX + 40, footerY, 64, kFooterH,
+                juce::Justification::centredLeft);
+
     // Warning label — only when test tone is active
     if (m_toneActive)
     {
@@ -3097,5 +3120,8 @@ void PlugNspectrPostEditor::resized()
 
     // Footer controls
     m_footerFreqSlider.setBounds (PnsTheme::kPaddingLarge, H - kFooterH + 4, 28, 28);
+    // Level knob sits after the FREQ knob + label + value (~100px of text).
+    const int lvlKnobX = PnsTheme::kPaddingLarge + 28 + 4 + 100;
+    m_footerLevelSlider.setBounds (lvlKnobX, H - kFooterH + 4, 28, 28);
     m_footerToneBtn   .setBounds ((W - 80) / 2, H - kFooterH + 7, 80, 22);
 }
