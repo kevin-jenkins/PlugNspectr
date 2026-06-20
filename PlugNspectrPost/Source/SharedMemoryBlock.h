@@ -52,6 +52,7 @@ struct PNS_CmdBlock
     uint32_t testToneActive;    // non-zero → Pre generates a sine test tone
     double   testToneFrequency; // Hz (100 – 8000)
     uint32_t measureActive;     // non-zero → Pre emits white-noise measurement stimulus
+    uint32_t dynMeasureMode;    // 0 = off, 1 = level-ramp sine (transfer curve)
 };
 #pragma pack(pop)
 

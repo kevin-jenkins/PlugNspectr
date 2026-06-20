@@ -162,8 +162,38 @@ void PlugNspectrPreProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // ── Test-tone mode ────────────────────────────────────────────────────────
     const bool toneActive    = (m_pCmd != nullptr && m_pCmd->testToneActive != 0);
     const bool measureActive = (m_pCmd != nullptr && m_pCmd->measureActive  != 0);
+    const bool dynRamp       = (m_pCmd != nullptr && m_pCmd->dynMeasureMode == 1);
 
-    if (measureActive && ! toneActive)
+    if (dynRamp && ! toneActive)
+    {
+        // Level-ramped 1 kHz sine: amplitude sweeps -60 → 0 dBFS over 6 s and
+        // repeats. Slow enough for a compressor to settle, so Post can plot the
+        // static transfer curve (output level vs input level).
+        const double sr        = getSampleRate();
+        const double phaseInc  = (2.0 * juce::MathConstants<double>::pi * 1000.0) / sr;
+        const double rampLen   = 6.0 * sr;     // samples for a full sweep
+        const int    numCh     = buffer.getNumChannels();
+        const int    numSmp    = buffer.getNumSamples();
+
+        float* ch0 = buffer.getWritePointer (0);
+        for (int i = 0; i < numSmp; ++i)
+        {
+            m_tonePhase += phaseInc;
+            if (m_tonePhase > juce::MathConstants<double>::twoPi) m_tonePhase -= juce::MathConstants<double>::twoPi;
+
+            const double tt      = m_dynRampPhase / rampLen;        // 0..1
+            const double levelDb  = -60.0 + 60.0 * tt;
+            const double amp      = std::pow (10.0, levelDb / 20.0);
+            ch0[i] = (float) (amp * std::sin (m_tonePhase));
+
+            m_dynRampPhase += 1.0;
+            if (m_dynRampPhase >= rampLen) m_dynRampPhase = 0.0;
+        }
+        for (int ch = 1; ch < numCh; ++ch)
+            std::memcpy (buffer.getWritePointer (ch), ch0,
+                         static_cast<size_t> (numSmp) * sizeof (float));
+    }
+    else if (measureActive && ! toneActive)
     {
         // White-noise stimulus for the Linear (magnitude/phase/group-delay)
         // measurement. Generated here so it passes through the plugin under

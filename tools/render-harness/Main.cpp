@@ -134,6 +134,51 @@ void runLinearTest (PlugNspectrPostProcessor& proc)
               << "  phase@1k=" << deg (r.phase[bin (1000)]) << " deg (exp ~-45)"
               << "  mag@4k=" << r.magDb[bin (4000)] << " dB (exp ~-12)\n";
 }
+
+// ── Dynamics transfer-curve verification ────────────────────────────────────
+// Feed a static compressor (threshold -20 dB, 2:1) at swept input levels and
+// check the measured output level per input bin.
+void runDynamicsTest (PlugNspectrPostProcessor& proc)
+{
+    constexpr double sr  = kSampleRate;
+    constexpr int    blk = kBlock;
+    const double pi = juce::MathConstants<double>::pi;
+    auto compOut = [] (double L) { return L <= -20.0 ? L : -20.0 + (L + 20.0) / 2.0; };
+
+    proc.resetDynamics();
+    std::vector<float> pre ((size_t) blk), post ((size_t) blk);
+    double phase = 0.0;
+    const double pinc = 2.0 * pi * 1000.0 / sr;
+
+    for (int step = 0; step < 2400; ++step)
+    {
+        const double L = -55.0 + (step % 520) * 0.1;        // sweep -55..-3 dB, repeating
+        if (L > -2.0) continue;
+        const double amp  = std::pow (10.0, L / 20.0) * std::sqrt (2.0);   // sine peak for RMS=L
+        const double gain = std::pow (10.0, (compOut (L) - L) / 20.0);
+        for (int i = 0; i < blk; ++i)
+        {
+            phase += pinc; if (phase > 2.0 * pi) phase -= 2.0 * pi;
+            const float s = (float) (amp * std::sin (phase));
+            pre[(size_t) i]  = s;
+            post[(size_t) i] = (float) (s * gain);
+        }
+        proc.injectDynamicsBlock (pre.data(), post.data(), blk);
+    }
+
+    PlugNspectrPostProcessor::DynResult d;
+    proc.getDynamics (d);
+    auto at = [&] (double L)
+    {
+        const int b = (int) std::lround ((L - PlugNspectrPostProcessor::kDynMinDb)
+                                         / PlugNspectrPostProcessor::kDynBinW);
+        return d.valid[(size_t) b] ? d.outDb[(size_t) b] : -999.0f;
+    };
+    std::cout << "[comp -20dB 2:1]  out@-40=" << at (-40) << " (exp -40)"
+              << "  out@-20=" << at (-20) << " (exp -20)"
+              << "  out@-10=" << at (-10) << " (exp -15)"
+              << "  out@-4="  << at (-4)  << " (exp -12)\n";
+}
 }
 
 int main (int argc, char* argv[])
@@ -158,16 +203,23 @@ int main (int argc, char* argv[])
         runLinearTest (proc);
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "dyntest")
+    {
+        runDynamicsTest (proc);
+        return 0;
+    }
 
     std::unique_ptr<juce::AudioProcessorEditor> editorBase (proc.createEditor());
     auto* editor = dynamic_cast<PlugNspectrPostEditor*> (editorBase.get());
     if (editor == nullptr) { std::cerr << "Failed to create editor\n"; return 1; }
 
-    // "linear-render" renders the Linear tab fed a known one-pole low-pass.
-    const bool linearRender = (argc > 1 && juce::String (argv[1]) == "linear-render");
+    // "linear-render" renders the Linear tab fed a known one-pole low-pass;
+    // "transfer-render" renders the Transfer tab fed a known compressor.
+    const bool linearRender   = (argc > 1 && juce::String (argv[1]) == "linear-render");
+    const bool transferRender = (argc > 1 && juce::String (argv[1]) == "transfer-render");
 
     editor->setSize (1000, 640);
-    editor->selectTabForTest (linearRender ? 4 : 1);
+    editor->selectTabForTest (linearRender ? 4 : transferRender ? 5 : 1);
 
     juce::PNGImageFormat png;
     double phase = 0.0;
@@ -177,10 +229,30 @@ int main (int argc, char* argv[])
     float lpY = 0.0f;
     constexpr int kDelay = 64;                 // bulk latency to exercise compensation
     std::array<float, kDelay> dl {}; int dp = 0;
+    double trPhase = 0.0; int trStep = 0;      // transfer-curve level sweep state
 
     for (int f = 0; f < numFrames; ++f)
     {
-        if (linearRender)
+        if (transferRender)
+        {
+            // Static compressor (-20 dB, 2:1); input level held constant per
+            // block and swept -58..-2 dB across frames so every bin fills.
+            auto compOut = [] (double Ld) { return Ld <= -20.0 ? Ld : -20.0 + (Ld + 20.0) / 2.0; };
+            std::vector<float> pre ((size_t) kBlock), post ((size_t) kBlock);
+            const double pinc = 2.0 * juce::MathConstants<double>::pi * 1000.0 / kSampleRate;
+            const double Ld   = -58.0 + (trStep % 113) * 0.5;     // step the level each block
+            const double amp  = std::pow (10.0, Ld / 20.0) * std::sqrt (2.0);
+            const double gain = std::pow (10.0, (compOut (Ld) - Ld) / 20.0);
+            ++trStep;
+            for (int i = 0; i < kBlock; ++i)
+            {
+                trPhase += pinc; if (trPhase > 2.0 * juce::MathConstants<double>::pi) trPhase -= 2.0 * juce::MathConstants<double>::pi;
+                const float s = (float) (amp * std::sin (trPhase));
+                pre[(size_t) i] = s; post[(size_t) i] = (float) (s * gain);
+            }
+            proc.injectDynamicsBlock (pre.data(), post.data(), kBlock);
+        }
+        else if (linearRender)
         {
             // White noise → one-pole LP @1kHz → 64-sample delay (a plugin that
             // both colours AND delays), straight into the measurement.

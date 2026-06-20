@@ -2392,6 +2392,110 @@ void LinearView::paint (juce::Graphics& g)
 }
 
 //==============================================================================
+// TransferView — measured dynamics transfer curve (output vs input level)
+//==============================================================================
+TransferView::TransferView (PlugNspectrPostProcessor& p) : m_proc (p)
+{
+    m_measureBtn.setClickingTogglesState (true);
+    m_measureBtn.onClick = [this]
+    {
+        m_measureActive = m_measureBtn.getToggleState();
+        m_proc.resetDynamics();
+        if (onMeasureChanged) onMeasureChanged();
+        repaint();
+    };
+    addAndMakeVisible (m_measureBtn);
+}
+
+void TransferView::resized()
+{
+    m_measureBtn.setBounds (getWidth() - 90, PnsTheme::kPaddingSmall,
+                            78, PnsTheme::kButtonHeight);
+}
+
+void TransferView::update()
+{
+    m_proc.getDynamics (m_dyn);
+}
+
+void TransferView::paint (juce::Graphics& g)
+{
+    g.fillAll (PnsTheme::kBgDark);
+
+    auto area = getLocalBounds().toFloat().reduced (8.0f);
+    area.removeFromTop ((float) PnsTheme::kButtonHeight + 4.0f);
+
+    // Square plot, centred.
+    const float side = juce::jmin (area.getWidth(), area.getHeight());
+    const juce::Rectangle<float> r (area.getX() + (area.getWidth() - side) * 0.5f,
+                                    area.getY(), side, side);
+
+    constexpr float kML = 40.0f, kMR = 12.0f, kMT = 16.0f, kMB = 20.0f;
+    const float px = r.getX() + kML, py = r.getY() + kMT;
+    const float pw = r.getWidth() - kML - kMR, ph = r.getHeight() - kMT - kMB;
+    if (pw <= 0 || ph <= 0) return;
+
+    constexpr float lo = -60.0f, hi = 0.0f;
+    auto X = [&] (float inDb)  { return px + pw * (inDb  - lo) / (hi - lo); };
+    auto Y = [&] (float outDb) { return py + ph * (hi - outDb) / (hi - lo); };
+
+    g.setFont (PnsTheme::fontLabel());
+    g.setColour (PnsTheme::kTextSecondary);
+    g.drawText ("TRANSFER CURVE: output vs input (dB)",
+                (int) r.getX(), (int) r.getY(), (int) r.getWidth(), 13,
+                juce::Justification::centred);
+
+    g.setColour (PnsTheme::kBgPanel);
+    g.fillRect (px, py, pw, ph);
+
+    for (int v = -60; v <= 0; v += 10)
+    {
+        const float gx = X ((float) v), gy = Y ((float) v);
+        g.setColour (PnsTheme::kGridLine);
+        g.drawVerticalLine   (juce::roundToInt (gx), py, py + ph);
+        g.drawHorizontalLine (juce::roundToInt (gy), px, px + pw);
+        g.setColour (PnsTheme::kGridLabel);
+        g.drawText (juce::String (v), (int) r.getX(), juce::roundToInt (gy) - 6,
+                    (int) kML - 4, 12, juce::Justification::centredRight);
+        g.drawText (juce::String (v), juce::roundToInt (gx) - 14, juce::roundToInt (py + ph) + 2,
+                    28, 12, juce::Justification::centred);
+    }
+
+    // Unity (no-change) reference diagonal.
+    g.setColour (PnsTheme::kZeroLine);
+    g.drawLine (X (lo), Y (lo), X (hi), Y (hi), 1.0f);
+
+    // Measured curve.
+    juce::Path path;
+    bool started = false;
+    int  nValid = 0;
+    for (int b = 0; b < kBins; ++b)
+    {
+        if (! m_dyn.valid[(size_t) b]) continue;
+        const float inDb  = PlugNspectrPostProcessor::kDynMinDb
+                          + (float) b * PlugNspectrPostProcessor::kDynBinW;
+        const float outDb = juce::jlimit (lo, hi, m_dyn.outDb[(size_t) b]);
+        const float x = X (inDb), y = Y (outDb);
+        if (! started) { path.startNewSubPath (x, y); started = true; }
+        else             path.lineTo (x, y);
+        ++nValid;
+    }
+    if (nValid > 1)
+        PnsTheme::drawGlowLine (g, path, PnsTheme::kColorPost, 1.5f);
+
+    g.setColour (PnsTheme::kBorderSubtle);
+    g.drawRect (px, py, pw, ph, 1.0f);
+
+    if (nValid < 2)
+    {
+        g.setFont (PnsTheme::fontPrimary());
+        g.setColour (PnsTheme::kTextSecondary);
+        g.drawText ("Enable Measure to sweep a level ramp and plot the transfer curve",
+                    getLocalBounds().reduced (20), juce::Justification::centred);
+    }
+}
+
+//==============================================================================
 PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     : AudioProcessorEditor (&p),
       audioProcessor (p),
@@ -2399,7 +2503,8 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
       m_dynView  (p),
       m_oscView  (p),
       m_harmView (p),
-      m_linearView (p)
+      m_linearView (p),
+      m_transferView (p)
 {
     setLookAndFeel (&m_laf);
 
@@ -2407,7 +2512,7 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
                                                      BinaryData::BiltroyAudio_x09mxix09mxix09m_pngSize);
 
     for (auto* btn : { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope,
-                       &m_tabHarmonics, &m_tabLinear })
+                       &m_tabHarmonics, &m_tabLinear, &m_tabTransfer })
     {
         btn->getProperties().set ("tabButton", true);
         addAndMakeVisible (btn);
@@ -2418,15 +2523,18 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     m_tabOscilloscope.onClick = [this] { switchTab (2); };
     m_tabHarmonics   .onClick = [this] { switchTab (3); };
     m_tabLinear      .onClick = [this] { switchTab (4); };
+    m_tabTransfer    .onClick = [this] { switchTab (5); };
 
     addAndMakeVisible (m_specView);
     addAndMakeVisible (m_dynView);
     addAndMakeVisible (m_oscView);
     addAndMakeVisible (m_harmView);
     addAndMakeVisible (m_linearView);
+    addAndMakeVisible (m_transferView);
 
-    // Linear tab's Measure toggle re-publishes the cmd block (noise on/off).
-    m_linearView.onMeasureChanged = [this] { writeCmdBlock(); };
+    // Linear / Transfer Measure toggles re-publish the cmd block (stimulus on/off).
+    m_linearView.onMeasureChanged   = [this] { writeCmdBlock(); };
+    m_transferView.onMeasureChanged = [this] { writeCmdBlock(); };
 
     // ── Global footer — frequency knob ────────────────────────────────────
     m_footerFreqSlider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
@@ -2474,6 +2582,7 @@ PlugNspectrPostEditor::~PlugNspectrPostEditor()
         m_pCmd->testToneActive    = 0;
         m_pCmd->testToneFrequency = 1000.0;
         m_pCmd->measureActive     = 0;
+        m_pCmd->dynMeasureMode    = 0;
     }
     closeCmdMemory();
     setLookAndFeel (nullptr);
@@ -2504,6 +2613,7 @@ void PlugNspectrPostEditor::openCmdMemory()
     m_pCmd->testToneActive    = 0;
     m_pCmd->testToneFrequency = m_toneFreq;
     m_pCmd->measureActive     = 0;
+    m_pCmd->dynMeasureMode    = 0;
 }
 
 void PlugNspectrPostEditor::closeCmdMemory()
@@ -2519,6 +2629,9 @@ void PlugNspectrPostEditor::writeCmdBlock()
     m_pCmd->testToneActive    = m_toneActive ? 1u : 0u;
     // Noise stimulus only while the Linear tab is showing AND Measure is on.
     m_pCmd->measureActive     = (m_activeTab == 4 && m_linearView.isMeasureActive())
+                                ? 1u : 0u;
+    // Level-ramp stimulus only while the Transfer tab is showing AND Measure is on.
+    m_pCmd->dynMeasureMode    = (m_activeTab == 5 && m_transferView.isMeasureActive())
                                 ? 1u : 0u;
 }
 
@@ -2561,6 +2674,9 @@ void PlugNspectrPostEditor::timerCallback()
 
         m_linearView.update();
         if (m_activeTab == 4) m_linearView.repaint();
+
+        m_transferView.update();
+        if (m_activeTab == 5) m_transferView.repaint();
     }
 }
 
@@ -2700,9 +2816,9 @@ void PlugNspectrPostEditor::switchTab (int index)
 {
     m_activeTab = index;
 
-    juce::TextButton* tabs[5] = { &m_tabSpectrum, &m_tabDynamics,
-                                   &m_tabOscilloscope, &m_tabHarmonics, &m_tabLinear };
-    for (int i = 0; i < 5; ++i)
+    juce::TextButton* tabs[6] = { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope,
+                                   &m_tabHarmonics, &m_tabLinear, &m_tabTransfer };
+    for (int i = 0; i < 6; ++i)
     {
         const bool active = (i == index);
         tabs[i]->setColour (juce::TextButton::textColourOffId,
@@ -2711,11 +2827,12 @@ void PlugNspectrPostEditor::switchTab (int index)
         tabs[i]->repaint();
     }
 
-    m_specView  .setVisible (index == 0);
-    m_dynView   .setVisible (index == 1);
-    m_oscView   .setVisible (index == 2);
-    m_harmView  .setVisible (index == 3);
-    m_linearView.setVisible (index == 4);
+    m_specView    .setVisible (index == 0);
+    m_dynView     .setVisible (index == 1);
+    m_oscView     .setVisible (index == 2);
+    m_harmView    .setVisible (index == 3);
+    m_linearView  .setVisible (index == 4);
+    m_transferView.setVisible (index == 5);
 
     writeCmdBlock();   // start/stop the measurement noise with the tab
     repaint();
@@ -2841,6 +2958,7 @@ void PlugNspectrPostEditor::resized()
     m_tabOscilloscope.setBounds (kTabW * 2,               hH, kTabWO, tbH);
     m_tabHarmonics   .setBounds (kTabW * 2 + kTabWO,      hH, kTabW,  tbH);
     m_tabLinear      .setBounds (kTabW * 3 + kTabWO,      hH, kTabW,  tbH);
+    m_tabTransfer    .setBounds (kTabW * 4 + kTabWO,      hH, kTabW,  tbH);
 
     constexpr int kFooterH = 36;
     const int W = getWidth(), H = getHeight();
@@ -2849,8 +2967,9 @@ void PlugNspectrPostEditor::resized()
     m_specView  .setBounds (content);
     m_dynView   .setBounds (content);
     m_oscView   .setBounds (content);
-    m_harmView  .setBounds (content);
-    m_linearView.setBounds (content);
+    m_harmView    .setBounds (content);
+    m_linearView  .setBounds (content);
+    m_transferView.setBounds (content);
 
     // Footer controls
     m_footerFreqSlider.setBounds (PnsTheme::kPaddingLarge, H - kFooterH + 4, 28, 28);

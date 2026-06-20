@@ -29,6 +29,12 @@ public:
     static constexpr int kMeasFftSize  = 1 << kMeasFftOrder;  // 4096
     static constexpr int kMeasBins     = kMeasFftSize / 2 + 1; // 2049
 
+    // Dynamics transfer-curve measurement (output level vs input level), binned
+    // over a -60..0 dBFS input range at 0.5 dB resolution.
+    static constexpr float kDynMinDb = -60.0f;
+    static constexpr float kDynBinW  = 0.5f;
+    static constexpr int   kDynBins  = 121;
+
     //==========================================================================
     // Thread-safe snapshot of the most recent pre + post audio block.
     struct CaptureBufs
@@ -114,6 +120,19 @@ public:
     // accumulator (used by the offline render harness to validate the DSP).
     void injectMeasurementBlock (const float* pre, const float* post, int n);
 
+    //==========================================================================
+    // Dynamics transfer curve — output level vs input level, measured by Pre
+    // sweeping a tone's level and Post binning Post-RMS against Pre-RMS.
+    struct DynResult
+    {
+        std::array<float, kDynBins> outDb {};   // measured output dB per input bin
+        std::array<bool,  kDynBins> valid {};
+        double sampleRate = 0.0;
+    };
+    void getDynamics (DynResult& out) const;
+    void resetDynamics ();
+    void injectDynamicsBlock (const float* pre, const float* post, int n);
+
     // Returns true if PlugNspectrPre has set a heartbeat within the last 500ms.
     bool isPreActive() const
     {
@@ -195,6 +214,18 @@ private:
     // PHAT-weighted cross-spectrum → impulse response; its peak is the bulk
     // delay. Called under m_measLock from pushMeasurementSamples.
     void computeLatency();
+
+    //==========================================================================
+    // Dynamics transfer-curve engine — windowed RMS of Pre/Post, binned by input.
+    static constexpr int                 kDynWin = 2048;
+    double                               m_dynSumSqPre  = 0.0;
+    double                               m_dynSumSqPost = 0.0;
+    int                                  m_dynWinCount  = 0;
+    std::array<float,   kDynBins>        m_dynOutDb {};
+    std::array<uint8_t, kDynBins>        m_dynValid {};
+    mutable juce::CriticalSection        m_dynLock;
+
+    void pushDynamicsSamples (const float* pre, const float* post, int n);
 
     void pushSamplesToAccum (const float* src, int count,
                              std::array<float, kFftSize>& accum,

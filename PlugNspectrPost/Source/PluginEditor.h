@@ -334,7 +334,33 @@ private:
 };
 
 //==============================================================================
-// Main editor — dark tab bar + five views
+// Transfer view — measured dynamics transfer curve (output level vs input level)
+//==============================================================================
+class TransferView : public juce::Component
+{
+public:
+    explicit TransferView (PlugNspectrPostProcessor& p);
+    void paint   (juce::Graphics& g) override;
+    void resized ()                   override;
+    void update  ();
+
+    bool isMeasureActive() const { return m_measureActive; }
+    std::function<void()> onMeasureChanged;
+
+private:
+    static constexpr int kBins = PlugNspectrPostProcessor::kDynBins;
+
+    PlugNspectrPostProcessor& m_proc;
+    PlugNspectrPostProcessor::DynResult m_dyn;
+
+    juce::TextButton m_measureBtn { "Measure" };
+    bool m_measureActive = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TransferView)
+};
+
+//==============================================================================
+// Main editor — dark tab bar + six views
 //==============================================================================
 class PlugNspectrPostEditor : public juce::AudioProcessorEditor,
                               private juce::Timer
@@ -361,6 +387,7 @@ private:
     juce::TextButton m_tabOscilloscope { "Oscilloscope" };
     juce::TextButton m_tabHarmonics    { "Harmonics"    };
     juce::TextButton m_tabLinear       { "Linear"       };
+    juce::TextButton m_tabTransfer     { "Transfer"     };
     int              m_activeTab   = 0;
     int              m_tickCounter = 0;
 
@@ -389,6 +416,7 @@ private:
     OscilloscopeView  m_oscView;
     HarmonicsView     m_harmView;
     LinearView        m_linearView;
+    TransferView      m_transferView;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PlugNspectrPostEditor)
 };
