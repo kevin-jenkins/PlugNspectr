@@ -86,6 +86,7 @@ void PlugNspectrPostProcessor::prepareToPlay (double sampleRate, int samplesPerB
     resetMeasurement();
     resetDynamics();
     resetEnvelope();
+    resetThdSweep();
 }
 
 void PlugNspectrPostProcessor::releaseResources()
@@ -390,6 +391,93 @@ void PlugNspectrPostProcessor::injectEnvelopeBlock (const float* pre, const floa
 }
 
 //==============================================================================
+// THD vs frequency: frame the Post signal, FFT, pick the fundamental + harmonic
+// peaks, and bin %THD by the (swept) fundamental's log-frequency.
+void PlugNspectrPostProcessor::pushThdSweepSamples (const float* post, int n, double fundamentalHz)
+{
+    if (post == nullptr) return;
+    const double sr = (m_measSampleRate > 0.0) ? m_measSampleRate : getSampleRate();
+    if (sr <= 0.0) return;
+    m_thdLastFundHz = fundamentalHz;
+
+    for (int i = 0; i < n; ++i)
+    {
+        m_thdAccum[m_thdPos++] = post[i];
+        if (m_thdPos < kMeasFftSize) continue;
+        m_thdPos = 0;
+
+        const double f0 = m_thdLastFundHz;
+        if (f0 < (double) kThdLoHz * 0.9 || f0 > (double) kThdHiHz * 1.1) continue;
+
+        std::copy (m_thdAccum.begin(), m_thdAccum.end(), m_thdWork.begin());
+        std::fill (m_thdWork.begin() + kMeasFftSize, m_thdWork.end(), 0.0f);
+        m_measWindow.multiplyWithWindowingTable (m_thdWork.data(), kMeasFftSize);
+        m_measFft.performRealOnlyForwardTransform (m_thdWork.data(), true);
+
+        const double binW = sr / kMeasFftSize;
+        // Search radius must stay below half the harmonic spacing (f0 in bins),
+        // or at low frequencies H2's window would grab the fundamental.
+        const int rad = juce::jlimit (1, 6, (int) (f0 / binW / 2.0) - 1);
+        auto peak = [&] (double freq) -> double
+        {
+            const int b  = (int) std::lround (freq / binW);
+            const int lo = juce::jmax (1, b - rad);
+            const int hi = juce::jmin (kMeasBins - 1, b + rad);
+            double pk = 0.0;
+            for (int k = lo; k <= hi; ++k)
+            {
+                const double re = m_thdWork[k * 2], im = m_thdWork[k * 2 + 1];
+                pk = juce::jmax (pk, std::sqrt (re * re + im * im));
+            }
+            return pk;
+        };
+
+        const double h1 = peak (f0);
+        if (h1 < 1.0e-6) continue;
+        double sumSq = 0.0;
+        for (int h = 2; h <= 8; ++h)
+        {
+            const double fh = f0 * h;
+            if (fh > sr * 0.5) break;
+            const double hh = peak (fh);
+            sumSq += hh * hh;
+        }
+        const double thd = 100.0 * std::sqrt (sumSq) / h1;
+
+        const double t = std::log (f0 / kThdLoHz) / std::log ((double) kThdHiHz / kThdLoHz);
+        const int tb = juce::jlimit (0, kThdBins - 1, (int) std::lround (t * (kThdBins - 1)));
+
+        juce::ScopedLock sl (m_thdLock);
+        if (m_thdValid[tb]) m_thdPct[tb] = (float) (m_thdPct[tb] * 0.8 + thd * 0.2);
+        else              { m_thdPct[tb] = (float) thd; m_thdValid[tb] = 1; }
+    }
+}
+
+void PlugNspectrPostProcessor::getThdSweep (ThdResult& out) const
+{
+    juce::ScopedLock sl (m_thdLock);
+    out.sampleRate = (m_measSampleRate > 0.0) ? m_measSampleRate : getSampleRate();
+    for (int b = 0; b < kThdBins; ++b)
+    {
+        out.thdPct[b] = m_thdPct[b];
+        out.valid[b]  = (m_thdValid[b] != 0);
+    }
+}
+
+void PlugNspectrPostProcessor::resetThdSweep()
+{
+    juce::ScopedLock sl (m_thdLock);
+    m_thdPct.fill (0.0f);
+    m_thdValid.fill (0);
+    m_thdPos = 0;
+}
+
+void PlugNspectrPostProcessor::injectThdSweepBlock (const float* post, int n, double fundamentalHz)
+{
+    pushThdSweepSamples (post, n, fundamentalHz);
+}
+
+//==============================================================================
 void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                              juce::MidiBuffer& /*midiMessages*/)
 {
@@ -440,13 +528,18 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         pushMeasurementSamples (m_pShared->preData[0],
                                 buffer.getReadPointer (0), measN);
 
-        // ── Dynamics transfer-curve measurement (input vs output level) ───
-        pushDynamicsSamples (m_pShared->preData[0],
-                             buffer.getReadPointer (0), measN);
-
-        // ── Attack/release envelope (GR vs time over the step cycle) ──────
-        pushEnvelopeSamples (m_pShared->preData[0],
-                             buffer.getReadPointer (0), measN, m_pShared->dynEnvPos);
+        // ── Dynamics engines — gated by Pre's active stimulus mode so each
+        //    only runs (and interprets dynEnvPos) when its stimulus is live ──
+        const uint32_t dynMode = m_pShared->dynModeActive;
+        if (dynMode == 1)
+            pushDynamicsSamples (m_pShared->preData[0],
+                                 buffer.getReadPointer (0), measN);
+        else if (dynMode == 2)
+            pushEnvelopeSamples (m_pShared->preData[0],
+                                 buffer.getReadPointer (0), measN, m_pShared->dynEnvPos);
+        else if (dynMode == 3)
+            pushThdSweepSamples (buffer.getReadPointer (0), measN,
+                                 (double) m_pShared->dynEnvPos);
     }
 
     // ── RMS for dynamics display ───────────────────────────────────────────

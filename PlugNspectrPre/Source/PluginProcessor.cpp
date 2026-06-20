@@ -164,8 +164,43 @@ void PlugNspectrPreProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const bool measureActive = (m_pCmd != nullptr && m_pCmd->measureActive  != 0);
     const bool dynRamp       = (m_pCmd != nullptr && m_pCmd->dynMeasureMode == 1);
     const bool dynStep       = (m_pCmd != nullptr && m_pCmd->dynMeasureMode == 2);
+    const bool thdSweep      = (m_pCmd != nullptr && m_pCmd->dynMeasureMode == 3);
 
-    if (dynStep && ! toneActive)
+    if (thdSweep && ! toneActive)
+    {
+        // STEPPED log sweep 50 Hz → 5 kHz: hold each of 100 frequencies for
+        // ~0.15 s (long enough for a clean measurement FFT frame), so Post gets
+        // an accurate THD per frequency. The held fundamental is published (Hz).
+        const double sr      = getSampleRate();
+        const double loHz = 50.0, hiHz = 5000.0;
+        constexpr int kSteps = 100;
+        const double holdLen = 0.15 * sr;
+        const double sweepLen = holdLen * kSteps;
+        double levelDb = (m_pCmd != nullptr) ? m_pCmd->testToneLevelDb : -6.0;
+        if (levelDb > -0.5 || levelDb < -90.0) levelDb = -6.0;
+        const float  amp  = (float) std::pow (10.0, levelDb / 20.0);
+        const int    numCh = buffer.getNumChannels(), numSmp = buffer.getNumSamples();
+
+        const int    step0 = (int) (m_dynRampPhase / holdLen) % kSteps;
+        const double fHz   = loHz * std::pow (hiHz / loHz, (double) step0 / (kSteps - 1));
+        m_dynEnvBlockStart = (uint32_t) fHz;                       // held fundamental Hz
+        const double phaseInc = (2.0 * juce::MathConstants<double>::pi * fHz) / sr;
+
+        float* ch0 = buffer.getWritePointer (0);
+        for (int i = 0; i < numSmp; ++i)
+        {
+            m_tonePhase += phaseInc;
+            if (m_tonePhase > juce::MathConstants<double>::twoPi) m_tonePhase -= juce::MathConstants<double>::twoPi;
+            ch0[i] = amp * (float) std::sin (m_tonePhase);
+
+            m_dynRampPhase += 1.0;
+            if (m_dynRampPhase >= sweepLen) m_dynRampPhase = 0.0;
+        }
+        for (int ch = 1; ch < numCh; ++ch)
+            std::memcpy (buffer.getWritePointer (ch), ch0,
+                         static_cast<size_t> (numSmp) * sizeof (float));
+    }
+    else if (dynStep && ! toneActive)
     {
         // Level-stepped 1 kHz sine for attack/release measurement: HIGH (-10 dBFS)
         // for the first half-second of a 1 s cycle (step up → attack), LOW
@@ -289,7 +324,8 @@ void PlugNspectrPreProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                          static_cast<size_t> (numSmp) * sizeof (float));
         }
 
-        m_pShared->dynEnvPos = m_dynEnvBlockStart;
+        m_pShared->dynEnvPos     = m_dynEnvBlockStart;
+        m_pShared->dynModeActive = (m_pCmd != nullptr) ? m_pCmd->dynMeasureMode : 0u;
         ++m_pShared->writeCount;
         m_pShared->preLastHeartbeat = juce::Time::getMillisecondCounter();
     }
