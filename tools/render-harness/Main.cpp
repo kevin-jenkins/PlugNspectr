@@ -332,7 +332,6 @@ int main (int argc, char* argv[])
     double phase = 0.0;
     int written = 0;
     juce::Random rng;
-    const float lpA = (float) (1.0 - std::exp (-2.0 * juce::MathConstants<double>::pi * 1000.0 / kSampleRate));
     float lpY = 0.0f;
     constexpr int kDelay = 64;                 // bulk latency to exercise compensation
     std::array<float, kDelay> dl {}; int dp = 0;
@@ -399,13 +398,16 @@ int main (int argc, char* argv[])
         }
         else if (linearRender)
         {
-            // White noise → one-pole LP @1kHz → 64-sample delay (a plugin that
-            // both colours AND delays), straight into the measurement.
+            // One-pole LP + 64-sample delay. Halfway through, FREEZE the curve
+            // and move the cutoff (1 kHz → 3 kHz) to demonstrate A/B compare.
+            if (f == numFrames / 2) { editor->freezeLinearForTest(); proc.resetMeasurement(); }
+            const double fc  = (f < numFrames / 2) ? 1000.0 : 3000.0;
+            const float  lpA2 = (float) (1.0 - std::exp (-2.0 * juce::MathConstants<double>::pi * fc / kSampleRate));
             std::vector<float> pre ((size_t) kBlock), post ((size_t) kBlock);
             for (int i = 0; i < kBlock; ++i)
             {
                 const float x = rng.nextFloat() * 2.0f - 1.0f;
-                lpY += lpA * (x - lpY);
+                lpY += lpA2 * (x - lpY);
                 post[(size_t) i] = dl[(size_t) dp];   // lpY delayed by kDelay
                 dl[(size_t) dp] = lpY;
                 dp = (dp + 1) % kDelay;
