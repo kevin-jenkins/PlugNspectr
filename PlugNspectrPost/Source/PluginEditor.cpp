@@ -2909,6 +2909,18 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     };
     addAndMakeVisible (m_footerToneBtn);
 
+    // ── Header — L/R/Mid/Side channel selector (applies to all analysis) ───
+    m_channelBox.addItem ("Left",  1);
+    m_channelBox.addItem ("Right", 2);
+    m_channelBox.addItem ("Mid",   3);
+    m_channelBox.addItem ("Side",  4);
+    m_channelBox.setSelectedId (audioProcessor.getChannelMode() + 1, juce::dontSendNotification);
+    m_channelBox.onChange = [this]
+    {
+        audioProcessor.setChannelMode (m_channelBox.getSelectedId() - 1);
+    };
+    addAndMakeVisible (m_channelBox);
+
     openCmdMemory();
 
     switchTab (0);
@@ -3328,6 +3340,10 @@ void PlugNspectrPostEditor::resized()
     m_tabTransfer    .setBounds (kTabW * 4 + kTabWO,      hH, kTabW,  tbH);
     m_tabEnvelope    .setBounds (kTabW * 5 + kTabWO,      hH, kTabW,  tbH);
     m_tabThd         .setBounds (kTabW * 6 + kTabWO,      hH, kTabW,  tbH);
+
+    // Channel selector in the header, just left of the "v1.0" version text.
+    m_channelBox.setBounds (getWidth() - PnsTheme::kPaddingMid - 40 - 8 - 92,
+                            (hH - 22) / 2, 92, 22);
 
     constexpr int kFooterH = 36;
     const int W = getWidth(), H = getHeight();

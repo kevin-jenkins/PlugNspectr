@@ -489,86 +489,92 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const int numCh  = juce::jmin (buffer.getNumChannels(), kPNS_MaxChannels);
     const int numSmp = juce::jmin (buffer.getNumSamples(),  kPNS_MaxSamplesPerBlock);
 
+    const bool preReady = (m_pShared != nullptr && m_pShared->magic == kPNS_Magic);
+    const int  preCh    = preReady ? juce::jmin ((int) m_pShared->numChannels, kPNS_MaxChannels) : 0;
+    const int  preSmp   = preReady ? juce::jmin ((int) m_pShared->numSamples,  kPNS_MaxSamplesPerBlock) : 0;
+
+    // ── Derive the analysis channel (L / R / Mid / Side) once, then feed it
+    //    to every downstream measurement and the capture display ───────────
+    {
+        const int mode = m_channelMode.load();
+        auto derive = [mode] (float l, float r) -> float
+        {
+            switch (mode) { case 1: return r;                 // Right
+                            case 2: return 0.5f * (l + r);    // Mid
+                            case 3: return 0.5f * (l - r);    // Side
+                            default: return l; }              // Left
+        };
+
+        const float* post0 = (numCh > 0) ? buffer.getReadPointer (0) : nullptr;
+        const float* post1 = (numCh > 1) ? buffer.getReadPointer (1) : post0;
+        for (int i = 0; i < numSmp; ++i)
+            m_anaPost[i] = (post0 != nullptr) ? derive (post0[i], post1[i]) : 0.0f;
+
+        const float* pre0 = preReady ? m_pShared->preData[0] : nullptr;
+        const float* pre1 = (preReady && preCh > 1) ? m_pShared->preData[1] : pre0;
+        for (int i = 0; i < preSmp; ++i)
+            m_anaPre[i] = (pre0 != nullptr) ? derive (pre0[i], pre1[i]) : 0.0f;
+    }
+
     // ── Capture pre/post audio blocks ─────────────────────────────────────
     {
         juce::ScopedLock sl (m_captureLock);
 
-        if (m_pShared != nullptr && m_pShared->magic == kPNS_Magic)
-        {
-            const int preCh  = juce::jmin ((int) m_pShared->numChannels, kPNS_MaxChannels);
-            const int preSmp = juce::jmin ((int) m_pShared->numSamples,  kPNS_MaxSamplesPerBlock);
+        // Channel 0 of the capture holds the derived analysis signal so the
+        // waveform / oscilloscope views follow the L/R/Mid/Side selection.
+        if (preSmp > 0)
+            std::memcpy (m_capture.pre.getWritePointer (0), m_anaPre.data(),
+                         static_cast<size_t> (preSmp) * sizeof (float));
 
-            for (int ch = 0; ch < preCh; ++ch)
-                std::memcpy (m_capture.pre.getWritePointer (ch),
-                             m_pShared->preData[ch],
-                             static_cast<size_t> (preSmp) * sizeof (float));
-        }
-
-        for (int ch = 0; ch < numCh; ++ch)
-            std::memcpy (m_capture.post.getWritePointer (ch),
-                         buffer.getReadPointer (ch),
-                         static_cast<size_t> (numSmp) * sizeof (float));
+        std::memcpy (m_capture.post.getWritePointer (0), m_anaPost.data(),
+                     static_cast<size_t> (numSmp) * sizeof (float));
 
         ++m_capture.captureCount;
     }
 
-    // ── FFT accumulation ──────────────────────────────────────────────────
-    pushSamplesToAccum (buffer.getReadPointer (0), numSmp,
+    // ── FFT accumulation (on the derived analysis channel) ────────────────
+    pushSamplesToAccum (m_anaPost.data(), numSmp,
                         m_postAccum, m_postAccumPos, m_postSpectrum);
 
-    if (m_pShared != nullptr && m_pShared->magic == kPNS_Magic)
+    if (preReady)
     {
-        const int preSmp = juce::jmin ((int) m_pShared->numSamples,
-                                       kPNS_MaxSamplesPerBlock);
-        pushSamplesToAccum (m_pShared->preData[0], preSmp,
+        pushSamplesToAccum (m_anaPre.data(), preSmp,
                             m_preAccum, m_preAccumPos, m_preSpectrum);
 
         // ── Linear transfer-function measurement (Pre → Post) ─────────────
         const int measN = juce::jmin (preSmp, numSmp);
-        pushMeasurementSamples (m_pShared->preData[0],
-                                buffer.getReadPointer (0), measN);
+        pushMeasurementSamples (m_anaPre.data(), m_anaPost.data(), measN);
 
         // ── Dynamics engines — gated by Pre's active stimulus mode so each
         //    only runs (and interprets dynEnvPos) when its stimulus is live ──
         const uint32_t dynMode = m_pShared->dynModeActive;
         if (dynMode == 1)
-            pushDynamicsSamples (m_pShared->preData[0],
-                                 buffer.getReadPointer (0), measN);
+            pushDynamicsSamples (m_anaPre.data(), m_anaPost.data(), measN);
         else if (dynMode == 2)
-            pushEnvelopeSamples (m_pShared->preData[0],
-                                 buffer.getReadPointer (0), measN, m_pShared->dynEnvPos);
+            pushEnvelopeSamples (m_anaPre.data(), m_anaPost.data(), measN, m_pShared->dynEnvPos);
         else if (dynMode == 3)
-            pushThdSweepSamples (buffer.getReadPointer (0), measN,
-                                 (double) m_pShared->dynEnvPos);
+            pushThdSweepSamples (m_anaPost.data(), measN, (double) m_pShared->dynEnvPos);
     }
 
-    // ── RMS for dynamics display ───────────────────────────────────────────
+    // ── RMS for dynamics display (on the derived analysis channel) ─────────
     {
-        // Post: channel 0
         float postSumSq = 0.0f;
-        const float* postPtr = buffer.getReadPointer (0);
         for (int i = 0; i < numSmp; ++i)
-            postSumSq += postPtr[i] * postPtr[i];
-        const float postRms = std::sqrt (postSumSq / (float) numSmp);
+            postSumSq += m_anaPost[i] * m_anaPost[i];
+        const float postRms = std::sqrt (postSumSq / (float) juce::jmax (numSmp, 1));
         const float postDb  = 20.0f * std::log10 (juce::jmax (postRms, 1.0e-6f));
 
         float preDb    = -90.0f;
         bool  preValid = false;
 
-        if (m_pShared != nullptr && m_pShared->magic == kPNS_Magic)
+        if (preSmp > 0)
         {
-            const int preSmp = juce::jmin ((int) m_pShared->numSamples,
-                                           kPNS_MaxSamplesPerBlock);
-            if (preSmp > 0)
-            {
-                float preSumSq = 0.0f;
-                const float* prePtr = m_pShared->preData[0];
-                for (int i = 0; i < preSmp; ++i)
-                    preSumSq += prePtr[i] * prePtr[i];
-                const float preRms = std::sqrt (preSumSq / (float) preSmp);
-                preDb   = 20.0f * std::log10 (juce::jmax (preRms, 1.0e-6f));
-                preValid = true;
-            }
+            float preSumSq = 0.0f;
+            for (int i = 0; i < preSmp; ++i)
+                preSumSq += m_anaPre[i] * m_anaPre[i];
+            const float preRms = std::sqrt (preSumSq / (float) preSmp);
+            preDb   = 20.0f * std::log10 (juce::jmax (preRms, 1.0e-6f));
+            preValid = true;
         }
 
         juce::ScopedLock sl (m_rmsLock);

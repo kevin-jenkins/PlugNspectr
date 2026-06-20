@@ -125,6 +125,10 @@ public:
     void getMeasurement (MeasResult& out) const;
     void resetMeasurement ();
 
+    // Channel mode for all analysis: 0=Left, 1=Right, 2=Mid (L+R)/2, 3=Side (L-R)/2.
+    void setChannelMode (int m) { m_channelMode.store (juce::jlimit (0, 3, m)); }
+    int  getChannelMode () const { return m_channelMode.load(); }
+
     // Test seam — feed a known Pre/Post pair straight into the measurement
     // accumulator (used by the offline render harness to validate the DSP).
     void injectMeasurementBlock (const float* pre, const float* post, int n);
@@ -196,6 +200,11 @@ private:
     mutable juce::CriticalSection m_captureLock;
     CaptureBufs                   m_capture;
     bool                          m_testPreActive = false;   // forced by render harness
+
+    // L/R/Mid/Side channel selection + derived per-block analysis signals.
+    std::atomic<int>                            m_channelMode { 0 };
+    std::array<float, kPNS_MaxSamplesPerBlock>  m_anaPre  {};
+    std::array<float, kPNS_MaxSamplesPerBlock>  m_anaPost {};
 
     void openSharedMemory();
     void closeSharedMemory();

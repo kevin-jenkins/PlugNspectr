@@ -492,6 +492,9 @@ private:
     juce::Slider     m_footerLevelSlider;
     juce::TextButton m_footerToneBtn { "Test Tone" };
 
+    // Header channel selector — L / R / Mid / Side for all analysis.
+    juce::ComboBox   m_channelBox;
+
     void openCmdMemory  ();
     void closeCmdMemory ();
     void writeCmdBlock  ();
