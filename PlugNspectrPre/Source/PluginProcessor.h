@@ -66,6 +66,10 @@ public:
     void getStateInformation (juce::MemoryBlock&)    override {}
     void setStateInformation (const void*, int)      override {}
 
+    // Test seam — point the command block at a caller-owned struct so the
+    // stimulus generators can be driven without Windows shared memory.
+    void setTestCmdBlock (PNS_CmdBlock* p) { m_pCmd = p; }
+
 private:
     //==========================================================================
     HANDLE m_hMapFile = nullptr;

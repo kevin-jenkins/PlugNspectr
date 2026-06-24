@@ -10,7 +10,9 @@
 #include <windows.h>
 
 #include "PluginProcessor.h"
+#ifndef PNS_HEADLESS_TESTS          // editor-free in the unit-test target
 #include "PluginEditor.h"
+#endif
 
 #include <cstring>
 #include <cmath>
@@ -634,7 +636,11 @@ PlugNspectrPostProcessor::RmsPair PlugNspectrPostProcessor::getRms() const
 //==============================================================================
 juce::AudioProcessorEditor* PlugNspectrPostProcessor::createEditor()
 {
+#ifndef PNS_HEADLESS_TESTS
     return new PlugNspectrPostEditor (*this);
+#else
+    return nullptr;                 // unit-test target links no editor
+#endif
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

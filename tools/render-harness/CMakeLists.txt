@@ -82,3 +82,55 @@ target_link_libraries(PnsPostStandalone PRIVATE
     juce::juce_gui_extra
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
+
+# ---------------------------------------------------------------------------
+# Unit tests (doctest). Two console exes — Post engines and Pre generators are
+# split so the duplicate createPluginFilter() symbols don't clash. Both are
+# EDITOR-FREE: they compile only the processor sources (PNS_HEADLESS_TESTS
+# stubs out createEditor), so no PluginEditor / BinaryData / Projucer is needed.
+# ---------------------------------------------------------------------------
+set(TESTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../tests")
+set(PRE_DIR   "${CMAKE_CURRENT_SOURCE_DIR}/../../PlugNspectrPre")
+set(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+
+# --- Post DSP engines + shared-memory ABI ---
+juce_add_console_app(PnsTests PRODUCT_NAME "PnsTests")
+juce_generate_juce_header(PnsTests)
+target_sources(PnsTests PRIVATE
+    "${TESTS_DIR}/test_main.cpp"
+    "${TESTS_DIR}/test_linear.cpp"
+    "${TESTS_DIR}/test_dynamics.cpp"
+    "${TESTS_DIR}/test_envelope.cpp"
+    "${TESTS_DIR}/test_thd.cpp"
+    "${TESTS_DIR}/test_channel_rms.cpp"
+    "${TESTS_DIR}/test_shared_abi.cpp"
+    "${POST_DIR}/Source/PluginProcessor.cpp")
+target_include_directories(PnsTests PRIVATE "${POST_DIR}/Source" "${TESTS_DIR}")
+target_compile_definitions(PnsTests PRIVATE
+    JucePlugin_Name="PlugNspectrPost"
+    PNS_HEADLESS_TESTS=1
+    PNS_REPO_ROOT="${REPO_ROOT}"
+    JUCE_STANDALONE_APPLICATION=1
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(PnsTests PRIVATE
+    juce::juce_audio_utils juce::juce_dsp
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags)
+
+# --- Pre stimulus generators ---
+juce_add_console_app(PnsTestsPre PRODUCT_NAME "PnsTestsPre")
+juce_generate_juce_header(PnsTestsPre)
+target_sources(PnsTestsPre PRIVATE
+    "${TESTS_DIR}/test_main.cpp"
+    "${TESTS_DIR}/test_pre_generators.cpp"
+    "${PRE_DIR}/Source/PluginProcessor.cpp")
+target_include_directories(PnsTestsPre PRIVATE "${PRE_DIR}/Source" "${TESTS_DIR}")
+target_compile_definitions(PnsTestsPre PRIVATE
+    JucePlugin_Name="PlugNspectrPre"
+    PNS_HEADLESS_TESTS=1
+    JUCE_STANDALONE_APPLICATION=1
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(PnsTestsPre PRIVATE
+    juce::juce_audio_utils
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags)

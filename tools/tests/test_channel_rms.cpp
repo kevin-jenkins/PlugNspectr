@@ -1,0 +1,57 @@
+// Channel derivation (L / R / Mid / Side) feeding the RMS readout. Drives
+// processBlock with a known stereo signal and checks getRms().postDb.
+#include "doctest.h"
+#include "helpers.h"
+#include "PluginProcessor.h"
+
+using P = PlugNspectrPostProcessor;
+
+namespace
+{
+// RMS (dB) of the derived analysis channel for a constant L/R pair, in a given mode.
+float postDbFor (P& proc, int mode, float L, float R)
+{
+    proc.setChannelMode (mode);
+    juce::MidiBuffer midi;
+    float db = -200.0f;
+    for (int n = 0; n < 4; ++n)             // a few blocks; RMS is per-block, no smoothing
+    {
+        juce::AudioBuffer<float> buf (2, pnst::kBlk);
+        for (int i = 0; i < pnst::kBlk; ++i) { buf.setSample (0, i, L); buf.setSample (1, i, R); }
+        proc.processBlock (buf, midi);
+        db = proc.getRms().postDb;
+    }
+    return db;
+}
+} // namespace
+
+TEST_CASE ("Channel: L / R / Mid / Side derivation drives RMS")
+{
+    P proc;
+    proc.prepareToPlay (pnst::kSR, pnst::kBlk);
+
+    const float L = 0.5f, R = 0.1f;         // constant (DC) → RMS == |value|
+    auto dbOf = [] (float v) { return 20.0f * std::log10 (v); };
+
+    const float left  = postDbFor (proc, 0, L, R);
+    const float right = postDbFor (proc, 1, L, R);
+    const float mid   = postDbFor (proc, 2, L, R);
+    const float side  = postDbFor (proc, 3, L, R);
+
+    INFO ("L=" << left << " R=" << right << " Mid=" << mid << " Side=" << side);
+    CHECK (std::abs (left  - dbOf (L))               < 0.1f);     // -6.02
+    CHECK (std::abs (right - dbOf (R))               < 0.1f);     // -20.0
+    CHECK (std::abs (mid   - dbOf (0.5f * (L + R)))  < 0.1f);     // (0.3) -10.46
+    CHECK (std::abs (side  - dbOf (0.5f * (L - R)))  < 0.1f);     // (0.2) -13.98
+}
+
+TEST_CASE ("Channel: Pre is reported invalid when not connected")
+{
+    P proc;
+    proc.prepareToPlay (pnst::kSR, pnst::kBlk);
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> buf (2, pnst::kBlk);
+    buf.clear();
+    proc.processBlock (buf, midi);
+    CHECK (proc.getRms().preValid == false);
+}

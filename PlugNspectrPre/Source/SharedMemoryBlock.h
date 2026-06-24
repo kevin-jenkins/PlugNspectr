@@ -45,14 +45,15 @@ struct PNS_SharedBlock
 static constexpr uint32_t kPNS_SharedMemBytes = static_cast<uint32_t>(sizeof(PNS_SharedBlock));
 
 // ── Command block — written by Post, read by Pre ──────────────────────────────
+// Separate mapping so PlugNspectrPost does not need write access to the main block.
 static constexpr char kPNS_CmdMemName[] = "BiltroyPlugNspectrCmd";
 
 #pragma pack(push, 1)
 struct PNS_CmdBlock
 {
-    uint32_t testToneActive;    // non-zero → generate a sine test tone
+    uint32_t testToneActive;    // non-zero → Pre generates a sine test tone
     double   testToneFrequency; // Hz (100 – 8000)
-    uint32_t measureActive;     // non-zero → emit white-noise measurement stimulus
+    uint32_t measureActive;     // non-zero → Pre emits white-noise measurement stimulus
     uint32_t dynMeasureMode;    // 0 = off, 1 = level-ramp sine (transfer curve)
     double   testToneLevelDb;   // test-tone level in dBFS (e.g. -60 .. 0)
 };
