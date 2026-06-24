@@ -450,4 +450,4 @@ See [LICENSE](LICENSE) for the full license text.
 ---
 
 *PlugNspectr is developed by Biltroy Audio using JUCE and C++.*
-*Built with ❤️ for mixing / mastering engineers and producers who want to hear what their plugins are really doing.*
+*Built with ❤️ for mixing / mastering engineers and producers who want to measure and see what their plugins are actually doing.*
