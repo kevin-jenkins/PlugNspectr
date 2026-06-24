@@ -1,0 +1,18 @@
+#!/bin/sh
+# PlugNspectr pre-push hook — run the unit suites and block the push on failure.
+# Enable once per clone:  git config core.hooksPath .githooks
+#   (or run tools/tests/install-hooks.ps1)
+# Bypass for a single push:  git push --no-verify
+echo "[pre-push] Running PlugNspectr unit tests..."
+
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/tests/run-tests.ps1
+status=$?
+
+if [ "$status" -ne 0 ]; then
+  echo "[pre-push] Unit tests FAILED (exit $status) — push aborted." >&2
+  echo "[pre-push] Override with: git push --no-verify" >&2
+  exit 1
+fi
+
+echo "[pre-push] Unit tests passed."
+exit 0
