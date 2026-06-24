@@ -32,6 +32,18 @@ cmake --build tools/render-harness/build --config Release --target PnsTests PnsT
 
 Each exe returns a non-zero exit code on failure (doctest), so it gates CI.
 
+## Run automatically before every push
+
+A tracked pre-push hook (`.githooks/pre-push`) runs both suites and blocks the
+push if anything fails. Enable it once per clone:
+
+```powershell
+powershell -File tools/tests/install-hooks.ps1   # sets core.hooksPath -> .githooks
+```
+
+Bypass a single push with `git push --no-verify`. (Git's `core.hooksPath` is a
+local setting, so each clone opts in once — `.git/hooks` itself isn't tracked.)
+
 ## Adding tests
 
 Add a `test_*.cpp` under `tools/tests/`, list it in the relevant target in
