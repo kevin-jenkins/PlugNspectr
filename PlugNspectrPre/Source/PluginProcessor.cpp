@@ -10,7 +10,9 @@
 #include <windows.h>
 
 #include "PluginProcessor.h"
+#ifndef PNS_HEADLESS_TESTS          // editor-free in the unit-test target
 #include "PluginEditor.h"
+#endif
 
 #include <cstring>   // std::memcpy
 #include <cmath>
@@ -336,7 +338,11 @@ void PlugNspectrPreProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 //==============================================================================
 juce::AudioProcessorEditor* PlugNspectrPreProcessor::createEditor()
 {
+#ifndef PNS_HEADLESS_TESTS
     return new PlugNspectrPreEditor (*this);
+#else
+    return nullptr;                 // unit-test target links no editor
+#endif
 }
 
 //==============================================================================
