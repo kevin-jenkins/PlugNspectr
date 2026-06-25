@@ -188,6 +188,12 @@ public:
     // so hosts that don't report a playhead never trigger a false auto-stop.
     bool isTransportPlaying() const { return m_transportPlaying.load(); }
 
+    // Gate the Linear (magnitude/phase/group-delay) measurement so it only
+    // accumulates while its noise stimulus is armed. Off → the last measured
+    // curve is held instead of drifting onto program material (the dynamics
+    // engines already gate themselves on Pre's published stimulus mode).
+    void setLinearMeasuring (bool b) { m_linearMeasuring.store (b); }
+
     //==========================================================================
     // Test seam — lets the offline render harness (tools/render-harness) drive
     // the editor with synthetic audio, no DAW or live PlugNspectrPre needed.
@@ -208,6 +214,7 @@ private:
     CaptureBufs                   m_capture;
     bool                          m_testPreActive = false;   // forced by render harness
     std::atomic<bool>             m_transportPlaying { true };
+    std::atomic<bool>             m_linearMeasuring  { false };
 
     // L/R/Mid/Side channel selection + derived per-block analysis signals.
     std::atomic<int>                            m_channelMode { 0 };
