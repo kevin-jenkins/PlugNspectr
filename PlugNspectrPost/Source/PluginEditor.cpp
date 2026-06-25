@@ -3516,6 +3516,27 @@ void PlugNspectrPostEditor::switchTab (int index)
     m_envelopeView.setVisible (index == 6);
     m_thdView     .setVisible (index == 7);
 
+    // ── Footer relevance per tab ───────────────────────────────────────────
+    // FREQ + Test Tone belong to the single-tone tabs (live tabs + Harmonics);
+    // LEVEL also drives the Distortion sweep level. The other measurement tabs
+    // are driven entirely by Measure/Freeze, so dim + disable the footer there.
+    const bool freqOn  = (index <= 3);
+    const bool levelOn = (index <= 3 || index == 7);
+    const bool toneOn  = (index <= 3);
+
+    // Entering a tab that doesn't own the tone kills a stray tone so it can't
+    // override the measurement stimulus (Pre prioritises the tone otherwise).
+    if (! toneOn && m_toneActive)
+    {
+        m_toneActive = false;
+        m_footerToneBtn.setToggleState (false, juce::dontSendNotification);
+        m_harmView.setToneActive (false);
+    }
+
+    m_footerFreqSlider .setEnabled (freqOn);   m_footerFreqSlider .setAlpha (freqOn  ? 1.0f : 0.35f);
+    m_footerLevelSlider.setEnabled (levelOn);  m_footerLevelSlider.setAlpha (levelOn ? 1.0f : 0.35f);
+    m_footerToneBtn    .setEnabled (toneOn);   m_footerToneBtn    .setAlpha (toneOn  ? 1.0f : 0.35f);
+
     writeCmdBlock();   // start/stop the measurement noise with the tab
     repaint();
 }
@@ -3630,12 +3651,18 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
     g.setColour (PnsTheme::kBorderSubtle);
     g.drawHorizontalLine (footerY, 0.0f, (float) W2);
 
+    // Footer controls are only relevant on some tabs (see switchTab) — dim the
+    // FREQ/LEVEL labels to match the enabled/disabled state of their knobs.
+    const bool freqOn  = (m_activeTab <= 3);
+    const bool levelOn = (m_activeTab <= 3 || m_activeTab == 7);
+    const auto dim      = [] (juce::Colour c, bool on) { return on ? c : c.withAlpha (0.35f); };
+
     // "FREQ" label — to the right of the knob (knob is 28px wide at kPaddingLarge)
     constexpr int knobX = PnsTheme::kPaddingLarge;
     constexpr int knobW = 28;
     const int freqLabelX = knobX + knobW + 4;
     g.setFont (PnsTheme::fontLabel());
-    g.setColour (PnsTheme::kTextSecondary);
+    g.setColour (dim (PnsTheme::kTextSecondary, freqOn));
     g.drawText ("FREQ", freqLabelX, footerY, 36, kFooterH, juce::Justification::centredLeft);
 
     // Frequency value display
@@ -3646,14 +3673,14 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
     else
         freqStr = juce::String (freq / 1000.0, 2) + " kHz";
 
-    g.setColour (m_toneActive ? PnsTheme::kTextAccent : PnsTheme::kTextSecondary);
+    g.setColour (dim (m_toneActive ? PnsTheme::kTextAccent : PnsTheme::kTextSecondary, freqOn));
     g.drawText (freqStr, freqLabelX + 36, footerY, 64, kFooterH, juce::Justification::centredLeft);
 
     // "LEVEL" label + value — knob is positioned in resized() just before this.
     const int lvlLabelX = freqLabelX + 100 + 28 + 6;
-    g.setColour (PnsTheme::kTextSecondary);
+    g.setColour (dim (PnsTheme::kTextSecondary, levelOn));
     g.drawText ("LEVEL", lvlLabelX, footerY, 40, kFooterH, juce::Justification::centredLeft);
-    g.setColour (m_toneActive ? PnsTheme::kTextAccent : PnsTheme::kTextSecondary);
+    g.setColour (dim (m_toneActive ? PnsTheme::kTextAccent : PnsTheme::kTextSecondary, levelOn));
     g.drawText (juce::String (m_toneLevel, 1) + " dB", lvlLabelX + 40, footerY, 64, kFooterH,
                 juce::Justification::centredLeft);
 
