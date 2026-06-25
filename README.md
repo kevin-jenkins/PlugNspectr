@@ -1,7 +1,7 @@
 # PlugNspectr
 ### by Biltroy Audio
 
-> A two-plugin VST3 signal-chain analyzer for Windows and any DAW that supports VST3.
+> A two-plugin signal-chain analyzer for Windows (VST3) and macOS (VST3 + AU).
 > Insert Pre and Post around any plugin — or a whole chain — to see exactly what it's doing to your audio.
 
 <img src="docs/screenshots/spectrum-hero.png" width="900" alt="PlugNspectr Post — Spectrum tab analyzing live audio in Cubase" />
@@ -48,7 +48,7 @@ It consists of two companion VST3 plugins:
 | **PlugNspectr Pre** | Insert before the plugin(s) you want to analyze. Captures the unprocessed reference signal and generates test stimuli on request. |
 | **PlugNspectr Post** | Insert after. Hosts the analysis UI and compares the reference (Pre) signal against the processed (Post) signal. |
 
-Both communicate via Windows shared memory, passing audio between them in real time with minimal latency impact.
+Both communicate via lock-free named shared memory (Windows file mapping / POSIX `shm`), passing audio between them in real time with minimal latency impact.
 
 Two complementary kinds of analysis:
 
@@ -59,37 +59,47 @@ Two complementary kinds of analysis:
 
 ## Requirements
 
-- **OS:** Windows 10 or later (64-bit)
-- **DAW:** Any VST3-compatible host (developed and tested on Cubase 15 Pro)
-- **Format:** VST3 (64-bit only)
+- **OS:** Windows 10 or later (64-bit), or macOS 11+ (Apple Silicon & Intel — universal binary)
+- **DAW:** Any VST3 host (developed and tested on Cubase 15 Pro); on macOS also any AU host (e.g. Logic Pro)
+- **Format:** VST3 (Windows & macOS) · Audio Unit (macOS)
 - **Sample Rates:** 44.1 kHz, 48 kHz, 88.2 kHz, 96 kHz
 - **Window:** Resizable, with sensible minimum/maximum bounds
+
+> **macOS status:** the build is universal and passes [pluginval](https://github.com/Tracktion/pluginval) in CI, but the Mac binaries are **not yet code-signed/notarized** and haven't been confirmed in a Mac DAW end-to-end. Treat macOS as beta for now.
 
 ---
 
 ## Installation
 
-1. Copy both `.vst3` folders to your VST3 plugin directory:
-```
-C:\Program Files\Common Files\VST3\
-```
+1. Copy **both** plugins to your plugin folder:
 
-Your directory should contain:
-```
-VST3\
-  PlugNspectrPre.vst3\Contents\x86_64-win\PlugNspectrPre.dll
-  PlugNspectrPost.vst3\Contents\x86_64-win\PlugNspectrPost.dll
-```
+   **Windows** — copy the two `.vst3` folders to:
+   ```
+   C:\Program Files\Common Files\VST3\
+   ```
+
+   **macOS** — copy the `.vst3` bundles to `~/Library/Audio/Plug-Ins/VST3/` and/or the
+   `.component` (AU) bundles to `~/Library/Audio/Plug-Ins/Components/`:
+   ```
+   ~/Library/Audio/Plug-Ins/VST3/PlugNspectrPre.vst3
+   ~/Library/Audio/Plug-Ins/VST3/PlugNspectrPost.vst3
+   ~/Library/Audio/Plug-Ins/Components/PlugNspectrPre.component
+   ~/Library/Audio/Plug-Ins/Components/PlugNspectrPost.component
+   ```
+   > Since the Mac builds aren't notarized yet, macOS may quarantine them — clear it with
+   > `xattr -dr com.apple.quarantine <bundle>` if your DAW won't load them.
 
 2. Open your DAW and perform a full plugin rescan.
 
 3. Both plugins will appear under **Biltroy Audio** in your plugin manager.
 
+> **Both must be on the same track/bus** to communicate (see below). You can install both formats on macOS; use whichever your DAW prefers (AU for Logic, VST3 for Cubase/Reaper, etc.).
+
 ---
 
 ## How It Works
 
-PlugNspectr uses **Windows Named Shared Memory** (`BiltroyPlugNspectrShared`) to pass audio between the Pre and Post plugins in real time, plus a small command channel (`BiltroyPlugNspectrCmd`) so Post can ask Pre to generate test stimuli.
+PlugNspectr uses a single **named shared-memory segment** (`PlugNspectrIPC`) to pass audio between the Pre and Post plugins in real time, with a small command channel inside it so Post can ask Pre to generate test stimuli. The segment is portable — Windows file mapping or POSIX `shm` — and all synchronization is **lock-free** (a seqlock-guarded payload plus atomic heartbeats), so the audio thread never blocks.
 
 - **PlugNspectrPre** captures each audio block in its `processBlock()` and writes it to shared memory with a heartbeat timestamp. When a measurement is armed, Pre replaces the signal with the requested stimulus so it passes through the plugin under analysis.
 - **PlugNspectrPost** reads the Pre signal each block alongside its own input (the processed signal), and performs all FFT analysis, dynamics measurement, and visualization using both.
@@ -333,19 +343,30 @@ The footer hosts the test-tone controls and global level trim:
 ## Building from Source
 
 ### Prerequisites
-- [JUCE](https://juce.com) 8.x
-- Visual Studio 2022/2026 with the C++ Desktop Development workload
-- Windows 10/11 SDK
+- [JUCE](https://juce.com) 8.x (the CMake build takes `-DJUCE_DIR=<path>`)
+- **Windows:** Visual Studio 2022/2026 (C++ Desktop Development) + Windows 10/11 SDK
+- **macOS:** Xcode 15+ (command-line tools) + CMake 3.22+
 
-### Plugins (VST3)
+### Cross-platform build (CMake) — recommended
 
-1. Clone the repo, then open each `.jucer` in **Projucer** and click **Save Project** once (this generates `JuceLibraryCode/` and `BinaryData`, which are git-ignored):
-   - `PlugNspectrPre/PlugNspectrPre.jucer`
-   - `PlugNspectrPost/PlugNspectrPost.jucer`
-2. Open each generated `.sln` in Visual Studio:
-   - `PlugNspectrPre/Builds/VisualStudio2026/PlugNspectrPre.sln`
-   - `PlugNspectrPost/Builds/VisualStudio2026/PlugNspectrPost.sln`
-3. Build **Release | x64**, then copy the `.vst3` folders to `C:\Program Files\Common Files\VST3\`.
+The top-level `CMakeLists.txt` builds **both plugins** for the current OS — **VST3** everywhere, **AU** additionally on macOS, as a **universal** (arm64 + x86_64) binary on Mac. The editor is BinaryData-free, so no Projucer step is needed:
+
+```bash
+cmake -B build -DJUCE_DIR="/path/to/JUCE"
+cmake --build build --config Release
+# -> build/PlugNspectr{Pre,Post}_artefacts/Release/{VST3,AU}/...
+```
+
+A manually-triggered GitHub Actions workflow (`.github/workflows/macos.yml`) builds the universal Mac VST3/AU and validates them with [pluginval](https://github.com/Tracktion/pluginval); run it from the Actions tab or `gh workflow run "macOS build"`.
+
+### Windows (Projucer / Visual Studio) — alternative
+
+The `.jucer` projects are kept for the existing local Windows workflow:
+
+1. Open each `.jucer` in **Projucer** and click **Save Project** once (generates the git-ignored `JuceLibraryCode/` + `BinaryData`).
+2. Open each `Builds/VisualStudio2026/*.sln`, build **Release | x64**, then copy the `.vst3` folders to `C:\Program Files\Common Files\VST3\`.
+
+> Re-saving the `.jucer` regenerates the build files — avoid it unless necessary; the CMake build above is the simpler cross-platform path.
 
 ### Development tooling (CMake)
 
@@ -373,8 +394,9 @@ A tracked **pre-push hook** runs the suites before every push; enable it once pe
 
 | Detail | Value |
 |---|---|
-| Shared memory / command names | `BiltroyPlugNspectrShared` / `BiltroyPlugNspectrCmd` |
-| Pre / Post VST3 IDs | `BNSP` / `BNSQ` (manufacturer `Bilt`) |
+| Shared segment | `PlugNspectrIPC` — one segment carrying audio (Pre→Post) + commands (Post→Pre) |
+| IPC sync | Lock-free seqlocks + atomic heartbeats (wait-free audio thread); Win32 file mapping / POSIX `shm` |
+| Pre / Post plugin IDs | `BNSP` / `BNSQ` (manufacturer `Bilt`) |
 | Spectrum FFT | 2048-point, Hann window (order 11) |
 | Measurement FFT | 4096-point (magnitude / phase / group-delay, THD) |
 | Latency measurement | PHAT cross-correlation of the Pre→Post impulse |
@@ -395,10 +417,11 @@ A tracked **pre-push hook** runs the suites before every push; enable it once pe
 │  └──────┬───────┘    └──────────────┘         ┌──────────────┐    │
 │         │ write Pre signal / read commands     │PlugNspectrPost│   │
 │         ▼                                       │processBlock() │   │
-│  ┌──────────────────────────┐  shared mem      └──────┬────────┘   │
-│  │ Windows Named Shared Mem  │─────────────────────────┘            │
-│  │ BiltroyPlugNspectrShared  │◀── Cmd: BiltroyPlugNspectrCmd        │
-│  └──────────────────────────┘         (Post → Pre: stimulus)       │
+│  ┌──────────────────────────┐  audio  ─────────└──────┬────────┘   │
+│  │  Shared segment           │─────────────────────────┘            │
+│  │  "PlugNspectrIPC"         │◀── commands (Post → Pre: stimulus)   │
+│  │  (Win mmap / POSIX shm)   │     lock-free seqlocks + heartbeats   │
+│  └──────────────────────────┘                                      │
 └───────────────────────────────────────────────┬───────────────────┘
                                                  │ UI thread (60 fps)
                                           ┌──────▼────────────────┐
@@ -428,6 +451,7 @@ A tracked **pre-push hook** runs the suites before every push; enable it once pe
 - Cursor readouts on all measurement plots
 - Resizable window
 - Headless render harness + standalone build + unit-test suites
+- **Cross-platform: macOS (VST3 + AU, universal) via portable lock-free IPC** — building + pluginval-validated in CI (beta; see macOS status above)
 
 ### Planned
 - IMD (two-tone intermodulation) and THD+N
@@ -435,7 +459,7 @@ A tracked **pre-push hook** runs the suites before every push; enable it once pe
 - Linear-vs-minimum-phase readout
 - Stereo field comparison (Lissajous display)
 - Performance tab — CPU and latency overview
-- Mac / AU support
+- macOS: code-signing / notarization + real-DAW (Logic/Cubase) confirmation
 
 ---
 
