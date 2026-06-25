@@ -550,8 +550,11 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                             m_preAccum, m_preAccumPos, m_preSpectrum);
 
         // ── Linear transfer-function measurement (Pre → Post) ─────────────
+        // Only while the noise stimulus is armed, so pausing Measure holds the
+        // last curve instead of drifting onto program material.
         const int measN = juce::jmin (preSmp, numSmp);
-        pushMeasurementSamples (m_anaPre.data(), m_anaPost.data(), measN);
+        if (m_linearMeasuring.load())
+            pushMeasurementSamples (m_anaPre.data(), m_anaPost.data(), measN);
 
         // ── Dynamics engines — gated by Pre's active stimulus mode so each
         //    only runs (and interprets dynEnvPos) when its stimulus is live ──

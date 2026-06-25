@@ -2215,18 +2215,20 @@ LinearView::LinearView (PlugNspectrPostProcessor& p) : m_proc (p)
     m_measureBtn.onClick = [this]
     {
         m_measureActive = m_measureBtn.getToggleState();
-        m_proc.resetMeasurement();
+        if (m_measureActive) m_proc.resetMeasurement();   // start fresh; pausing keeps the curve
         if (onMeasureChanged) onMeasureChanged();
         repaint();
     };
     addAndMakeVisible (m_measureBtn);
 
-    // Freeze: snapshot the current curves as a dimmed A/B reference (toggle off
+    // Freeze: snapshot the current curves as a dimmed A/B reference (click again
     // to clear). Lets you compare two plugin settings / two plugins.
     m_freezeBtn.onClick = [this]
     {
         if (m_hasFrozen) m_hasFrozen = false;
         else             doFreeze();
+        m_freezeBtn.setToggleState (m_hasFrozen, juce::dontSendNotification);
+        m_freezeBtn.setButtonText (m_hasFrozen ? "Frozen" : "Freeze");
         repaint();
     };
     addAndMakeVisible (m_freezeBtn);
@@ -2582,7 +2584,7 @@ TransferView::TransferView (PlugNspectrPostProcessor& p) : m_proc (p)
     m_measureBtn.onClick = [this]
     {
         m_measureActive = m_measureBtn.getToggleState();
-        m_proc.resetDynamics();
+        if (m_measureActive) m_proc.resetDynamics();   // start fresh; pausing keeps the curve
         if (onMeasureChanged) onMeasureChanged();
         repaint();
     };
@@ -2591,6 +2593,8 @@ TransferView::TransferView (PlugNspectrPostProcessor& p) : m_proc (p)
     m_freezeBtn.onClick = [this]
     {
         if (m_hasFrozen) m_hasFrozen = false; else doFreeze();
+        m_freezeBtn.setToggleState (m_hasFrozen, juce::dontSendNotification);
+        m_freezeBtn.setButtonText (m_hasFrozen ? "Frozen" : "Freeze");
         repaint();
     };
     addAndMakeVisible (m_freezeBtn);
@@ -2755,7 +2759,7 @@ EnvelopeView::EnvelopeView (PlugNspectrPostProcessor& p) : m_proc (p)
     m_measureBtn.onClick = [this]
     {
         m_measureActive = m_measureBtn.getToggleState();
-        m_proc.resetEnvelope();
+        if (m_measureActive) m_proc.resetEnvelope();   // start fresh; pausing keeps the curve
         if (onMeasureChanged) onMeasureChanged();
         repaint();
     };
@@ -2901,7 +2905,7 @@ ThdSweepView::ThdSweepView (PlugNspectrPostProcessor& p) : m_proc (p)
     m_measureBtn.onClick = [this]
     {
         m_measureActive = m_measureBtn.getToggleState();
-        m_proc.resetThdSweep();
+        if (m_measureActive) m_proc.resetThdSweep();   // start fresh; pausing keeps the curve
         if (onMeasureChanged) onMeasureChanged();
         repaint();
     };
@@ -2910,6 +2914,8 @@ ThdSweepView::ThdSweepView (PlugNspectrPostProcessor& p) : m_proc (p)
     m_freezeBtn.onClick = [this]
     {
         if (m_hasFrozen) m_hasFrozen = false; else doFreeze();
+        m_freezeBtn.setToggleState (m_hasFrozen, juce::dontSendNotification);
+        m_freezeBtn.setButtonText (m_hasFrozen ? "Frozen" : "Freeze");
         repaint();
     };
     addAndMakeVisible (m_freezeBtn);
@@ -3252,6 +3258,10 @@ void PlugNspectrPostEditor::writeCmdBlock()
                               : (m_activeTab == 6 && m_envelopeView.isMeasureActive()) ? 2u
                               : (m_activeTab == 7 && m_thdView.isMeasureActive())      ? 3u
                                                                                        : 0u;
+
+    // Keep the Linear accumulation gate in lock-step with its noise stimulus so
+    // pausing/leaving the tab/stopping transport all hold the curve.
+    audioProcessor.setLinearMeasuring (m_pCmd->measureActive != 0);
 }
 
 bool PlugNspectrPostEditor::isStimulusActive() const
