@@ -538,8 +538,6 @@ private:
     float m_pulsePhase    = 0.0f;   // 0–2π, for the pulsing search dot
 
     // ── Global footer — test tone controls ────────────────────────────────
-    HANDLE        m_hCmdFile   = nullptr;
-    PNS_CmdBlock* m_pCmd       = nullptr;
     bool          m_toneActive = false;
     double        m_toneFreq   = 1000.0;
     double        m_toneLevel  = -6.0;   // test-tone level, dBFS
@@ -560,8 +558,6 @@ private:
     bool disarmAllStimuli();
     bool m_wasTransportPlaying = true;   // edge-detect playing -> stopped
 
-    void openCmdMemory  ();
-    void closeCmdMemory ();
     void writeCmdBlock  ();
 
     PnsLookAndFeel    m_laf;

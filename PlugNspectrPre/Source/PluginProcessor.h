@@ -11,13 +11,8 @@
 
 #pragma once
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-
 #include <JuceHeader.h>
-#include "SharedMemoryBlock.h"
+#include "SharedMemoryBlock.h"   // portable IPC (windows.h / POSIX shm live here)
 
 class PlugNspectrPreProcessor  : public juce::AudioProcessor
 {
@@ -41,13 +36,7 @@ public:
     juce::AudioProcessorEditor* createEditor()       override;
 
     // Returns true if PlugNspectrPost has set a heartbeat within the last second.
-    bool isPostConnected() const
-    {
-        if (m_pShared == nullptr || m_pShared->magic != kPNS_Magic) return false;
-        const uint32_t age = juce::Time::getMillisecondCounter()
-                           - m_pShared->postLastHeartbeat;
-        return age < 1000u;
-    }
+    bool isPostConnected() const { return m_ipc.isPostAlive (1000u); }
 
     //==========================================================================
     const juce::String getName() const override { return JucePlugin_Name; }
@@ -66,24 +55,15 @@ public:
     void getStateInformation (juce::MemoryBlock&)    override {}
     void setStateInformation (const void*, int)      override {}
 
-    // Test seam — point the command block at a caller-owned struct so the
-    // stimulus generators can be driven without Windows shared memory.
-    void setTestCmdBlock (PNS_CmdBlock* p) { m_pCmd = p; }
+    // Test seam — feed a command directly so the stimulus generators can be
+    // driven without any shared memory (used by the unit tests).
+    void setTestCommand (const pns::PNS_CmdBlock& c) { m_cmd = c; m_testCmd = true; }
 
 private:
     //==========================================================================
-    HANDLE m_hMapFile = nullptr;
-    PNS_SharedBlock* m_pShared = nullptr;
-
-    void openSharedMemory();
-    void closeSharedMemory();
-
-    // Command block — written by Post (test-tone controls), read here
-    HANDLE        m_hCmdFile = nullptr;
-    PNS_CmdBlock* m_pCmd     = nullptr;
-
-    void openCmdMemory();
-    void closeCmdMemory();
+    pns::Transport     m_ipc;            // single cross-platform IPC segment
+    pns::PNS_CmdBlock  m_cmd;            // latest command snapshot (read each block)
+    bool               m_testCmd = false; // true -> use injected m_cmd, skip IPC read
 
     // Sine test-tone generator state
     double m_tonePhase = 0.0;
