@@ -14,7 +14,7 @@
 #include <JuceHeader.h>
 #include "PlugNspectrTheme.h"
 #include "PluginProcessor.h"
-#include "../JuceLibraryCode/BinaryData.h"
+// (logo is embedded in PnsLogoData.h — no Projucer BinaryData dependency)
 
 //==============================================================================
 // Spectrum analyzer view
