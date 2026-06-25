@@ -1,0 +1,64 @@
+name: macOS build
+
+# Manual only — never runs automatically on push/PR/merge. Trigger from the
+# Actions tab ("Run workflow") or:  gh workflow run "macOS build"
+on:
+  workflow_dispatch:
+    inputs:
+      juce_ref:
+        description: "JUCE git tag/branch to build against"
+        default: "8.0.4"
+        required: false
+
+jobs:
+  build:
+    runs-on: macos-14        # Apple Silicon runner
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Checkout JUCE (pinned)
+        uses: actions/checkout@v4
+        with:
+          repository: juce-framework/JUCE
+          ref: ${{ github.event.inputs.juce_ref || '8.0.4' }}
+          path: JUCE
+
+      - name: Configure (universal arm64 + x86_64)
+        run: cmake -B build -DJUCE_DIR="$PWD/JUCE" -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build VST3 + AU
+        run: cmake --build build --config Release --parallel
+
+      - name: Confirm universal binaries
+        run: |
+          for p in Pre Post; do
+            BIN="build/PlugNspectr${p}_artefacts/Release/VST3/PlugNspectr${p}.vst3/Contents/MacOS/PlugNspectr${p}"
+            echo "== PlugNspectr${p} =="; lipo -info "$BIN"
+          done
+
+      - name: Install pluginval
+        run: |
+          curl -sL https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip -o pluginval.zip
+          unzip -q pluginval.zip
+
+      - name: Validate VST3 with pluginval
+        # Instantiating each plugin exercises prepareToPlay -> the POSIX shm_open/mmap
+        # path, so this is the first real test of the macOS IPC code.
+        run: |
+          PV="pluginval.app/Contents/MacOS/pluginval"
+          for p in Pre Post; do
+            VST3="build/PlugNspectr${p}_artefacts/Release/VST3/PlugNspectr${p}.vst3"
+            echo "== pluginval PlugNspectr${p} =="
+            "$PV" --strictness-level 7 --validate "$VST3"
+          done
+
+      - name: Upload built plugins
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugnspectr-macos
+          path: |
+            build/*_artefacts/Release/VST3/*.vst3
+            build/*_artefacts/Release/AU/*.component
+          if-no-files-found: warn
