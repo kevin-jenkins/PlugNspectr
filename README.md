@@ -183,7 +183,7 @@ Throughout, the color language is consistent: **teal = your current selection**,
 
 ### Spectrum Tab
 
-<img src="docs/screenshots/spectrum-hero.png" width="820" alt="Spectrum tab" />
+<img src="docs/screenshots/spectrum.png" width="820" alt="Spectrum tab" />
 
 Real-time FFT frequency analysis showing how the plugin is shaping your audio's frequency content.
 
