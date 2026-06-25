@@ -226,7 +226,7 @@ Reveals how the plugin is affecting dynamic range and level in real time.
 
 ### Oscilloscope Tab
 
-> _Screenshot pending refresh._
+<img src="docs/screenshots/oscilloscope.png" width="820" alt="Oscilloscope tab" />
 
 A zero-crossing-triggered oscilloscope of both signals — useful for phase shifts, transient shaping, clipping, and saturation character.
 
