@@ -5,6 +5,7 @@
 */
 
 #include "PluginEditor.h"
+#include "PnsLogoData.h"
 #include <cmath>
 #include <algorithm>
 #include <set>
@@ -3089,8 +3090,7 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
 {
     setLookAndFeel (&m_laf);
 
-    m_biltroyLogo = juce::ImageCache::getFromMemory (BinaryData::BiltroyAudio_x09mxix09mxix09m_png,
-                                                     BinaryData::BiltroyAudio_x09mxix09mxix09m_pngSize);
+    m_pnsLogo = juce::ImageCache::getFromMemory (kPnsLogoPng, kPnsLogoPngSize);
 
     for (auto* btn : { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope,
                        &m_tabHarmonics, &m_tabLinear, &m_tabTransfer, &m_tabEnvelope,
@@ -3553,44 +3553,18 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
     g.setColour (PnsTheme::kBorderSubtle);
     g.drawHorizontalLine (hH - 1, 0.0f, (float) getWidth());
 
-    // Logo + plugin name
-    constexpr int marginL  = PnsTheme::kPaddingMid;
+    // Header logo — the PlugNspectr wordmark + mark, scaled to fit the bar.
     constexpr int marginR2 = PnsTheme::kPaddingMid;
 
-    int textStartX = marginL;
-
-    if (m_biltroyLogo.isValid())
+    if (m_pnsLogo.isValid())
     {
-        const float logoH = (float) hH - 8.0f;
-        const float logoW = logoH * ((float) m_biltroyLogo.getWidth()
-                                   / (float) m_biltroyLogo.getHeight());
-        g.drawImage (m_biltroyLogo,
-                     marginL, 4, (int) logoW, (int) logoH,
-                     0, 0, m_biltroyLogo.getWidth(), m_biltroyLogo.getHeight());
-        textStartX = marginL + (int) logoW + PnsTheme::kPaddingMid;
-    }
-
-    // Kerned title — draw each character with 3px extra spacing
-    {
-        const juce::Font titleFont = juce::Font (juce::FontOptions()
-            .withName (juce::Font::getDefaultSansSerifFontName())
-            .withHeight (18.0f));
-        g.setFont (titleFont);
-        g.setColour (PnsTheme::kTextPrimary);
-        const juce::String titleStr = "PlugNspectr";
-        constexpr float kExtraKern = 3.0f;
-        const float baselineY = (float) hH * 0.5f + titleFont.getAscent() * 0.5f - 1.0f;
-        float tx = (float) textStartX;
-        for (int i = 0; i < titleStr.length(); ++i)
-        {
-            const juce::String ch = titleStr.substring (i, i + 1);
-            g.drawSingleLineText (ch, juce::roundToInt (tx), juce::roundToInt (baselineY));
-            // Use GlyphArrangement to measure char width without deprecated API
-            juce::GlyphArrangement ga;
-            ga.addLineOfText (titleFont, ch, 0.0f, 0.0f);
-            tx += (ga.getNumGlyphs() > 0 ? ga.getBoundingBox (0, 1, true).getWidth() : 8.0f)
-                  + kExtraKern;
-        }
+        const float logoH = (float) hH - 4.0f;                        // nearly fills the 36px bar
+        const float logoW = logoH * ((float) m_pnsLogo.getWidth()
+                                   / (float) m_pnsLogo.getHeight());
+        const int   ly    = juce::roundToInt (((float) hH - logoH) * 0.5f);
+        g.drawImage (m_pnsLogo,
+                     PnsTheme::kPaddingMid, ly, (int) logoW, (int) logoH,
+                     0, 0, m_pnsLogo.getWidth(), m_pnsLogo.getHeight());
     }
 
     // Version — far right with right margin
