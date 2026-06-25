@@ -24,3 +24,6 @@ frames/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Top-level CMake plugin build (cross-platform / CI)
+/build/
