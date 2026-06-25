@@ -565,7 +565,7 @@ private:
     void writeCmdBlock  ();
 
     PnsLookAndFeel    m_laf;
-    juce::Image       m_biltroyLogo;
+    juce::Image       m_pnsLogo;
     SpectrumView      m_specView;
     DynamicsView      m_dynView;
     OscilloscopeView  m_oscView;
