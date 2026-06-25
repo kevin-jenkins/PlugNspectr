@@ -242,7 +242,7 @@ A zero-crossing-triggered oscilloscope of both signals — useful for phase shif
 
 ### Harmonics Tab
 
-> _Screenshot pending refresh._
+<img src="docs/screenshots/harmonics.png" width="820" alt="Harmonics tab — harmonic spectrum with the measuring-safety banner active" />
 
 Harmonic-distortion analysis using a pure sine test tone. Identifies the character and intensity of even and odd harmonics H2–H8.
 
