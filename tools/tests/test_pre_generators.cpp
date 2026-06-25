@@ -1,5 +1,5 @@
 // Pre-side stimulus generators. Drives the Pre processor through the
-// setTestCmdBlock() seam (no Windows shared memory) and asserts the generated
+// setTestCommand() seam (no shared memory) and asserts the generated
 // output buffer for each stimulus mode.
 #include "doctest.h"
 #include "helpers.h"
@@ -52,9 +52,9 @@ TEST_CASE ("Pre: sine test tone — level and frequency")
 {
     Pre pre;
     preparePre (pre);
-    PNS_CmdBlock cmd {};
+    pns::PNS_CmdBlock cmd {};
     cmd.testToneActive = 1; cmd.testToneFrequency = 1000.0; cmd.testToneLevelDb = -6.0;
-    pre.setTestCmdBlock (&cmd);
+    pre.setTestCommand (cmd);
 
     juce::AudioBuffer<float> buf (1, pnst::kBlk);
     pump (pre, buf);
@@ -71,9 +71,9 @@ TEST_CASE ("Pre: white-noise stimulus — level and bound")
 {
     Pre pre;
     preparePre (pre);
-    PNS_CmdBlock cmd {};
+    pns::PNS_CmdBlock cmd {};
     cmd.measureActive = 1;
-    pre.setTestCmdBlock (&cmd);
+    pre.setTestCommand (cmd);
 
     juce::AudioBuffer<float> buf (1, pnst::kBlk);
     pump (pre, buf);
@@ -89,9 +89,9 @@ TEST_CASE ("Pre: level ramp — sweeps quiet to loud over the cycle")
 {
     Pre pre;
     preparePre (pre);
-    PNS_CmdBlock cmd {};
+    pns::PNS_CmdBlock cmd {};
     cmd.dynMeasureMode = 1;
-    pre.setTestCmdBlock (&cmd);
+    pre.setTestCommand (cmd);
 
     juce::AudioBuffer<float> buf (1, pnst::kBlk);
     float first = 0.0f, mid = 0.0f, last = 0.0f;
@@ -114,9 +114,9 @@ TEST_CASE ("Pre: level step — high then low across the 1 s cycle")
 {
     Pre pre;
     preparePre (pre);
-    PNS_CmdBlock cmd {};
+    pns::PNS_CmdBlock cmd {};
     cmd.dynMeasureMode = 2;
-    pre.setTestCmdBlock (&cmd);
+    pre.setTestCommand (cmd);
 
     juce::AudioBuffer<float> buf (1, pnst::kBlk);
     float highPk = 0.0f, lowPk = 0.0f;
@@ -136,9 +136,9 @@ TEST_CASE ("Pre: THD log sweep — frequency ascends across steps")
 {
     Pre pre;
     preparePre (pre);
-    PNS_CmdBlock cmd {};
+    pns::PNS_CmdBlock cmd {};
     cmd.dynMeasureMode = 3;
-    pre.setTestCmdBlock (&cmd);
+    pre.setTestCommand (cmd);
 
     juce::AudioBuffer<float> buf (1, pnst::kBlk);
     pump (pre, buf);

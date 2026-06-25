@@ -6,13 +6,8 @@
 
 #pragma once
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-
 #include <JuceHeader.h>
-#include "SharedMemoryBlock.h"
+#include "SharedMemoryBlock.h"   // portable IPC (windows.h / POSIX shm live here)
 
 class PlugNspectrPostProcessor  : public juce::AudioProcessor
 {
@@ -176,11 +171,12 @@ public:
     bool isPreActive() const
     {
         if (m_testPreActive) return true;   // forced on by the offline render harness
-        if (m_pShared == nullptr || m_pShared->magic != kPNS_Magic) return false;
-        const uint32_t age = juce::Time::getMillisecondCounter()
-                           - m_pShared->preLastHeartbeat;
-        return age < 500u;
+        return m_ipc.isPreAlive (500u);
     }
+
+    // Command channel — the editor routes test-stimulus commands to Pre through
+    // the processor's IPC segment (same process; mirrors setChannelMode etc.).
+    void postCommand (const pns::PNS_CmdBlock& c) { m_ipc.writeCommand (c); }
 
     // Host transport state — used by the editor to auto-stop a measurement
     // stimulus when playback stops (the test signal replaces your audio, so it
@@ -207,8 +203,8 @@ public:
 
 private:
     //==========================================================================
-    HANDLE m_hMapFile = nullptr;
-    PNS_SharedBlock* m_pShared = nullptr;
+    pns::Transport     m_ipc;      // single cross-platform IPC segment
+    pns::AudioPayload  m_preIn;    // last Pre block, copied out under the seqlock
 
     mutable juce::CriticalSection m_captureLock;
     CaptureBufs                   m_capture;
@@ -217,12 +213,9 @@ private:
     std::atomic<bool>             m_linearMeasuring  { false };
 
     // L/R/Mid/Side channel selection + derived per-block analysis signals.
-    std::atomic<int>                            m_channelMode { 0 };
-    std::array<float, kPNS_MaxSamplesPerBlock>  m_anaPre  {};
-    std::array<float, kPNS_MaxSamplesPerBlock>  m_anaPost {};
-
-    void openSharedMemory();
-    void closeSharedMemory();
+    std::atomic<int>                       m_channelMode { 0 };
+    std::array<float, pns::kMaxSamples>    m_anaPre  {};
+    std::array<float, pns::kMaxSamples>    m_anaPost {};
 
     //==========================================================================
     // FFT

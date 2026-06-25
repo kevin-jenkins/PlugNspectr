@@ -1,6 +1,6 @@
-// Shared-memory ABI guard. The Pre and Post plugins are separate processes that
-// map the same struct; these checks pin its layout and the magic, and verify the
-// two copies of the header stay byte-identical.
+// Shared-memory ABI guard. Pre and Post are separate processes mapping the same
+// SharedHeader; these checks pin the invariants the layout depends on and verify
+// the two copies of the header stay byte-identical.
 #include "doctest.h"
 #include "SharedMemoryBlock.h"
 
@@ -8,23 +8,24 @@
 #include <type_traits>
 #include <juce_core/juce_core.h>
 
-// Layout must never silently change — both processes depend on the exact bytes.
-static_assert (kPNS_Magic == 0xB11750BBu, "shared-memory magic changed");
-static_assert (sizeof (PNS_SharedBlock) == 32808, "PNS_SharedBlock size changed");
-static_assert (sizeof (PNS_CmdBlock)    == 28,    "PNS_CmdBlock size changed");
-static_assert (offsetof (PNS_SharedBlock, preData) == 40, "preData offset changed");
-static_assert (std::is_standard_layout<PNS_SharedBlock>::value, "PNS_SharedBlock must be POD");
-static_assert (std::is_trivially_copyable<PNS_SharedBlock>::value, "PNS_SharedBlock must be POD");
-static_assert (std::is_standard_layout<PNS_CmdBlock>::value, "PNS_CmdBlock must be POD");
-static_assert (std::is_trivially_copyable<PNS_CmdBlock>::value, "PNS_CmdBlock must be POD");
+// Cross-process sharing requires lock-free atomics and POD payloads; the magic
+// is version-stamped so a stale segment from an older build is rejected.
+static_assert (pns::kMagic == 0x504E5332u, "shared-memory magic/version changed");
+static_assert (std::atomic<uint32_t>::is_always_lock_free, "atomics must be lock-free in shared memory");
+static_assert (std::is_trivially_copyable<pns::AudioPayload>::value, "AudioPayload must be POD");
+static_assert (std::is_trivially_copyable<pns::PNS_CmdBlock>::value, "PNS_CmdBlock must be POD");
+static_assert (std::is_standard_layout<pns::SharedHeader>::value,    "SharedHeader must be standard-layout");
+static_assert (pns::kMaxChannels == 2,    "channel count changed");
+static_assert (pns::kMaxSamples  == 4096, "block size changed");
 
-TEST_CASE ("Shared ABI: layout and magic are pinned")
+TEST_CASE ("Shared ABI: layout invariants are pinned")
 {
-    CHECK (kPNS_Magic == 0xB11750BBu);
-    CHECK (sizeof (PNS_SharedBlock) == 32808u);
-    CHECK (sizeof (PNS_CmdBlock) == 28u);
-    CHECK (kPNS_MaxChannels == 2);
-    CHECK (kPNS_MaxSamplesPerBlock == 4096);
+    CHECK (pns::kMagic == 0x504E5332u);
+    CHECK (std::atomic<uint32_t>::is_always_lock_free);
+    // The audio buffer dominates the segment, which holds both payloads + atomics.
+    const size_t audioBytes = (size_t) pns::kMaxChannels * pns::kMaxSamples * sizeof (float);
+    CHECK (sizeof (pns::AudioPayload) >= audioBytes);
+    CHECK (sizeof (pns::SharedHeader) >= sizeof (pns::AudioPayload) + sizeof (pns::PNS_CmdBlock));
 }
 
 TEST_CASE ("Shared ABI: Pre and Post copies of SharedMemoryBlock.h are identical")

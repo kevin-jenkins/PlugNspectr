@@ -4,11 +4,6 @@
   ==============================================================================
 */
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-
 #include "PluginProcessor.h"
 #ifndef PNS_HEADLESS_TESTS          // editor-free in the unit-test target
 #include "PluginEditor.h"
@@ -29,60 +24,21 @@ PlugNspectrPostProcessor::PlugNspectrPostProcessor()
 
 PlugNspectrPostProcessor::~PlugNspectrPostProcessor()
 {
-    closeSharedMemory();
-}
-
-//==============================================================================
-void PlugNspectrPostProcessor::openSharedMemory()
-{
-    if (m_hMapFile != nullptr)
-        return;
-
-    // Post needs write access to update postLastHeartbeat in the shared block.
-    m_hMapFile = OpenFileMappingA (FILE_MAP_WRITE, FALSE, kPNS_SharedMemName);
-
-    if (m_hMapFile == nullptr || m_hMapFile == INVALID_HANDLE_VALUE)
-    {
-        m_hMapFile = nullptr;
-        return;
-    }
-
-    m_pShared = static_cast<PNS_SharedBlock*> (
-        MapViewOfFile (m_hMapFile, FILE_MAP_WRITE, 0, 0, kPNS_SharedMemBytes));
-
-    if (m_pShared == nullptr)
-    {
-        CloseHandle (m_hMapFile);
-        m_hMapFile = nullptr;
-    }
-}
-
-void PlugNspectrPostProcessor::closeSharedMemory()
-{
-    if (m_pShared != nullptr)
-    {
-        UnmapViewOfFile (m_pShared);
-        m_pShared = nullptr;
-    }
-    if (m_hMapFile != nullptr)
-    {
-        CloseHandle (m_hMapFile);
-        m_hMapFile = nullptr;
-    }
+    m_ipc.close();
 }
 
 //==============================================================================
 void PlugNspectrPostProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    openSharedMemory();
+    m_ipc.open();          // create-or-open the IPC segment, off the audio thread
     m_measSampleRate = sampleRate;
 
-    const int safeSamples = juce::jmax (samplesPerBlock, kPNS_MaxSamplesPerBlock);
+    const int safeSamples = juce::jmax (samplesPerBlock, pns::kMaxSamples);
 
     {
         juce::ScopedLock sl (m_captureLock);
-        m_capture.pre .setSize (kPNS_MaxChannels, safeSamples, false, true, false);
-        m_capture.post.setSize (kPNS_MaxChannels, safeSamples, false, true, false);
+        m_capture.pre .setSize (pns::kMaxChannels, safeSamples, false, true, false);
+        m_capture.post.setSize (pns::kMaxChannels, safeSamples, false, true, false);
     }
 
     resetMeasurement();
@@ -93,7 +49,7 @@ void PlugNspectrPostProcessor::prepareToPlay (double sampleRate, int samplesPerB
 
 void PlugNspectrPostProcessor::releaseResources()
 {
-    closeSharedMemory();
+    m_ipc.close();
 }
 
 #ifndef JucePlugin_PreferredChannelConfigurations
@@ -491,15 +447,13 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         if (const auto pos = ph->getPosition())
             m_transportPlaying.store (pos->getIsPlaying());
 
-    if (m_pShared == nullptr)
-        openSharedMemory();
+    const int numCh  = juce::jmin (buffer.getNumChannels(), pns::kMaxChannels);
+    const int numSmp = juce::jmin (buffer.getNumSamples(),  pns::kMaxSamples);
 
-    const int numCh  = juce::jmin (buffer.getNumChannels(), kPNS_MaxChannels);
-    const int numSmp = juce::jmin (buffer.getNumSamples(),  kPNS_MaxSamplesPerBlock);
-
-    const bool preReady = (m_pShared != nullptr && m_pShared->magic == kPNS_Magic);
-    const int  preCh    = preReady ? juce::jmin ((int) m_pShared->numChannels, kPNS_MaxChannels) : 0;
-    const int  preSmp   = preReady ? juce::jmin ((int) m_pShared->numSamples,  kPNS_MaxSamplesPerBlock) : 0;
+    // Pull the latest Pre block (torn-free via the seqlock); valid only if Pre is live.
+    const bool preReady = isPreActive() && m_ipc.readBlock (m_preIn);
+    const int  preCh    = preReady ? juce::jmin (m_preIn.numChannels, pns::kMaxChannels) : 0;
+    const int  preSmp   = preReady ? juce::jmin (m_preIn.numSamples,  pns::kMaxSamples)  : 0;
 
     // ── Derive the analysis channel (L / R / Mid / Side) once, then feed it
     //    to every downstream measurement and the capture display ───────────
@@ -518,8 +472,8 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         for (int i = 0; i < numSmp; ++i)
             m_anaPost[i] = (post0 != nullptr) ? derive (post0[i], post1[i]) : 0.0f;
 
-        const float* pre0 = preReady ? m_pShared->preData[0] : nullptr;
-        const float* pre1 = (preReady && preCh > 1) ? m_pShared->preData[1] : pre0;
+        const float* pre0 = preReady ? m_preIn.preData[0] : nullptr;
+        const float* pre1 = (preReady && preCh > 1) ? m_preIn.preData[1] : pre0;
         for (int i = 0; i < preSmp; ++i)
             m_anaPre[i] = (pre0 != nullptr) ? derive (pre0[i], pre1[i]) : 0.0f;
     }
@@ -558,13 +512,13 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
         // ── Dynamics engines — gated by Pre's active stimulus mode so each
         //    only runs (and interprets dynEnvPos) when its stimulus is live ──
-        const uint32_t dynMode = m_pShared->dynModeActive;
+        const uint32_t dynMode = m_preIn.dynModeActive;
         if (dynMode == 1)
             pushDynamicsSamples (m_anaPre.data(), m_anaPost.data(), measN);
         else if (dynMode == 2)
-            pushEnvelopeSamples (m_anaPre.data(), m_anaPost.data(), measN, m_pShared->dynEnvPos);
+            pushEnvelopeSamples (m_anaPre.data(), m_anaPost.data(), measN, m_preIn.dynEnvPos);
         else if (dynMode == 3)
-            pushThdSweepSamples (m_anaPost.data(), measN, (double) m_pShared->dynEnvPos);
+            pushThdSweepSamples (m_anaPost.data(), measN, (double) m_preIn.dynEnvPos);
     }
 
     // ── RMS for dynamics display (on the derived analysis channel) ─────────
@@ -593,9 +547,7 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     // ── Post heartbeat — lets Pre editor detect that Post is running ──────
-    if (m_pShared != nullptr)
-        m_pShared->postLastHeartbeat = juce::Time::getMillisecondCounter();
-
+    m_ipc.postHeartbeat();
 }
 
 //==============================================================================

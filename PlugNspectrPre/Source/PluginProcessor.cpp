@@ -4,11 +4,6 @@
   ==============================================================================
 */
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-
 #include "PluginProcessor.h"
 #ifndef PNS_HEADLESS_TESTS          // editor-free in the unit-test target
 #include "PluginEditor.h"
@@ -29,114 +24,19 @@ PlugNspectrPreProcessor::PlugNspectrPreProcessor()
 
 PlugNspectrPreProcessor::~PlugNspectrPreProcessor()
 {
-    closeSharedMemory();
+    m_ipc.close();
 }
 
 //==============================================================================
-void PlugNspectrPreProcessor::openSharedMemory()
+void PlugNspectrPreProcessor::prepareToPlay (double /*sampleRate*/, int /*samplesPerBlock*/)
 {
-    if (m_hMapFile != nullptr)
-        return;
-
-    // Create (or open if already exists) the named file-mapping object.
-    HANDLE hMap = CreateFileMappingA (
-        INVALID_HANDLE_VALUE,          // backed by the paging file
-        nullptr,                       // default security
-        PAGE_READWRITE,
-        0,                             // size high DWORD
-        kPNS_SharedMemBytes,           // size low DWORD
-        kPNS_SharedMemName);
-
-    if (hMap == nullptr || hMap == INVALID_HANDLE_VALUE)
-        return;
-
-    m_hMapFile = hMap;
-
-    m_pShared = static_cast<PNS_SharedBlock*> (
-        MapViewOfFile (m_hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, kPNS_SharedMemBytes));
-
-    if (m_pShared == nullptr)
-    {
-        CloseHandle (m_hMapFile);
-        m_hMapFile = nullptr;
-        return;
-    }
-
-    // First creator initialises the block; subsequent openers skip this.
-    if (m_pShared->magic != kPNS_Magic)
-    {
-        ZeroMemory (m_pShared, kPNS_SharedMemBytes);
-        m_pShared->magic = kPNS_Magic;
-    }
-}
-
-void PlugNspectrPreProcessor::closeSharedMemory()
-{
-    if (m_pShared != nullptr)
-    {
-        UnmapViewOfFile (m_pShared);
-        m_pShared = nullptr;
-    }
-    if (m_hMapFile != nullptr)
-    {
-        CloseHandle (m_hMapFile);
-        m_hMapFile = nullptr;
-    }
-}
-
-//==============================================================================
-void PlugNspectrPreProcessor::openCmdMemory()
-{
-    if (m_pCmd != nullptr)
-        return;
-
-    // Post creates this mapping; Pre opens it read-only.
-    // If Post hasn't run yet the call simply fails — retry next block.
-    HANDLE hMap = OpenFileMappingA (FILE_MAP_READ, FALSE, kPNS_CmdMemName);
-    if (hMap == nullptr || hMap == INVALID_HANDLE_VALUE)
-        return;
-
-    m_hCmdFile = hMap;
-    m_pCmd = static_cast<PNS_CmdBlock*> (
-        MapViewOfFile (m_hCmdFile, FILE_MAP_READ, 0, 0, kPNS_CmdMemBytes));
-
-    if (m_pCmd == nullptr)
-    {
-        CloseHandle (m_hCmdFile);
-        m_hCmdFile = nullptr;
-    }
-}
-
-void PlugNspectrPreProcessor::closeCmdMemory()
-{
-    if (m_pCmd != nullptr)
-    {
-        UnmapViewOfFile (m_pCmd);
-        m_pCmd = nullptr;
-    }
-    if (m_hCmdFile != nullptr)
-    {
-        CloseHandle (m_hCmdFile);
-        m_hCmdFile = nullptr;
-    }
-}
-
-//==============================================================================
-void PlugNspectrPreProcessor::prepareToPlay (double sampleRate, int /*samplesPerBlock*/)
-{
-    openSharedMemory();
-    openCmdMemory();
-
-    if (m_pShared != nullptr)
-        m_pShared->sampleRate = sampleRate;
-
+    m_ipc.open();          // create-or-open the IPC segment, off the audio thread
     m_tonePhase = 0.0;
 }
 
 void PlugNspectrPreProcessor::releaseResources()
 {
-    closeCmdMemory();
-    closeSharedMemory();
+    m_ipc.close();
 }
 
 #ifndef JucePlugin_PreferredChannelConfigurations
@@ -157,16 +57,16 @@ void PlugNspectrPreProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 {
     juce::ScopedNoDenormals noDenormals;
 
-    // Lazily try to open command memory if Post started after us.
-    if (m_pCmd == nullptr)
-        openCmdMemory();
+    // Snapshot the current command (torn-free via the seqlock); tests inject directly.
+    if (! m_testCmd)
+        m_ipc.readCommand (m_cmd);
 
     // ── Test-tone mode ────────────────────────────────────────────────────────
-    const bool toneActive    = (m_pCmd != nullptr && m_pCmd->testToneActive != 0);
-    const bool measureActive = (m_pCmd != nullptr && m_pCmd->measureActive  != 0);
-    const bool dynRamp       = (m_pCmd != nullptr && m_pCmd->dynMeasureMode == 1);
-    const bool dynStep       = (m_pCmd != nullptr && m_pCmd->dynMeasureMode == 2);
-    const bool thdSweep      = (m_pCmd != nullptr && m_pCmd->dynMeasureMode == 3);
+    const bool toneActive    = (m_cmd.testToneActive != 0);
+    const bool measureActive = (m_cmd.measureActive  != 0);
+    const bool dynRamp       = (m_cmd.dynMeasureMode == 1);
+    const bool dynStep       = (m_cmd.dynMeasureMode == 2);
+    const bool thdSweep      = (m_cmd.dynMeasureMode == 3);
 
     if (thdSweep && ! toneActive)
     {
@@ -178,7 +78,7 @@ void PlugNspectrPreProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         constexpr int kSteps = 100;
         const double holdLen = 0.15 * sr;
         const double sweepLen = holdLen * kSteps;
-        double levelDb = (m_pCmd != nullptr) ? m_pCmd->testToneLevelDb : -6.0;
+        double levelDb = m_cmd.testToneLevelDb;
         if (levelDb > -0.5 || levelDb < -90.0) levelDb = -6.0;
         const float  amp  = (float) std::pow (10.0, levelDb / 20.0);
         const int    numCh = buffer.getNumChannels(), numSmp = buffer.getNumSamples();
@@ -282,11 +182,11 @@ void PlugNspectrPreProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     else if (toneActive)
     {
         const double sr        = getSampleRate();
-        const double frequency = (m_pCmd != nullptr) ? m_pCmd->testToneFrequency : 1000.0;
+        const double frequency = m_cmd.testToneFrequency;
         const double freq      = juce::jlimit (20.0, 20000.0, frequency);
         const double phaseInc  = (2.0 * juce::MathConstants<double>::pi * freq) / sr;
         // Tone level from the command block (dBFS), clamped; default -6 dBFS.
-        double levelDb = (m_pCmd != nullptr) ? m_pCmd->testToneLevelDb : -6.0;
+        double levelDb = m_cmd.testToneLevelDb;
         if (levelDb > -0.5 || levelDb < -90.0) levelDb = -6.0;   // 0/unset → default
         const float kAmp = (float) std::pow (10.0, levelDb / 20.0);
 
@@ -310,26 +210,14 @@ void PlugNspectrPreProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         m_tonePhase = 0.0;
     }
 
-    // ── Write capture block to shared memory ──────────────────────────────────
-    if (m_pShared != nullptr)
+    // ── Publish the captured block + heartbeat to the IPC segment ─────────────
+    // (skipped under test injection so the unit tests never touch the real segment)
+    if (! m_testCmd)
     {
-        const int numCh  = juce::jmin (buffer.getNumChannels(), kPNS_MaxChannels);
-        const int numSmp = juce::jmin (buffer.getNumSamples(),  kPNS_MaxSamplesPerBlock);
-
-        m_pShared->numChannels = numCh;
-        m_pShared->numSamples  = numSmp;
-
-        for (int ch = 0; ch < numCh; ++ch)
-        {
-            std::memcpy (m_pShared->preData[ch],
-                         buffer.getReadPointer (ch),
-                         static_cast<size_t> (numSmp) * sizeof (float));
-        }
-
-        m_pShared->dynEnvPos     = m_dynEnvBlockStart;
-        m_pShared->dynModeActive = (m_pCmd != nullptr) ? m_pCmd->dynMeasureMode : 0u;
-        ++m_pShared->writeCount;
-        m_pShared->preLastHeartbeat = juce::Time::getMillisecondCounter();
+        m_ipc.writeBlock (buffer.getArrayOfReadPointers(),
+                          buffer.getNumChannels(), buffer.getNumSamples(),
+                          getSampleRate(), m_dynEnvBlockStart, m_cmd.dynMeasureMode);
+        m_ipc.preHeartbeat();
     }
     // When test tone is active the buffer now contains the sine wave,
     // which passes through to the plugin-under-analysis as intended.

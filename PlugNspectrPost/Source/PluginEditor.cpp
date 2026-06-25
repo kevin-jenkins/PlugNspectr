@@ -3184,8 +3184,6 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
         segs[juce::jlimit (0, 3, audioProcessor.getChannelMode())]->setToggleState (true, juce::dontSendNotification);
     }
 
-    openCmdMemory();
-
     switchTab (0);
 
     setSize (900, 576);   // wider for the renamed tabs; +36px footer
@@ -3196,72 +3194,32 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
 
 PlugNspectrPostEditor::~PlugNspectrPostEditor()
 {
-    // Zero cmd block so Pre stops the test tone immediately on editor close
-    if (m_pCmd != nullptr)
-    {
-        m_pCmd->testToneActive    = 0;
-        m_pCmd->testToneFrequency = 1000.0;
-        m_pCmd->measureActive     = 0;
-        m_pCmd->dynMeasureMode    = 0;
-    }
-    closeCmdMemory();
+    // Stop any stimulus so Pre goes quiet immediately on editor close.
+    audioProcessor.postCommand (pns::PNS_CmdBlock{});
     setLookAndFeel (nullptr);
     stopTimer();
 }
 
 //──────────────────────────────────────────────────────────────────────────────
-void PlugNspectrPostEditor::openCmdMemory()
-{
-    if (m_pCmd != nullptr) return;
-
-    HANDLE hMap = CreateFileMappingA (INVALID_HANDLE_VALUE, nullptr,
-                                      PAGE_READWRITE, 0, kPNS_CmdMemBytes,
-                                      kPNS_CmdMemName);
-    if (hMap == nullptr || hMap == INVALID_HANDLE_VALUE) return;
-
-    m_hCmdFile = hMap;
-    m_pCmd = static_cast<PNS_CmdBlock*> (
-        MapViewOfFile (m_hCmdFile, FILE_MAP_ALL_ACCESS, 0, 0, kPNS_CmdMemBytes));
-
-    if (m_pCmd == nullptr)
-    {
-        CloseHandle (m_hCmdFile);
-        m_hCmdFile = nullptr;
-        return;
-    }
-
-    m_pCmd->testToneActive    = 0;
-    m_pCmd->testToneFrequency = m_toneFreq;
-    m_pCmd->testToneLevelDb   = m_toneLevel;
-    m_pCmd->measureActive     = 0;
-    m_pCmd->dynMeasureMode    = 0;
-}
-
-void PlugNspectrPostEditor::closeCmdMemory()
-{
-    if (m_pCmd != nullptr) { UnmapViewOfFile (m_pCmd);  m_pCmd = nullptr; }
-    if (m_hCmdFile != nullptr) { CloseHandle (m_hCmdFile); m_hCmdFile = nullptr; }
-}
-
 void PlugNspectrPostEditor::writeCmdBlock()
 {
-    if (m_pCmd == nullptr) return;
-    m_pCmd->testToneFrequency = m_toneFreq;
-    m_pCmd->testToneLevelDb   = m_toneLevel;
-    m_pCmd->testToneActive    = m_toneActive ? 1u : 0u;
+    pns::PNS_CmdBlock c;
+    c.testToneFrequency = m_toneFreq;
+    c.testToneLevelDb   = m_toneLevel;
+    c.testToneActive    = m_toneActive ? 1u : 0u;
     // Noise stimulus only while the Linear tab is showing AND Measure is on.
-    m_pCmd->measureActive     = (m_activeTab == 4 && m_linearView.isMeasureActive())
-                                ? 1u : 0u;
+    c.measureActive     = (m_activeTab == 4 && m_linearView.isMeasureActive()) ? 1u : 0u;
     // Dynamics stimulus: level ramp on the Transfer tab, level step on the
-    // Envelope tab — only while that tab is showing AND Measure is on.
-    m_pCmd->dynMeasureMode    = (m_activeTab == 5 && m_transferView.isMeasureActive()) ? 1u
-                              : (m_activeTab == 6 && m_envelopeView.isMeasureActive()) ? 2u
-                              : (m_activeTab == 7 && m_thdView.isMeasureActive())      ? 3u
-                                                                                       : 0u;
+    // Envelope tab, THD sweep on the Distortion tab — only while showing + Measure on.
+    c.dynMeasureMode    = (m_activeTab == 5 && m_transferView.isMeasureActive()) ? 1u
+                        : (m_activeTab == 6 && m_envelopeView.isMeasureActive()) ? 2u
+                        : (m_activeTab == 7 && m_thdView.isMeasureActive())      ? 3u
+                                                                                 : 0u;
+    audioProcessor.postCommand (c);
 
     // Keep the Linear accumulation gate in lock-step with its noise stimulus so
     // pausing/leaving the tab/stopping transport all hold the curve.
-    audioProcessor.setLinearMeasuring (m_pCmd->measureActive != 0);
+    audioProcessor.setLinearMeasuring (c.measureActive != 0);
 }
 
 bool PlugNspectrPostEditor::isStimulusActive() const
