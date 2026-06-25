@@ -45,13 +45,8 @@ TEST_CASE ("Channel: L / R / Mid / Side derivation drives RMS")
     CHECK (std::abs (side  - dbOf (0.5f * (L - R)))  < 0.1f);     // (0.2) -13.98
 }
 
-TEST_CASE ("Channel: Pre is reported invalid when not connected")
-{
-    P proc;
-    proc.prepareToPlay (pnst::kSR, pnst::kBlk);
-    juce::MidiBuffer midi;
-    juce::AudioBuffer<float> buf (2, pnst::kBlk);
-    buf.clear();
-    proc.processBlock (buf, midi);
-    CHECK (proc.getRms().preValid == false);
-}
+// Note: there is intentionally no "preValid == false when not connected" case.
+// processBlock opens the *global* named shared memory, so that flag flips true
+// whenever a real PlugNspectrPre is live on the machine (e.g. a DAW session
+// open) — it isn't hermetic. Pre-connection is integration behavior, not a unit
+// test. The derivation check above stays hermetic: postDb comes from the buffer.
