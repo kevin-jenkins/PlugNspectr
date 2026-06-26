@@ -121,7 +121,7 @@ public:
     void resetMeasurement ();
 
     // Channel mode for all analysis: 0=Left, 1=Right, 2=Mid (L+R)/2, 3=Side (L-R)/2.
-    void setChannelMode (int m) { m_channelMode.store (juce::jlimit (0, 3, m)); }
+    void setChannelMode (int m) { m_channelMode.store (juce::jlimit (0, 1, m)); }   // 0 = L+R, 1 = Side
     int  getChannelMode () const { return m_channelMode.load(); }
 
     // Test seam — feed a known Pre/Post pair straight into the measurement

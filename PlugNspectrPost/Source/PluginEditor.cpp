@@ -3166,11 +3166,12 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     };
     addAndMakeVisible (m_footerToneBtn);
 
-    // ── Header — L/R/Mid/Side segmented channel selector (all analysis) ────
+    // ── Header — L+R / Side segmented channel selector (all analysis) ──────
     {
-        juce::TextButton* segs[4] = { &m_chL, &m_chR, &m_chM, &m_chS };
-        const char* tip[4] = { "Left", "Right", "Mid (L+R)/2", "Side (L-R)/2" };
-        for (int i = 0; i < 4; ++i)
+        juce::TextButton* segs[2] = { &m_chLR, &m_chSide };
+        const char* tip[2] = { "L+R \xe2\x80\x94 both channels combined, (L+R)/2",
+                               "Side \xe2\x80\x94 stereo difference, (L-R)/2" };
+        for (int i = 0; i < 2; ++i)
         {
             segs[i]->setClickingTogglesState (true);
             segs[i]->setRadioGroupId (7001);
@@ -3181,7 +3182,7 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
             segs[i]->onClick = [this, i] { audioProcessor.setChannelMode (i); };
             addAndMakeVisible (segs[i]);
         }
-        segs[juce::jlimit (0, 3, audioProcessor.getChannelMode())]->setToggleState (true, juce::dontSendNotification);
+        segs[juce::jlimit (0, 1, audioProcessor.getChannelMode())]->setToggleState (true, juce::dontSendNotification);
     }
 
     switchTab (0);
@@ -3533,7 +3534,7 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
                 juce::Justification::centredRight);
 
     // "CH" label left of the L/R/M/S segmented selector
-    g.drawText ("CH", m_chL.getX() - 26, (hH - 12) / 2, 22, 12, juce::Justification::centredRight);
+    g.drawText ("CH", m_chLR.getX() - 26, (hH - 12) / 2, 22, 12, juce::Justification::centredRight);
 
     // ── Test-signal tray — recessed amber group behind the test-signal tabs ─
     {
@@ -3658,15 +3659,13 @@ void PlugNspectrPostEditor::resized()
     place (m_tabEnvelope);  place (m_tabThd);
     m_trayBounds = { trayLeft, hH, (x + trayPadR) - trayLeft, tbH };
 
-    // Segmented L/R/M/S selector in the header, left of the version text.
+    // Segmented L+R / Side selector in the header, left of the version text.
     {
-        constexpr int segW = 28, segH = 22;
+        constexpr int segW = 44, segH = 22;
         const int segRight = getWidth() - PnsTheme::kPaddingMid - 40 - 8;
         const int segTop   = (hH - segH) / 2;
-        m_chL.setBounds (segRight - segW * 4, segTop, segW, segH);
-        m_chR.setBounds (segRight - segW * 3, segTop, segW, segH);
-        m_chM.setBounds (segRight - segW * 2, segTop, segW, segH);
-        m_chS.setBounds (segRight - segW,     segTop, segW, segH);
+        m_chLR  .setBounds (segRight - segW * 2, segTop, segW, segH);
+        m_chSide.setBounds (segRight - segW,     segTop, segW, segH);
     }
 
     constexpr int kFooterH = 36;
