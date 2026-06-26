@@ -546,8 +546,8 @@ private:
     juce::Slider     m_footerLevelSlider;
     juce::TextButton m_footerToneBtn { "Test Tone" };
 
-    // Header channel selector — L / R / Mid / Side segmented control (all analysis).
-    juce::TextButton m_chL { "L" }, m_chR { "R" }, m_chM { "M" }, m_chS { "S" };
+    // Header channel selector — L+R (combined) / Side (L-R)/2, all analysis.
+    juce::TextButton m_chLR { "L+R" }, m_chSide { "Side" };
 
     // True while any stimulus (test tone, noise, ramp, step, sweep) is being
     // emitted — drives the amber "measuring" border + banner.

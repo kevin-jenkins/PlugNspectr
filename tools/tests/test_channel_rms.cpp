@@ -1,4 +1,4 @@
-// Channel derivation (L / R / Mid / Side) feeding the RMS readout. Drives
+// Channel derivation (L+R combined / Side) feeding the RMS readout. Drives
 // processBlock with a known stereo signal and checks getRms().postDb.
 #include "doctest.h"
 #include "helpers.h"
@@ -25,7 +25,7 @@ float postDbFor (P& proc, int mode, float L, float R)
 }
 } // namespace
 
-TEST_CASE ("Channel: L / R / Mid / Side derivation drives RMS")
+TEST_CASE ("Channel: L+R (combined) / Side derivation drives RMS")
 {
     P proc;
     proc.prepareToPlay (pnst::kSR, pnst::kBlk);
@@ -33,16 +33,12 @@ TEST_CASE ("Channel: L / R / Mid / Side derivation drives RMS")
     const float L = 0.5f, R = 0.1f;         // constant (DC) → RMS == |value|
     auto dbOf = [] (float v) { return 20.0f * std::log10 (v); };
 
-    const float left  = postDbFor (proc, 0, L, R);
-    const float right = postDbFor (proc, 1, L, R);
-    const float mid   = postDbFor (proc, 2, L, R);
-    const float side  = postDbFor (proc, 3, L, R);
+    const float lr   = postDbFor (proc, 0, L, R);   // L+R combined = (L+R)/2
+    const float side = postDbFor (proc, 1, L, R);   // Side = (L-R)/2
 
-    INFO ("L=" << left << " R=" << right << " Mid=" << mid << " Side=" << side);
-    CHECK (std::abs (left  - dbOf (L))               < 0.1f);     // -6.02
-    CHECK (std::abs (right - dbOf (R))               < 0.1f);     // -20.0
-    CHECK (std::abs (mid   - dbOf (0.5f * (L + R)))  < 0.1f);     // (0.3) -10.46
-    CHECK (std::abs (side  - dbOf (0.5f * (L - R)))  < 0.1f);     // (0.2) -13.98
+    INFO ("L+R=" << lr << " Side=" << side);
+    CHECK (std::abs (lr   - dbOf (0.5f * (L + R))) < 0.1f);   // (0.3) -10.46
+    CHECK (std::abs (side - dbOf (0.5f * (L - R))) < 0.1f);   // (0.2) -13.98
 }
 
 // Note: there is intentionally no "preValid == false when not connected" case.

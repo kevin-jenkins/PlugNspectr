@@ -461,10 +461,8 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const int mode = m_channelMode.load();
         auto derive = [mode] (float l, float r) -> float
         {
-            switch (mode) { case 1: return r;                 // Right
-                            case 2: return 0.5f * (l + r);    // Mid
-                            case 3: return 0.5f * (l - r);    // Side
-                            default: return l; }              // Left
+            return (mode == 1) ? 0.5f * (l - r)     // Side — stereo difference (L-R)/2
+                               : 0.5f * (l + r);    // L+R  — both channels combined (L+R)/2 [default]
         };
 
         const float* post0 = (numCh > 0) ? buffer.getReadPointer (0) : nullptr;
