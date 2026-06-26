@@ -1,6 +1,11 @@
 # PlugNspectr
 ### by Biltroy Audio
 
+[![Latest release](https://img.shields.io/github/v/release/kevin-jenkins/PlugNspectr?sort=semver)](https://github.com/kevin-jenkins/PlugNspectr/releases/latest)
+[![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-Windows%20%C2%B7%20macOS-lightgrey)
+![Format](https://img.shields.io/badge/format-VST3%20%C2%B7%20AU-9cf)
+
 > A two-plugin signal-chain analyzer for Windows (VST3) and macOS (VST3 + AU).
 > Insert Pre and Post around any plugin — or a whole chain — to see exactly what it's doing to your audio.
 
@@ -16,7 +21,7 @@
 - [How It Works](#how-it-works)
 - [Setting Up the Signal Chain](#setting-up-the-signal-chain)
 - [The UI at a Glance](#the-ui-at-a-glance)
-  - [Analysis Channel — L / R / Mid / Side](#analysis-channel--l--r--mid--side)
+  - [Analysis Channel](#analysis-channel)
   - [Measurement Safety](#measurement-safety)
   - [Cursor Readouts & Curve Freeze](#cursor-readouts--curve-freeze)
 - [Live Analysis Tabs](#live-analysis-tabs)
@@ -71,7 +76,9 @@ Two complementary kinds of analysis:
 
 ## Installation
 
-1. Copy **both** plugins to your plugin folder:
+> **Download:** grab the latest build from the [**Releases**](https://github.com/kevin-jenkins/PlugNspectr/releases/latest) page — `PlugNspectr-1.0.0-Windows-x64.zip` contains both plugins. (Or [build from source](#building-from-source).)
+
+1. Unzip and copy **both** plugins to your plugin folder:
 
    **Windows** — copy the two `.vst3` folders to:
    ```
@@ -159,18 +166,18 @@ PlugNspectr Post has **eight tabs**, grouped by how they get their signal:
 
 The measurement tabs sit on a recessed **amber tray** in the tab bar to set them apart — they're the ones that temporarily replace your audio with a test signal.
 
-### Analysis Channel — L / R / Mid / Side
+The top-right **ⓘ** icon opens an **About** box (version, plugin format, OS, and a link back to this manual).
 
-The header has an **L R M S** selector that chooses which channel *all* analysis runs on:
+### Analysis Channel
 
-| Mode | Signal |
-|---|---|
-| **L** | Left |
-| **R** | Right |
-| **M** | Mid — (L + R) / 2 |
-| **S** | Side — (L − R) / 2 |
+The header has a two-way **`L+R · Side`** selector that picks which signal *all* analysis runs on:
 
-This is **analysis-only** — your audio always passes through untouched in full stereo. Mid/Side is ideal for checking what a plugin does to the center (vocals, kick, bass) versus the stereo sides independently.
+| Mode | Signal | What it is |
+|---|---|---|
+| **L+R** (default) | (L + R) / 2 | both channels combined — the whole signal (a.k.a. Mid / Mono) |
+| **Side** | (L − R) / 2 | the stereo difference — what lives only in the sides |
+
+This is **analysis-only** — your audio always passes through untouched in full stereo. Switch to **Side** to see exactly what a plugin does to the stereo image (a widener's added top-end, M/S EQ on the sides, etc.) on *any* tab — spectrum, compression curve, distortion, and so on.
 
 ### Measurement Safety
 
@@ -318,6 +325,8 @@ The footer hosts the test-tone controls and global level trim:
 
 > **Double-click** a trim slider to reset to 0.0 dB. Trims display grey at 0 dB and teal when active.
 
+> **FREQ / LEVEL / Test Tone** only apply where they're used — they're active on the live tabs and **Harmonics** (with **LEVEL** also on **Distortion**), and dim out on the other measurement tabs, which are driven entirely by their **Measure** button.
+
 ---
 
 ## Tips and Best Practices
@@ -325,7 +334,7 @@ The footer hosts the test-tone controls and global level trim:
 ### General
 - Insert Pre **before** the plugin and Post **after** — order matters; both on the **same track/bus**.
 - **Live** tabs need audio playing. **Measurement** tabs generate their own stimulus, but the transport must be running (audio has to flow through the chain) — and they auto-stop when you leave the tab or stop playback.
-- Use the **L/R/M/S** selector to check the center vs the stereo sides independently.
+- Use the **L+R / Side** selector to check the whole signal vs the stereo sides independently (works on every tab).
 - Save the Pre/Post pair as an **FX Chain Preset** to add both inserts at once.
 
 ### Live tabs
@@ -446,12 +455,14 @@ A tracked **pre-push hook** runs the suites before every push; enable it once pe
 - Measured attack / release envelope
 - THD-vs-frequency distortion sweep
 - Curve **Freeze** (A/B) on Freq Response, Compression, Distortion
-- **L / R / Mid / Side** analysis
+- **L+R / Side** channel analysis (whole signal + stereo difference)
 - Measurement-safety system (amber border/banner, armed buttons, auto-stop on tab change or transport stop)
 - Cursor readouts on all measurement plots
+- About box (info icon → version / format / OS / manual)
 - Resizable window
 - Headless render harness + standalone build + unit-test suites
 - **Cross-platform: macOS (VST3 + AU, universal) via portable lock-free IPC** — building + pluginval-validated in CI (beta; see macOS status above)
+- First release — **v1.0.0** (Windows x64 VST3)
 
 ### Planned
 - IMD (two-tone intermodulation) and THD+N
