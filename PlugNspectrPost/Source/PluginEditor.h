@@ -525,11 +525,13 @@ public:
         m_close.setButtonText ("X");
         m_close.onClick = [this] { setVisible (false); };
 
-        m_manual .setButtonText ("Open Manual");
-        m_legal  .setButtonText ("Legal Notices");
-        m_sysinfo.setButtonText ("Copy System Info");
-        for (auto* btn : { &m_manual, &m_legal, &m_sysinfo })
-            addAndMakeVisible (btn);   // placeholder actions — wired later
+        m_manual.setButtonText ("Open Manual");
+        m_manual.onClick = []
+        {
+            juce::URL ("https://github.com/kevin-jenkins/PlugNspectr/blob/main/README.md")
+                .launchInDefaultBrowser();
+        };
+        addAndMakeVisible (m_manual);
     }
 
     void setLogo (const juce::Image& img) { m_logo = img; }
@@ -581,11 +583,8 @@ public:
         const auto card = cardBounds();
         m_close.setBounds (card.getRight() - 30, card.getY() + 8, 22, 22);
 
-        constexpr int bw = 112, bh = 28, gap = 8;
-        int x = card.getCentreX() - (bw * 3 + gap * 2) / 2;
-        const int by = card.getBottom() - 70;
-        for (auto* btn : { &m_manual, &m_legal, &m_sysinfo })
-        { btn->setBounds (x, by, bw, bh); x += bw + gap; }
+        constexpr int bw = 132, bh = 30;
+        m_manual.setBounds (card.getCentreX() - bw / 2, card.getBottom() - 70, bw, bh);
     }
 
     void mouseDown (const juce::MouseEvent& e) override
@@ -598,7 +597,7 @@ private:
     { return juce::Rectangle<int> (380, 430).withCentre (getLocalBounds().getCentre()); }
 
     juce::Image      m_logo;
-    juce::TextButton m_close, m_manual, m_legal, m_sysinfo;
+    juce::TextButton m_close, m_manual;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AboutOverlay)
 };
 
