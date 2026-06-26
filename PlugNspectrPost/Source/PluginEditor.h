@@ -499,14 +499,14 @@ public:
         const auto circ = juce::Rectangle<float> (d, d).withCentre (b.getCentre());
         const float cx = circ.getCentreX(), cy = circ.getCentreY();
 
-        g.setColour ((over || down) ? PnsTheme::kAccentPrimary : PnsTheme::kTextSecondary);
-        g.drawEllipse (circ, 1.3f);
+        g.setColour ((over || down) ? PnsTheme::kAccentPrimary : PnsTheme::kTextPrimary);
+        g.drawEllipse (circ, 1.5f);
 
-        // Lowercase "i" as a dot + stem (filled shapes) so it stays crisp at this size.
-        const float dotD  = juce::jmax (1.8f, d * 0.16f);
-        const float stemW = juce::jmax (1.6f, d * 0.14f);
-        g.fillEllipse (cx - dotD * 0.5f, cy - d * 0.28f, dotD, dotD);                  // dot
-        g.fillRoundedRectangle (cx - stemW * 0.5f, cy - d * 0.06f, stemW, d * 0.32f,   // stem
+        // Lowercase "i" as a dot + stem (filled shapes) so it stays crisp + bold here.
+        const float dotD  = juce::jmax (2.2f, d * 0.20f);
+        const float stemW = juce::jmax (2.0f, d * 0.18f);
+        g.fillEllipse (cx - dotD * 0.5f, cy - d * 0.29f, dotD, dotD);                  // dot
+        g.fillRoundedRectangle (cx - stemW * 0.5f, cy - d * 0.07f, stemW, d * 0.34f,   // stem
                                 stemW * 0.5f);
     }
 };
