@@ -535,6 +535,8 @@ public:
     }
 
     void setLogo (const juce::Image& img) { m_logo = img; }
+    void setSystemInfo (juce::String version, juce::String format, juce::String os)
+    { m_version = std::move (version); m_format = std::move (format); m_os = std::move (os); }
 
     void paint (juce::Graphics& g) override
     {
@@ -559,8 +561,8 @@ public:
         g.setFont (juce::Font (juce::FontOptions().withHeight (26.0f)).boldened());
         g.drawText ("PlugNspectr", c.getX(), c.getY() + 66, c.getWidth(), 32, juce::Justification::centred);
 
-        struct Row { const char* k; const char* v; };
-        const Row rows[] = { { "Version", "1.0.0" }, { "Format", "VST3" }, { "OS", "Windows" } };
+        struct Row { const char* k; const juce::String& v; };
+        const Row rows[] = { { "Version", m_version }, { "Format", m_format }, { "OS", m_os } };
         int y = c.getY() + 118;
         g.setFont (PnsTheme::fontPrimary());
         for (const auto& r : rows)
@@ -597,6 +599,7 @@ private:
     { return juce::Rectangle<int> (380, 430).withCentre (getLocalBounds().getCentre()); }
 
     juce::Image      m_logo;
+    juce::String     m_version { "1.0.0" }, m_format { "VST3" }, m_os { "Windows" };
     juce::TextButton m_close, m_manual;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AboutOverlay)
 };
