@@ -560,7 +560,7 @@ public:
         g.drawText ("PlugNspectr", c.getX(), c.getY() + 66, c.getWidth(), 32, juce::Justification::centred);
 
         struct Row { const char* k; const char* v; };
-        const Row rows[] = { { "Version", "1.0" }, { "Format", "VST3" }, { "OS", "Windows" } };
+        const Row rows[] = { { "Version", "1.0.0" }, { "Format", "VST3" }, { "OS", "Windows" } };
         int y = c.getY() + 118;
         g.setFont (PnsTheme::fontPrimary());
         for (const auto& r : rows)
