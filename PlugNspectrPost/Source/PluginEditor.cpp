@@ -3185,6 +3185,13 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
         segs[juce::jlimit (0, 1, audioProcessor.getChannelMode())]->setToggleState (true, juce::dontSendNotification);
     }
 
+    // ── About modal + the info icon that opens it ──────────────────────────
+    m_infoBtn.onClick = [this] { m_about.setVisible (true); m_about.toFront (true); };
+    addAndMakeVisible (m_infoBtn);
+
+    m_about.setLogo (m_pnsLogo);
+    addChildComponent (m_about);   // hidden until the info icon is clicked
+
     switchTab (0);
 
     setSize (900, 576);   // wider for the renamed tabs; +36px footer
@@ -3313,6 +3320,10 @@ void PlugNspectrPostEditor::timerCallback()
 //==============================================================================
 void PlugNspectrPostEditor::paintOverChildren (juce::Graphics& g)
 {
+    // The About modal sits above everything — don't draw the measuring border or
+    // the no-Pre overlay over it.
+    if (m_about.isVisible()) return;
+
     // Amber "measuring" border around the whole window whenever a test signal
     // is being emitted — an unmissable cue that the audio is being replaced.
     if (isStimulusActive())
@@ -3513,8 +3524,6 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
     g.drawHorizontalLine (hH - 1, 0.0f, (float) getWidth());
 
     // Header logo — the PlugNspectr wordmark + mark, scaled to fit the bar.
-    constexpr int marginR2 = PnsTheme::kPaddingMid;
-
     if (m_pnsLogo.isValid())
     {
         const float logoH = (float) hH - 4.0f;                        // nearly fills the 36px bar
@@ -3526,12 +3535,8 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
                      0, 0, m_pnsLogo.getWidth(), m_pnsLogo.getHeight());
     }
 
-    // Version — far right with right margin
-    g.setFont (PnsTheme::fontLabel());
-    g.setColour (PnsTheme::kTextSecondary);
-    g.drawText ("v1.0",
-                getWidth() - marginR2 - 40, (hH - 12) / 2, 40, 12,
-                juce::Justification::centredRight);
+    // (The version now lives in the About modal, opened by the info icon at the
+    //  top-right corner — positioned in resized(), drawn as a child component.)
 
     // "CH" label left of the L/R/M/S segmented selector
     g.drawText ("CH", m_chLR.getX() - 26, (hH - 12) / 2, 22, 12, juce::Justification::centredRight);
@@ -3659,14 +3664,21 @@ void PlugNspectrPostEditor::resized()
     place (m_tabEnvelope);  place (m_tabThd);
     m_trayBounds = { trayLeft, hH, (x + trayPadR) - trayLeft, tbH };
 
-    // Segmented L+R / Side selector in the header, left of the version text.
+    // Info icon at the far-right corner (where the version used to sit).
+    constexpr int infoSz = 18;
+    m_infoBtn.setBounds (getWidth() - PnsTheme::kPaddingMid - infoSz, (hH - infoSz) / 2, infoSz, infoSz);
+
+    // Segmented L+R / Side selector in the header, left of the info icon.
     {
         constexpr int segW = 44, segH = 22;
-        const int segRight = getWidth() - PnsTheme::kPaddingMid - 40 - 8;
+        const int segRight = m_infoBtn.getX() - 8;
         const int segTop   = (hH - segH) / 2;
         m_chLR  .setBounds (segRight - segW * 2, segTop, segW, segH);
         m_chSide.setBounds (segRight - segW,     segTop, segW, segH);
     }
+
+    // The About modal covers the whole editor when shown.
+    m_about.setBounds (getLocalBounds());
 
     constexpr int kFooterH = 36;
     const int W = getWidth(), H = getHeight();

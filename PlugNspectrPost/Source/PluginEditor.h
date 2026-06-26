@@ -486,6 +486,122 @@ private:
 };
 
 //==============================================================================
+// InfoButton — a small circled "i" that opens the About modal.
+//==============================================================================
+class InfoButton : public juce::Button
+{
+public:
+    InfoButton() : juce::Button ("About") { setTooltip ("About PlugNspectr"); }
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        const auto b = getLocalBounds().toFloat();
+        const float d = juce::jmin (b.getWidth(), b.getHeight()) - 2.0f;
+        const auto circ = juce::Rectangle<float> (d, d).withCentre (b.getCentre());
+        const float cx = circ.getCentreX(), cy = circ.getCentreY();
+
+        g.setColour ((over || down) ? PnsTheme::kAccentPrimary : PnsTheme::kTextPrimary);
+        g.drawEllipse (circ, 1.5f);
+
+        // Lowercase "i" as a dot + stem (filled shapes) so it stays crisp + bold here.
+        const float dotD  = juce::jmax (2.2f, d * 0.20f);
+        const float stemW = juce::jmax (2.0f, d * 0.18f);
+        g.fillEllipse (cx - dotD * 0.5f, cy - d * 0.29f, dotD, dotD);                  // dot
+        g.fillRoundedRectangle (cx - stemW * 0.5f, cy - d * 0.07f, stemW, d * 0.34f,   // stem
+                                stemW * 0.5f);
+    }
+};
+
+//==============================================================================
+// AboutOverlay — dark scrim + centred card (Softube-style). Content is iterated
+// on later; for now it shows the logo, name, version/format/OS, placeholder
+// action buttons, and a copyright line. Click the scrim or the X to dismiss.
+//==============================================================================
+class AboutOverlay : public juce::Component
+{
+public:
+    AboutOverlay()
+    {
+        addAndMakeVisible (m_close);
+        m_close.setButtonText ("X");
+        m_close.onClick = [this] { setVisible (false); };
+
+        m_manual.setButtonText ("Open Manual");
+        m_manual.onClick = []
+        {
+            juce::URL ("https://github.com/kevin-jenkins/PlugNspectr/blob/main/README.md")
+                .launchInDefaultBrowser();
+        };
+        addAndMakeVisible (m_manual);
+    }
+
+    void setLogo (const juce::Image& img) { m_logo = img; }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (juce::Colours::black.withAlpha (0.72f));   // scrim
+
+        const auto card = cardBounds();
+        g.setColour (PnsTheme::kBgPanel);
+        g.fillRoundedRectangle (card.toFloat(), 10.0f);
+        g.setColour (PnsTheme::kBorderSubtle);
+        g.drawRoundedRectangle (card.toFloat().reduced (0.5f), 10.0f, 1.0f);
+
+        const auto c = card.reduced (28, 22);
+
+        if (m_logo.isValid())
+        {
+            const float lw = 150.0f, lh = lw * (float) m_logo.getHeight() / (float) m_logo.getWidth();
+            g.drawImage (m_logo, (float) c.getCentreX() - lw * 0.5f, (float) c.getY(), lw, lh,
+                         0, 0, m_logo.getWidth(), m_logo.getHeight());
+        }
+
+        g.setColour (PnsTheme::kTextPrimary);
+        g.setFont (juce::Font (juce::FontOptions().withHeight (26.0f)).boldened());
+        g.drawText ("PlugNspectr", c.getX(), c.getY() + 66, c.getWidth(), 32, juce::Justification::centred);
+
+        struct Row { const char* k; const char* v; };
+        const Row rows[] = { { "Version", "1.0.0" }, { "Format", "VST3" }, { "OS", "Windows" } };
+        int y = c.getY() + 118;
+        g.setFont (PnsTheme::fontPrimary());
+        for (const auto& r : rows)
+        {
+            g.setColour (PnsTheme::kTextSecondary);
+            g.drawText (r.k, c.getX(), y, c.getWidth() / 2 - 8, 20, juce::Justification::centredRight);
+            g.setColour (PnsTheme::kTextPrimary);
+            g.drawText (r.v, c.getX() + c.getWidth() / 2 + 8, y, c.getWidth() / 2, 20, juce::Justification::centredLeft);
+            y += 26;
+        }
+
+        g.setColour (PnsTheme::kTextSecondary);
+        g.setFont (PnsTheme::fontLabel());
+        g.drawText (juce::CharPointer_UTF8 ("\xc2\xa9 2026 Biltroy Audio. All rights reserved."),
+                    c.getX(), card.getBottom() - 34, c.getWidth(), 16, juce::Justification::centred);
+    }
+
+    void resized() override
+    {
+        const auto card = cardBounds();
+        m_close.setBounds (card.getRight() - 30, card.getY() + 8, 22, 22);
+
+        constexpr int bw = 132, bh = 30;
+        m_manual.setBounds (card.getCentreX() - bw / 2, card.getBottom() - 70, bw, bh);
+    }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (! cardBounds().contains (e.getPosition())) setVisible (false);   // click outside → close
+    }
+
+private:
+    juce::Rectangle<int> cardBounds() const
+    { return juce::Rectangle<int> (380, 430).withCentre (getLocalBounds().getCentre()); }
+
+    juce::Image      m_logo;
+    juce::TextButton m_close, m_manual;
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AboutOverlay)
+};
+
+//==============================================================================
 // Main editor — dark tab bar + eight views
 //==============================================================================
 class PlugNspectrPostEditor : public juce::AudioProcessorEditor,
@@ -509,6 +625,7 @@ public:
     void setThdCursorForTest (int x)      { m_thdView.setCursorForTest (x);      m_thdView.repaint(); }
     void freezeTransferForTest()          { m_transferView.freezeForTest(); }
     void freezeThdForTest()               { m_thdView.freezeForTest(); }
+    void showAboutForTest()               { m_about.setVisible (true); m_about.toFront (true); }
 
 private:
     void timerCallback      () override;
@@ -570,6 +687,9 @@ private:
     TransferView      m_transferView;
     EnvelopeView      m_envelopeView;
     ThdSweepView      m_thdView;
+
+    InfoButton        m_infoBtn;     // top-right "i" — opens the About modal
+    AboutOverlay      m_about;       // dark scrim + card
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PlugNspectrPostEditor)
 };

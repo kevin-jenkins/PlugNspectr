@@ -351,6 +351,7 @@ int main (int argc, char* argv[])
     if (transferRender) editor->setTransferCursorForTest (520);  // ~-15 dB input
     if (envelopeRender) editor->setEnvelopeCursorForTest (560);  // ~mid attack
     if (thdRender)      editor->setThdCursorForTest (560);       // ~1 kHz
+    if (argc > 1 && juce::String (argv[1]) == "about-render") editor->showAboutForTest();
 
     juce::PNGImageFormat png;
     double phase = 0.0;
