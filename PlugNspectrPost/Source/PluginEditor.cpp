@@ -3030,15 +3030,6 @@ void ThdSweepView::paint (juce::Graphics& g)
         return path;
     };
 
-    // Frozen reference (dimmed grey) under everything.
-    if (m_hasFrozen)
-    {
-        int fc = 0;
-        const juce::Path fp = buildPath (m_frozenThd, m_frozenValid, fc);
-        if (fc > 1) { g.setColour (PnsTheme::kTextSecondary.withAlpha (0.5f));
-                      g.strokePath (fp, juce::PathStrokeType (1.0f)); }
-    }
-
     // Ghost: the previous sweep (has a value but not yet refreshed this cycle),
     // drawn dim. The bright sweep overwrites it bin-by-bin, low→high.
     std::array<bool, kBins> ghostMask {}, freshMask {};
@@ -3050,15 +3041,32 @@ void ThdSweepView::paint (juce::Graphics& g)
         freshMask[(size_t) b] = m_thd.fresh[(size_t) b];
     }
 
-    int gc = 0;
-    const juce::Path ghost = buildPath (m_thd.thdPct, ghostMask, gc);
-    if (gc > 1) { g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.25f));
-                  g.strokePath (ghost, juce::PathStrokeType (1.0f)); }
+    // Clip the curves to the plot so floored (sub-0.001%) bins ride the bottom
+    // line instead of bleeding their glow below the grid.
+    {
+        juce::Graphics::ScopedSaveState clip (g);
+        g.reduceClipRegion (juce::Rectangle<int> ((int) px, (int) py,
+                                                  (int) pw, (int) ph));
 
-    int nFresh = 0;
-    const juce::Path path = buildPath (m_thd.thdPct, freshMask, nFresh);
-    if (nFresh > 1)
-        PnsTheme::drawGlowLine (g, path, PnsTheme::kColorPostAvg, 1.5f);
+        // Frozen reference (dimmed grey) under everything.
+        if (m_hasFrozen)
+        {
+            int fc = 0;
+            const juce::Path fp = buildPath (m_frozenThd, m_frozenValid, fc);
+            if (fc > 1) { g.setColour (PnsTheme::kTextSecondary.withAlpha (0.5f));
+                          g.strokePath (fp, juce::PathStrokeType (1.0f)); }
+        }
+
+        int gc = 0;
+        const juce::Path ghost = buildPath (m_thd.thdPct, ghostMask, gc);
+        if (gc > 1) { g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.25f));
+                      g.strokePath (ghost, juce::PathStrokeType (1.0f)); }
+
+        int nFresh = 0;
+        const juce::Path path = buildPath (m_thd.thdPct, freshMask, nFresh);
+        if (nFresh > 1)
+            PnsTheme::drawGlowLine (g, path, PnsTheme::kColorPostAvg, 1.5f);
+    }
 
     // Cursor readout — frequency → THD %.
     if (nValid > 1 && m_cursorX >= 0.0f)

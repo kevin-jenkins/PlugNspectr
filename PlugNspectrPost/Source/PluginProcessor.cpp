@@ -359,7 +359,17 @@ void PlugNspectrPostProcessor::pushThdSweepSamples (const float* post, int n, do
     if (post == nullptr) return;
     const double sr = (m_measSampleRate > 0.0) ? m_measSampleRate : getSampleRate();
     if (sr <= 0.0) return;
-    m_thdLastFundHz = fundamentalHz;
+
+    // The sweep holds each frequency for ~0.15 s but the FFT frame is shorter, so
+    // unless we realign, a frame can straddle a step boundary and mix two tones —
+    // smearing the harmonic search and reading garbage (near-zero at high freq,
+    // which slams the curve into the grid floor). Drop the partial frame whenever
+    // the swept fundamental changes, so every frame holds a single pure tone.
+    if (fundamentalHz != m_thdLastFundHz)
+    {
+        m_thdPos = 0;
+        m_thdLastFundHz = fundamentalHz;
+    }
 
     for (int i = 0; i < n; ++i)
     {
