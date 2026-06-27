@@ -443,9 +443,11 @@ void PlugNspectrPostProcessor::startThdSweepCycle()
     // Begin a new sweep cycle: clear only the "fresh" flags so the bright curve
     // rebuilds from scratch, while m_thdPct/m_thdValid stay as the dimmed ghost
     // (the previous sweep) that the new sweep overwrites bin-by-bin, low→high.
+    // m_thdPos is owned solely by the audio thread (pushThdSweepSamples) — its
+    // realign-on-fundamental-change zeroes it, and the sweep restarts at 50 Hz on
+    // re-arm, so the first injected block resets it there. Don't race it from here.
     juce::ScopedLock sl (m_thdLock);
     m_thdFresh.fill (0);
-    m_thdPos = 0;
 }
 
 void PlugNspectrPostProcessor::injectThdSweepBlock (const float* post, int n, double fundamentalHz)
