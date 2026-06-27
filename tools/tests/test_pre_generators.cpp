@@ -151,3 +151,30 @@ TEST_CASE ("Pre: THD log sweep — frequency ascends across steps")
     CHECK (zcStart < 20);                        // ~50 Hz → ~10 crossings in 0.1 s
     CHECK (zcLater > zcStart * 5);               // ascended to a far higher frequency
 }
+
+TEST_CASE ("Pre: THD sweep restarts from the beginning after a stop")
+{
+    Pre pre;
+    preparePre (pre);
+    juce::AudioBuffer<float> buf (1, pnst::kBlk);
+
+    pns::PNS_CmdBlock run {};  run.dynMeasureMode = 3;
+    pns::PNS_CmdBlock stop {}; stop.dynMeasureMode = 0;
+
+    // Advance the sweep well up the spectrum...
+    pre.setTestCommand (run);
+    for (int b = 0; b < 60; ++b) pump (pre, buf);
+    const int zcMid = zeroCrossings (buf);       // a high step, far above 50 Hz
+    CHECK (zcMid > 50);
+
+    // ...stop the measurement for a block...
+    pre.setTestCommand (stop);
+    pump (pre, buf);
+
+    // ...and re-arm: the sweep must restart at ~50 Hz, not resume mid-spectrum.
+    pre.setTestCommand (run);
+    pump (pre, buf);
+    const int zcRestart = zeroCrossings (buf);
+    INFO ("zcMid=" << zcMid << " zcRestart=" << zcRestart);
+    CHECK (zcRestart < 20);                       // back to ~50 Hz
+}

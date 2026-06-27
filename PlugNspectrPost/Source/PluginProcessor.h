@@ -160,11 +160,12 @@ public:
     struct ThdResult
     {
         std::array<float, kThdBins> thdPct {};   // %THD per frequency bin
-        std::array<bool,  kThdBins> valid  {};
+        std::array<bool,  kThdBins> valid  {};   // has any value (ever measured)
+        std::array<bool,  kThdBins> fresh  {};   // measured in the current sweep cycle
         double sampleRate = 0.0;
     };
     void getThdSweep (ThdResult& out) const;
-    void resetThdSweep ();
+    void startThdSweepCycle ();
     void injectThdSweepBlock (const float* post, int n, double fundamentalHz);
 
     // Returns true if PlugNspectrPre has set a heartbeat within the last 500ms.
@@ -299,7 +300,8 @@ private:
     std::array<float, 2 * kMeasFftSize>  m_thdWork {};
     double                               m_thdLastFundHz = 0.0;
     std::array<float,   kThdBins>        m_thdPct {};
-    std::array<uint8_t, kThdBins>        m_thdValid {};
+    std::array<uint8_t, kThdBins>        m_thdValid {};   // has any value (ever measured)
+    std::array<uint8_t, kThdBins>        m_thdFresh {};   // measured in the current cycle
     mutable juce::CriticalSection        m_thdLock;
 
     void pushThdSweepSamples (const float* post, int n, double fundamentalHz);

@@ -2906,7 +2906,7 @@ ThdSweepView::ThdSweepView (PlugNspectrPostProcessor& p) : m_proc (p)
     m_measureBtn.onClick = [this]
     {
         m_measureActive = m_measureBtn.getToggleState();
-        if (m_measureActive) m_proc.resetThdSweep();   // start fresh; pausing keeps the curve
+        if (m_measureActive) m_proc.startThdSweepCycle();   // new sweep; old curve stays as a ghost
         if (onMeasureChanged) onMeasureChanged();
         repaint();
     };
@@ -3013,14 +3013,14 @@ void ThdSweepView::paint (juce::Graphics& g)
     }
 
     auto buildPath = [&] (const std::array<float, kBins>& thd,
-                          const std::array<bool, kBins>& valid, int& count) -> juce::Path
+                          const std::array<bool, kBins>& mask, int& count) -> juce::Path
     {
         juce::Path path;
         bool started = false;
         count = 0;
         for (int b = 0; b < kBins; ++b)
         {
-            if (! valid[(size_t) b]) continue;
+            if (! mask[(size_t) b]) continue;
             const double f = lo * std::pow ((double) hi / lo, (double) b / (kBins - 1));
             const float x = X (f), y = Y (thd[(size_t) b]);
             if (! started) { path.startNewSubPath (x, y); started = true; }
@@ -3030,7 +3030,7 @@ void ThdSweepView::paint (juce::Graphics& g)
         return path;
     };
 
-    // Frozen reference (dimmed grey) under the live curve.
+    // Frozen reference (dimmed grey) under everything.
     if (m_hasFrozen)
     {
         int fc = 0;
@@ -3039,9 +3039,25 @@ void ThdSweepView::paint (juce::Graphics& g)
                       g.strokePath (fp, juce::PathStrokeType (1.0f)); }
     }
 
+    // Ghost: the previous sweep (has a value but not yet refreshed this cycle),
+    // drawn dim. The bright sweep overwrites it bin-by-bin, low→high.
+    std::array<bool, kBins> ghostMask {}, freshMask {};
     int nValid = 0;
-    const juce::Path path = buildPath (m_thd.thdPct, m_thd.valid, nValid);
-    if (nValid > 1)
+    for (int b = 0; b < kBins; ++b)
+    {
+        if (m_thd.valid[(size_t) b]) ++nValid;
+        ghostMask[(size_t) b] = m_thd.valid[(size_t) b] && ! m_thd.fresh[(size_t) b];
+        freshMask[(size_t) b] = m_thd.fresh[(size_t) b];
+    }
+
+    int gc = 0;
+    const juce::Path ghost = buildPath (m_thd.thdPct, ghostMask, gc);
+    if (gc > 1) { g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.25f));
+                  g.strokePath (ghost, juce::PathStrokeType (1.0f)); }
+
+    int nFresh = 0;
+    const juce::Path path = buildPath (m_thd.thdPct, freshMask, nFresh);
+    if (nFresh > 1)
         PnsTheme::drawGlowLine (g, path, PnsTheme::kColorPostAvg, 1.5f);
 
     // Cursor readout — frequency → THD %.

@@ -16,7 +16,7 @@ TEST_CASE ("THD sweep: 5% 2nd harmonic across frequency")
 
     P proc;
     proc.prepareToPlay (pnst::kSR, blk);
-    proc.resetThdSweep();
+    proc.startThdSweepCycle();
 
     std::vector<float> post ((size_t) blk);
     double ph = 0.0;
