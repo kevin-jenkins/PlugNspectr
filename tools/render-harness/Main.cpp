@@ -240,7 +240,7 @@ void runThdTest (PlugNspectrPostProcessor& proc)
     const double pi = juce::MathConstants<double>::pi;
     const double a  = 0.05;                          // 2nd-harmonic amplitude → 5% THD
 
-    proc.resetThdSweep();
+    proc.startThdSweepCycle();
     std::vector<float> post ((size_t) blk);
     double ph = 0.0;
 
@@ -369,7 +369,9 @@ int main (int argc, char* argv[])
         if (thdRender)
         {
             // Halfway through, FREEZE and drop the distortion (5% → 2%) to A/B.
-            if (f == numFrames / 2) { editor->freezeThdForTest(); proc.resetThdSweep(); }
+            // The old curve stays as a dim ghost while the new sweep restarts from
+            // 50 Hz and overwrites it low→high (thdStep reset mirrors Pre's restart).
+            if (f == numFrames / 2) { editor->freezeThdForTest(); proc.startThdSweepCycle(); thdStep = 0; }
             const double a2 = (f < numFrames / 2) ? 0.05 : 0.02;
             std::vector<float> pre ((size_t) kBlock), post ((size_t) kBlock);
             const double fHz = 50.0 * std::pow (100.0, (double) ((thdStep / 3) % 100) / 99.0);

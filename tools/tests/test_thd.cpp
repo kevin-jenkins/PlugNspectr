@@ -16,7 +16,7 @@ TEST_CASE ("THD sweep: 5% 2nd harmonic across frequency")
 
     P proc;
     proc.prepareToPlay (pnst::kSR, blk);
-    proc.resetThdSweep();
+    proc.startThdSweepCycle();
 
     std::vector<float> post ((size_t) blk);
     double ph = 0.0;
@@ -56,4 +56,47 @@ TEST_CASE ("THD sweep: 5% 2nd harmonic across frequency")
     CHECK (std::abs (at (1000) - 5.0f) < 1.0f);
     CHECK (std::abs (at (3000) - 5.0f) < 1.0f);
     CHECK (std::abs (at (100)  - 5.0f) < 2.5f);
+}
+
+TEST_CASE ("THD sweep: a frequency change drops the partial frame (no straddle)")
+{
+    const double PI = 3.14159265358979323846;
+    const double a  = 0.05;                            // 5% 2nd harmonic
+
+    P proc;
+    proc.prepareToPlay (pnst::kSR, pnst::kBlk);
+    proc.startThdSweepCycle();
+
+    double ph = 0.0;
+    auto inject = [&] (double f, int count)
+    {
+        const double inc = 2.0 * PI * f / pnst::kSR;
+        std::vector<float> buf ((size_t) count);
+        for (int i = 0; i < count; ++i)
+        {
+            ph += inc; if (ph > 2.0 * PI) ph -= 2.0 * PI;
+            buf[(size_t) i] = (float) (std::sin (ph) + a * std::sin (2.0 * ph));
+        }
+        proc.injectThdSweepBlock (buf.data(), count, f);
+    };
+
+    auto binOf = [] (double f)
+    {
+        const double t = std::log (f / (double) P::kThdLoHz)
+                       / std::log ((double) P::kThdHiHz / (double) P::kThdLoHz);
+        return juce::jlimit (0, P::kThdBins - 1, (int) std::lround (t * (P::kThdBins - 1)));
+    };
+
+    inject (1000.0, 3000);   // partial frame at 1 kHz (< 4096 samples)
+    inject (2000.0, 6000);   // change to 2 kHz: the 1 kHz partial must be dropped
+
+    P::ThdResult r;
+    proc.getThdSweep (r);
+
+    // The 1 kHz bin never completed a full single-tone frame → no reading.
+    CHECK_FALSE (r.valid[(size_t) binOf (1000.0)]);
+    // The 2 kHz frame is pure (not contaminated by leftover 1 kHz samples) → ~5%.
+    REQUIRE (r.valid[(size_t) binOf (2000.0)]);
+    INFO ("THD @2k=" << r.thdPct[(size_t) binOf (2000.0)]);
+    CHECK (std::abs (r.thdPct[(size_t) binOf (2000.0)] - 5.0f) < 1.5f);
 }

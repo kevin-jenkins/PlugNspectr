@@ -68,6 +68,12 @@ void PlugNspectrPreProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const bool dynStep       = (m_cmd.dynMeasureMode == 2);
     const bool thdSweep      = (m_cmd.dynMeasureMode == 3);
 
+    // Park the shared sweep/ramp counter at the start whenever no dynamic stimulus
+    // is generating, so each (re)arm begins from the beginning (Distortion 50 Hz,
+    // Compression -60 dB, Attack/Release cycle start) instead of resuming mid-sweep.
+    if (! ((thdSweep || dynStep || dynRamp) && ! toneActive))
+        m_dynRampPhase = 0.0;
+
     if (thdSweep && ! toneActive)
     {
         // STEPPED log sweep 50 Hz → 5 kHz: hold each of 100 frequencies for

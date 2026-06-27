@@ -44,7 +44,10 @@ void PlugNspectrPostProcessor::prepareToPlay (double sampleRate, int samplesPerB
     resetMeasurement();
     resetDynamics();
     resetEnvelope();
-    resetThdSweep();
+    {   // full wipe on (re)prepare — no ghost carried across a sample-rate change
+        juce::ScopedLock sl (m_thdLock);
+        m_thdPct.fill (0.0f); m_thdValid.fill (0); m_thdFresh.fill (0); m_thdPos = 0;
+    }
 }
 
 void PlugNspectrPostProcessor::releaseResources()
@@ -356,7 +359,17 @@ void PlugNspectrPostProcessor::pushThdSweepSamples (const float* post, int n, do
     if (post == nullptr) return;
     const double sr = (m_measSampleRate > 0.0) ? m_measSampleRate : getSampleRate();
     if (sr <= 0.0) return;
-    m_thdLastFundHz = fundamentalHz;
+
+    // The sweep holds each frequency for ~0.15 s but the FFT frame is shorter, so
+    // unless we realign, a frame can straddle a step boundary and mix two tones —
+    // smearing the harmonic search and reading garbage (near-zero at high freq,
+    // which slams the curve into the grid floor). Drop the partial frame whenever
+    // the swept fundamental changes, so every frame holds a single pure tone.
+    if (fundamentalHz != m_thdLastFundHz)
+    {
+        m_thdPos = 0;
+        m_thdLastFundHz = fundamentalHz;
+    }
 
     for (int i = 0; i < n; ++i)
     {
@@ -406,8 +419,10 @@ void PlugNspectrPostProcessor::pushThdSweepSamples (const float* post, int n, do
         const int tb = juce::jlimit (0, kThdBins - 1, (int) std::lround (t * (kThdBins - 1)));
 
         juce::ScopedLock sl (m_thdLock);
-        if (m_thdValid[tb]) m_thdPct[tb] = (float) (m_thdPct[tb] * 0.8 + thd * 0.2);
-        else              { m_thdPct[tb] = (float) thd; m_thdValid[tb] = 1; }
+        if (m_thdFresh[tb]) m_thdPct[tb] = (float) (m_thdPct[tb] * 0.8 + thd * 0.2);  // smooth within cycle
+        else                m_thdPct[tb] = (float) thd;   // first hit this cycle: overwrite the ghost raw
+        m_thdFresh[tb] = 1;
+        m_thdValid[tb] = 1;
     }
 }
 
@@ -419,14 +434,17 @@ void PlugNspectrPostProcessor::getThdSweep (ThdResult& out) const
     {
         out.thdPct[b] = m_thdPct[b];
         out.valid[b]  = (m_thdValid[b] != 0);
+        out.fresh[b]  = (m_thdFresh[b] != 0);
     }
 }
 
-void PlugNspectrPostProcessor::resetThdSweep()
+void PlugNspectrPostProcessor::startThdSweepCycle()
 {
+    // Begin a new sweep cycle: clear only the "fresh" flags so the bright curve
+    // rebuilds from scratch, while m_thdPct/m_thdValid stay as the dimmed ghost
+    // (the previous sweep) that the new sweep overwrites bin-by-bin, low→high.
     juce::ScopedLock sl (m_thdLock);
-    m_thdPct.fill (0.0f);
-    m_thdValid.fill (0);
+    m_thdFresh.fill (0);
     m_thdPos = 0;
 }
 
