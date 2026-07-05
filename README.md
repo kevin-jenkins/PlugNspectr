@@ -209,7 +209,7 @@ Real-time FFT frequency analysis showing how the plugin is shaping your audio's 
 - **Post signal** (bright teal, glowing) — the processed spectrum
 - **Pre / Post Averages** — 10-second rolling averages, with an amber fill between them showing the cumulative EQ difference
 
-**Controls (top right):** smoothing speed (**Fast / Medium / Slow**) and an **Avg** toggle for the average lines.
+**Controls (top right):** a **Reset** icon (circular arrow), smoothing speed (**Fast / Medium / Slow**), and an **Avg** toggle for the average lines. **Reset** clears the rolling averages and the fluctuation markers so the averaged Pre↔Post comparison reflects only post-tweak audio — the "start over after a plugin change" companion to the same control on the Dynamics tab.
 
 **Interactive inspection:** hover for a hairline + tooltip (frequency, Pre dB, Post dB); click to lock, click again to unlock.
 
@@ -227,6 +227,8 @@ Reveals how the plugin is affecting dynamic range and level in real time.
 
 **Waveform comparison (top):** Pre (soft sand, background) vs Post (bright teal, foreground) overlaid; where Post is smaller than Pre, compression/limiting is occurring, highlighted by the teal fill. Time window: **6s** or **12s** (default).
 
+**Reset (circular-arrow icon, top right):** clears all readings and history — waveform, Avg GR, the 30 s rolling average, GR history, and the In/Out levels — so measurement starts over after you tweak the plugin chain. The auto-zoom is kept so the view doesn't jump.
+
 **Readouts (right panel):**
 | Readout | Description |
 |---|---|
@@ -235,7 +237,7 @@ Reveals how the plugin is affecting dynamic range and level in real time.
 | **In / Out** | RMS input / output level (dB) |
 | **Δ** | Net level difference (orange = attenuation, teal = gain, grey = unity) |
 
-> **Double-click** the Avg GR or Now label/value to reset the readings.
+> **Double-click** the readout panel (Avg GR / Now) for the same full reset as the **Reset** button.
 
 **Gain Reduction (bottom):** a scrolling GR history with an orange gradient fill and a peak-hold line. Y = 0 to −24 dB; X = last 3 seconds. Flat at 0 = dynamically transparent; deep consistent dips = heavy compression; brief dips = peak limiting.
 

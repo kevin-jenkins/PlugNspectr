@@ -40,7 +40,33 @@ SpectrumView::SpectrumView (PlugNspectrPostProcessor& p) : m_proc (p)
         m_avgBtn.setToggleState (m_showAvg, juce::dontSendNotification);
     };
     addAndMakeVisible (m_avgBtn);
+
+    m_reset.setTooltip ("Clear the rolling averages and fluctuation markers and "
+                        "start over (after tweaking the plugin chain)");
+    m_reset.onClick = [this] { reset(); };
+    addAndMakeVisible (m_reset);
+
     setInterceptsMouseClicks (true, false);
+}
+
+// Clear the accumulated long-term state so the averaged Pre/Post comparison and
+// the fluctuation markers reflect only post-tweak audio. Seeds the display /
+// peak-hold / averages from the current spectrum so it reads correctly at once
+// rather than climbing from silence.
+void SpectrumView::reset()
+{
+    m_pre      = m_rawPre;   m_post      = m_rawPost;
+    m_peakPre  = m_rawPre;   m_peakPost  = m_rawPost;
+    m_avgPre   = m_rawPre;   m_avgPost   = m_rawPost;
+
+    // Re-arm the fluctuation markers' warmup (mirrors the silence-reset path).
+    m_warmupN  = 0;
+    m_markerN  = 0;
+    m_silenceN = 0;
+    m_peakMarkers.clear();
+    m_topBins.fill (-1);
+    m_topScores.fill (0.0f);
+    repaint();
 }
 
 void SpectrumView::mouseMove (const juce::MouseEvent& e)
@@ -102,6 +128,8 @@ void SpectrumView::resized()
     constexpr int comboW  = 72;
     m_avgBtn   .setBounds (W - marginR - avgW,                  marginT, avgW,  bh);
     m_smoothBox.setBounds (W - marginR - avgW - gap - comboW,   marginT, comboW, bh);
+    constexpr int rw = 28;   // reset icon button
+    m_reset    .setBounds (m_smoothBox.getX() - 10 - rw,        marginT, rw, bh);
 }
 
 void SpectrumView::setSmoothPreset (SmoothPreset p)
@@ -934,6 +962,11 @@ DynamicsView::DynamicsView (PlugNspectrPostProcessor& p) : m_proc (p)
     addAndMakeVisible (m_zoom6s);
     addAndMakeVisible (m_zoom12s);
 
+    m_reset.setTooltip ("Clear all readings and history and start over "
+                        "(after tweaking the plugin chain)");
+    m_reset.onClick = [this] { reset(); };
+    addAndMakeVisible (m_reset);
+
     setMouseCursor (juce::MouseCursor::NormalCursor);
 }
 
@@ -947,6 +980,7 @@ void DynamicsView::resized()
     constexpr int marginT = PnsTheme::kPaddingSmall;
     m_zoom12s.setBounds (W - marginR - bw,           marginT, bw, bh);
     m_zoom6s .setBounds (W - marginR - bw * 2 - gap, marginT, bw, bh);
+    m_reset  .setBounds (m_zoom6s.getX() - 10 - bw,  marginT, bw, bh);   // icon button, matches toggles
 }
 
 void DynamicsView::update()
@@ -1159,16 +1193,44 @@ static juce::Rectangle<int> getReadoutBounds (int compW)
 
 void DynamicsView::mouseDoubleClick (const juce::MouseEvent& e)
 {
+    // Double-clicking the readout panel is a shortcut for the Reset button.
     if (getReadoutBounds (getWidth()).contains (e.getPosition()))
-    {
-        m_instantGr  = 0.0f;
-        m_avgGr      = 0.0f;
-        m_avgGrFill  = 0;
-        m_avgGrPos   = 0;
-        m_avgGrBuf.fill (0.0f);
-        m_grFlashEnd = juce::Time::getMillisecondCounterHiRes() + 200.0;
-        repaint();
-    }
+        reset();
+}
+
+// Clear every accumulated reading and history so measurement starts over after a
+// tweak to the plugin chain. The auto-zoom is intentionally left untouched — it
+// already tracks the signal, and resetting it would just re-calibrate/flicker.
+void DynamicsView::reset()
+{
+    // Waveform history (ring buffer + absolute anchor + derived columns).
+    m_preSamples.fill (0.0f);
+    m_postSamples.fill (0.0f);
+    m_sampleWritePos      = 0;
+    m_samplesStored       = 0;
+    m_totalSamplesWritten = 0;
+    m_wavePreTop.fill (0.0f);  m_wavePreBot.fill (0.0f);
+    m_wavePostTop.fill (0.0f); m_wavePostBot.fill (0.0f);
+    m_waveColsValid  = 0;
+    m_waveScrollFrac = 0.0f;
+
+    // GR readouts + the 30 s rolling Avg GR buffer.
+    m_instantGr  = 0.0f;
+    m_avgGr      = 0.0f;
+    m_grPeakHold = 0.0f;
+    m_avgGrBuf.fill (0.0f);
+    m_avgGrPos   = 0;
+    m_avgGrFill  = 0;
+
+    // Smoothed In/Out levels and the scrolling GR history plot.
+    m_smoothPreDb  = -90.0f;
+    m_smoothPostDb = -90.0f;
+    m_gr.fill (0.0f);
+    m_grPos = 0;
+
+    // Brief flash for feedback (same as the old double-click).
+    m_grFlashEnd = juce::Time::getMillisecondCounterHiRes() + 200.0;
+    repaint();
 }
 
 void DynamicsView::mouseMove (const juce::MouseEvent& e)

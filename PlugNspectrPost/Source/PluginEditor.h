@@ -17,6 +17,60 @@
 // (logo is embedded in PnsLogoData.h — no Projucer BinaryData dependency)
 
 //==============================================================================
+// ResetButton — a circular-arrow "reset" glyph (arc + arrowhead) with the same
+// button chrome as the toolbar toggles. Used on the live tabs (Spectrum,
+// Dynamics) to clear accumulated readings/history and start over.
+//==============================================================================
+class ResetButton : public juce::Button
+{
+public:
+    ResetButton() : juce::Button ("Reset") {}
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        // ── Button chrome — identical to the toggle buttons (theme's
+        //    drawButtonBackground): rounded fill + a border that lifts on hover.
+        const auto pill = getLocalBounds().toFloat().reduced (0.5f);
+        const float rad = (float) PnsTheme::kCornerRadius;
+        g.setColour (down ? PnsTheme::kBtnActiveBg : PnsTheme::kBgWidget);
+        g.fillRoundedRectangle (pill, rad);
+        g.setColour (down ? PnsTheme::kAccentPrimary
+                   : over ? PnsTheme::kBorderActive
+                          : PnsTheme::kBorderSubtle);
+        g.drawRoundedRectangle (pill, rad, 1.0f);
+
+        // ── Circular-arrow glyph, inset so it breathes inside the pill.
+        const auto  b  = getLocalBounds().toFloat();
+        const float d  = juce::jmin (b.getWidth(), b.getHeight()) - 10.0f;
+        const float cx = b.getCentreX(), cy = b.getCentreY();
+        const float r  = d * 0.42f;
+        const float th = juce::jmax (1.4f, d * 0.15f);
+
+        g.setColour ((over || down) ? PnsTheme::kAccentPrimary : PnsTheme::kTextSecondary);
+
+        // ~300° arc, clockwise, with a gap at the top for the arrowhead.
+        const float a0 = 0.75f;                                            // start (upper right)
+        const float a1 = juce::MathConstants<float>::twoPi - 0.15f;        // sweep almost full
+        juce::Path arc;
+        arc.addCentredArc (cx, cy, r, r, 0.0f, a0, a1, true);
+        g.strokePath (arc, juce::PathStrokeType (th, juce::PathStrokeType::curved,
+                                                 juce::PathStrokeType::rounded));
+
+        // Arrowhead at the start end, pointing along the counter-clockwise tangent
+        // (up toward the gap) so it reads as a closing circular arrow.
+        const float ax = cx + r * std::sin (a0);
+        const float ay = cy - r * std::cos (a0);
+        const float dirx = -std::cos (a0), diry = -std::sin (a0);          // ccw tangent
+        const float perpx = -diry, perpy = dirx;
+        const float hh = juce::jmax (4.5f, d * 0.44f), w = hh * 0.62f;
+        juce::Path tri;
+        tri.addTriangle (ax + dirx * hh * 0.5f,            ay + diry * hh * 0.5f,
+                         ax - dirx * hh * 0.5f + perpx * w, ay - diry * hh * 0.5f + perpy * w,
+                         ax - dirx * hh * 0.5f - perpx * w, ay - diry * hh * 0.5f - perpy * w);
+        g.fillPath (tri);
+    }
+};
+
+//==============================================================================
 // Spectrum analyzer view
 //==============================================================================
 class SpectrumView : public juce::Component
@@ -26,6 +80,7 @@ public:
     void paint   (juce::Graphics& g) override;
     void resized ()                   override;
     void update  ();
+    void reset   ();   // clear rolling averages, peak-hold, and fluctuation markers
 
     enum class SmoothPreset { Fast, Medium, Slow };
     void setSmoothPreset (SmoothPreset p);
@@ -60,6 +115,7 @@ private:
     // Controls
     juce::ComboBox   m_smoothBox;
     juce::TextButton m_avgBtn { "Avg" };
+    ResetButton      m_reset;
 
     // Interactive hairline
     float m_mouseX     = -1.0f;   // x in component coords, -1 = not in plot
@@ -106,6 +162,8 @@ private:
 //==============================================================================
 // Dynamics view — waveform comparison (top) + GR scrolling meter (bottom)
 //==============================================================================
+
+//==============================================================================
 class DynamicsView : public juce::Component
 {
 public:
@@ -113,6 +171,7 @@ public:
     void paint   (juce::Graphics& g) override;
     void resized ()                   override;
     void update  ();
+    void reset   ();   // clear all accumulated readings and history (keeps the zoom)
 
 private:
     //──────────────────────────────────────────────────────────────────────────
@@ -160,6 +219,7 @@ private:
 
     juce::TextButton m_zoom6s  { "6s"  };
     juce::TextButton m_zoom12s { "12s" };
+    ResetButton      m_reset;
 
     // GR readout — instantaneous + 30s rolling average + peak hold
     float  m_instantGr        = 0.0f;
