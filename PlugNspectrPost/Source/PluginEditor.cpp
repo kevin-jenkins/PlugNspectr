@@ -952,7 +952,7 @@ void DynamicsView::resized()
     constexpr int marginT = PnsTheme::kPaddingSmall;
     m_zoom12s.setBounds (W - marginR - bw,           marginT, bw, bh);
     m_zoom6s .setBounds (W - marginR - bw * 2 - gap, marginT, bw, bh);
-    m_reset  .setBounds (m_zoom6s.getX() - 10 - bh,  marginT, bh, bh);   // square icon
+    m_reset  .setBounds (m_zoom6s.getX() - 10 - bw,  marginT, bw, bh);   // icon button, matches toggles
 }
 
 void DynamicsView::update()

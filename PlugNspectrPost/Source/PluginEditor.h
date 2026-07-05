@@ -116,13 +116,25 @@ public:
     ResetButton() : juce::Button ("Reset") {}
     void paintButton (juce::Graphics& g, bool over, bool down) override
     {
-        const auto  b  = getLocalBounds().toFloat();
-        const float d  = juce::jmin (b.getWidth(), b.getHeight()) - 2.0f;
-        const float cx = b.getCentreX(), cy = b.getCentreY();
-        const float r  = d * 0.30f;
-        const float th = juce::jmax (1.6f, d * 0.12f);
+        // ── Button chrome — identical to the 6s/12s toggles (theme's
+        //    drawButtonBackground): rounded fill + a border that lifts on hover.
+        const auto pill = getLocalBounds().toFloat().reduced (0.5f);
+        const float rad = (float) PnsTheme::kCornerRadius;
+        g.setColour (down ? PnsTheme::kBtnActiveBg : PnsTheme::kBgWidget);
+        g.fillRoundedRectangle (pill, rad);
+        g.setColour (down ? PnsTheme::kAccentPrimary
+                   : over ? PnsTheme::kBorderActive
+                          : PnsTheme::kBorderSubtle);
+        g.drawRoundedRectangle (pill, rad, 1.0f);
 
-        g.setColour ((over || down) ? PnsTheme::kAccentPrimary : PnsTheme::kTextPrimary);
+        // ── Circular-arrow glyph, inset so it breathes inside the pill.
+        const auto  b  = getLocalBounds().toFloat();
+        const float d  = juce::jmin (b.getWidth(), b.getHeight()) - 10.0f;
+        const float cx = b.getCentreX(), cy = b.getCentreY();
+        const float r  = d * 0.42f;
+        const float th = juce::jmax (1.4f, d * 0.15f);
+
+        g.setColour ((over || down) ? PnsTheme::kAccentPrimary : PnsTheme::kTextSecondary);
 
         // ~300° arc, clockwise, with a gap at the top for the arrowhead.
         const float a0 = 0.75f;                                            // start (upper right)
@@ -138,11 +150,11 @@ public:
         const float ay = cy - r * std::cos (a0);
         const float dirx = -std::cos (a0), diry = -std::sin (a0);          // ccw tangent
         const float perpx = -diry, perpy = dirx;
-        const float h = juce::jmax (5.0f, d * 0.42f), w = h * 0.60f;
+        const float hh = juce::jmax (4.5f, d * 0.44f), w = hh * 0.62f;
         juce::Path tri;
-        tri.addTriangle (ax + dirx * h * 0.5f,            ay + diry * h * 0.5f,
-                         ax - dirx * h * 0.5f + perpx * w, ay - diry * h * 0.5f + perpy * w,
-                         ax - dirx * h * 0.5f - perpx * w, ay - diry * h * 0.5f - perpy * w);
+        tri.addTriangle (ax + dirx * hh * 0.5f,            ay + diry * hh * 0.5f,
+                         ax - dirx * hh * 0.5f + perpx * w, ay - diry * hh * 0.5f + perpy * w,
+                         ax - dirx * hh * 0.5f - perpx * w, ay - diry * hh * 0.5f - perpy * w);
         g.fillPath (tri);
     }
 };
