@@ -106,6 +106,48 @@ private:
 //==============================================================================
 // Dynamics view — waveform comparison (top) + GR scrolling meter (bottom)
 //==============================================================================
+//==============================================================================
+// ResetButton — a circular-arrow "reset" glyph (arc with an arrowhead), used on
+// the Dynamics tab in place of a text label.
+//==============================================================================
+class ResetButton : public juce::Button
+{
+public:
+    ResetButton() : juce::Button ("Reset") {}
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        const auto  b  = getLocalBounds().toFloat();
+        const float d  = juce::jmin (b.getWidth(), b.getHeight()) - 2.0f;
+        const float cx = b.getCentreX(), cy = b.getCentreY();
+        const float r  = d * 0.30f;
+        const float th = juce::jmax (1.6f, d * 0.12f);
+
+        g.setColour ((over || down) ? PnsTheme::kAccentPrimary : PnsTheme::kTextPrimary);
+
+        // ~300° arc, clockwise, with a gap at the top for the arrowhead.
+        const float a0 = 0.75f;                                            // start (upper right)
+        const float a1 = juce::MathConstants<float>::twoPi - 0.15f;        // sweep almost full
+        juce::Path arc;
+        arc.addCentredArc (cx, cy, r, r, 0.0f, a0, a1, true);
+        g.strokePath (arc, juce::PathStrokeType (th, juce::PathStrokeType::curved,
+                                                 juce::PathStrokeType::rounded));
+
+        // Arrowhead at the start end, pointing along the counter-clockwise tangent
+        // (up toward the gap) so it reads as a closing circular arrow.
+        const float ax = cx + r * std::sin (a0);
+        const float ay = cy - r * std::cos (a0);
+        const float dirx = -std::cos (a0), diry = -std::sin (a0);          // ccw tangent
+        const float perpx = -diry, perpy = dirx;
+        const float h = juce::jmax (5.0f, d * 0.42f), w = h * 0.60f;
+        juce::Path tri;
+        tri.addTriangle (ax + dirx * h * 0.5f,            ay + diry * h * 0.5f,
+                         ax - dirx * h * 0.5f + perpx * w, ay - diry * h * 0.5f + perpy * w,
+                         ax - dirx * h * 0.5f - perpx * w, ay - diry * h * 0.5f - perpy * w);
+        g.fillPath (tri);
+    }
+};
+
+//==============================================================================
 class DynamicsView : public juce::Component
 {
 public:
@@ -161,7 +203,7 @@ private:
 
     juce::TextButton m_zoom6s  { "6s"  };
     juce::TextButton m_zoom12s { "12s" };
-    juce::TextButton m_reset   { "Reset" };
+    ResetButton      m_reset;
 
     // GR readout — instantaneous + 30s rolling average + peak hold
     float  m_instantGr        = 0.0f;

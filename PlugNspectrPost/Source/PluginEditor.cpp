@@ -952,8 +952,7 @@ void DynamicsView::resized()
     constexpr int marginT = PnsTheme::kPaddingSmall;
     m_zoom12s.setBounds (W - marginR - bw,           marginT, bw, bh);
     m_zoom6s .setBounds (W - marginR - bw * 2 - gap, marginT, bw, bh);
-    constexpr int rw = 46;   // "Reset" needs more width than the zoom toggles
-    m_reset  .setBounds (m_zoom6s.getX() - 10 - rw,  marginT, rw, bh);
+    m_reset  .setBounds (m_zoom6s.getX() - 10 - bh,  marginT, bh, bh);   // square icon
 }
 
 void DynamicsView::update()

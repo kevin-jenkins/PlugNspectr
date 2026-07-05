@@ -227,7 +227,7 @@ Reveals how the plugin is affecting dynamic range and level in real time.
 
 **Waveform comparison (top):** Pre (soft sand, background) vs Post (bright teal, foreground) overlaid; where Post is smaller than Pre, compression/limiting is occurring, highlighted by the teal fill. Time window: **6s** or **12s** (default).
 
-**Reset (top right):** clears all readings and history — waveform, Avg GR, the 30 s rolling average, GR history, and the In/Out levels — so measurement starts over after you tweak the plugin chain. The auto-zoom is kept so the view doesn't jump.
+**Reset (circular-arrow icon, top right):** clears all readings and history — waveform, Avg GR, the 30 s rolling average, GR history, and the In/Out levels — so measurement starts over after you tweak the plugin chain. The auto-zoom is kept so the view doesn't jump.
 
 **Readouts (right panel):**
 | Readout | Description |
