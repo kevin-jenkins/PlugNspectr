@@ -40,7 +40,33 @@ SpectrumView::SpectrumView (PlugNspectrPostProcessor& p) : m_proc (p)
         m_avgBtn.setToggleState (m_showAvg, juce::dontSendNotification);
     };
     addAndMakeVisible (m_avgBtn);
+
+    m_reset.setTooltip ("Clear the rolling averages and fluctuation markers and "
+                        "start over (after tweaking the plugin chain)");
+    m_reset.onClick = [this] { reset(); };
+    addAndMakeVisible (m_reset);
+
     setInterceptsMouseClicks (true, false);
+}
+
+// Clear the accumulated long-term state so the averaged Pre/Post comparison and
+// the fluctuation markers reflect only post-tweak audio. Seeds the display /
+// peak-hold / averages from the current spectrum so it reads correctly at once
+// rather than climbing from silence.
+void SpectrumView::reset()
+{
+    m_pre      = m_rawPre;   m_post      = m_rawPost;
+    m_peakPre  = m_rawPre;   m_peakPost  = m_rawPost;
+    m_avgPre   = m_rawPre;   m_avgPost   = m_rawPost;
+
+    // Re-arm the fluctuation markers' warmup (mirrors the silence-reset path).
+    m_warmupN  = 0;
+    m_markerN  = 0;
+    m_silenceN = 0;
+    m_peakMarkers.clear();
+    m_topBins.fill (-1);
+    m_topScores.fill (0.0f);
+    repaint();
 }
 
 void SpectrumView::mouseMove (const juce::MouseEvent& e)
@@ -102,6 +128,8 @@ void SpectrumView::resized()
     constexpr int comboW  = 72;
     m_avgBtn   .setBounds (W - marginR - avgW,                  marginT, avgW,  bh);
     m_smoothBox.setBounds (W - marginR - avgW - gap - comboW,   marginT, comboW, bh);
+    constexpr int rw = 28;   // reset icon button
+    m_reset    .setBounds (m_smoothBox.getX() - 10 - rw,        marginT, rw, bh);
 }
 
 void SpectrumView::setSmoothPreset (SmoothPreset p)

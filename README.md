@@ -209,7 +209,7 @@ Real-time FFT frequency analysis showing how the plugin is shaping your audio's 
 - **Post signal** (bright teal, glowing) — the processed spectrum
 - **Pre / Post Averages** — 10-second rolling averages, with an amber fill between them showing the cumulative EQ difference
 
-**Controls (top right):** smoothing speed (**Fast / Medium / Slow**) and an **Avg** toggle for the average lines.
+**Controls (top right):** a **Reset** icon (circular arrow), smoothing speed (**Fast / Medium / Slow**), and an **Avg** toggle for the average lines. **Reset** clears the rolling averages and the fluctuation markers so the averaged Pre↔Post comparison reflects only post-tweak audio — the "start over after a plugin change" companion to the same control on the Dynamics tab.
 
 **Interactive inspection:** hover for a hairline + tooltip (frequency, Pre dB, Post dB); click to lock, click again to unlock.
 

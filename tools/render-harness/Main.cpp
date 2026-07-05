@@ -338,14 +338,15 @@ int main (int argc, char* argv[])
     }
 
     // Render modes feed a known plugin into the matching measurement tab.
+    const bool spectrumRender = (argc > 1 && juce::String (argv[1]) == "spectrum-render");
     const bool linearRender   = (argc > 1 && juce::String (argv[1]) == "linear-render");
     const bool transferRender = (argc > 1 && juce::String (argv[1]) == "transfer-render");
     const bool envelopeRender = (argc > 1 && juce::String (argv[1]) == "envelope-render");
     const bool thdRender      = (argc > 1 && juce::String (argv[1]) == "thd-render");
 
     editor->setSize (1000, 640);
-    editor->selectTabForTest (linearRender ? 4 : transferRender ? 5 : envelopeRender ? 6
-                              : thdRender ? 7 : 1);
+    editor->selectTabForTest (spectrumRender ? 0 : linearRender ? 4 : transferRender ? 5
+                              : envelopeRender ? 6 : thdRender ? 7 : 1);
     if (linearRender) editor->armMeasureForTest();   // show the measuring border/banner
     if (linearRender)   editor->setLinearCursorForTest (700);    // hairline ~3 kHz
     if (transferRender) editor->setTransferCursorForTest (520);  // ~-15 dB input
