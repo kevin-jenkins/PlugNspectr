@@ -227,6 +227,8 @@ Reveals how the plugin is affecting dynamic range and level in real time.
 
 **Waveform comparison (top):** Pre (soft sand, background) vs Post (bright teal, foreground) overlaid; where Post is smaller than Pre, compression/limiting is occurring, highlighted by the teal fill. Time window: **6s** or **12s** (default).
 
+**Reset (top right):** clears all readings and history — waveform, Avg GR, the 30 s rolling average, GR history, and the In/Out levels — so measurement starts over after you tweak the plugin chain. The auto-zoom is kept so the view doesn't jump.
+
 **Readouts (right panel):**
 | Readout | Description |
 |---|---|
@@ -235,7 +237,7 @@ Reveals how the plugin is affecting dynamic range and level in real time.
 | **In / Out** | RMS input / output level (dB) |
 | **Δ** | Net level difference (orange = attenuation, teal = gain, grey = unity) |
 
-> **Double-click** the Avg GR or Now label/value to reset the readings.
+> **Double-click** the readout panel (Avg GR / Now) for the same full reset as the **Reset** button.
 
 **Gain Reduction (bottom):** a scrolling GR history with an orange gradient fill and a peak-hold line. Y = 0 to −24 dB; X = last 3 seconds. Flat at 0 = dynamically transparent; deep consistent dips = heavy compression; brief dips = peak limiting.
 

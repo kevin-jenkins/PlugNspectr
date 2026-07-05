@@ -934,6 +934,11 @@ DynamicsView::DynamicsView (PlugNspectrPostProcessor& p) : m_proc (p)
     addAndMakeVisible (m_zoom6s);
     addAndMakeVisible (m_zoom12s);
 
+    m_reset.setTooltip ("Clear all readings and history and start over "
+                        "(after tweaking the plugin chain)");
+    m_reset.onClick = [this] { reset(); };
+    addAndMakeVisible (m_reset);
+
     setMouseCursor (juce::MouseCursor::NormalCursor);
 }
 
@@ -947,6 +952,8 @@ void DynamicsView::resized()
     constexpr int marginT = PnsTheme::kPaddingSmall;
     m_zoom12s.setBounds (W - marginR - bw,           marginT, bw, bh);
     m_zoom6s .setBounds (W - marginR - bw * 2 - gap, marginT, bw, bh);
+    constexpr int rw = 46;   // "Reset" needs more width than the zoom toggles
+    m_reset  .setBounds (m_zoom6s.getX() - 10 - rw,  marginT, rw, bh);
 }
 
 void DynamicsView::update()
@@ -1159,16 +1166,44 @@ static juce::Rectangle<int> getReadoutBounds (int compW)
 
 void DynamicsView::mouseDoubleClick (const juce::MouseEvent& e)
 {
+    // Double-clicking the readout panel is a shortcut for the Reset button.
     if (getReadoutBounds (getWidth()).contains (e.getPosition()))
-    {
-        m_instantGr  = 0.0f;
-        m_avgGr      = 0.0f;
-        m_avgGrFill  = 0;
-        m_avgGrPos   = 0;
-        m_avgGrBuf.fill (0.0f);
-        m_grFlashEnd = juce::Time::getMillisecondCounterHiRes() + 200.0;
-        repaint();
-    }
+        reset();
+}
+
+// Clear every accumulated reading and history so measurement starts over after a
+// tweak to the plugin chain. The auto-zoom is intentionally left untouched — it
+// already tracks the signal, and resetting it would just re-calibrate/flicker.
+void DynamicsView::reset()
+{
+    // Waveform history (ring buffer + absolute anchor + derived columns).
+    m_preSamples.fill (0.0f);
+    m_postSamples.fill (0.0f);
+    m_sampleWritePos      = 0;
+    m_samplesStored       = 0;
+    m_totalSamplesWritten = 0;
+    m_wavePreTop.fill (0.0f);  m_wavePreBot.fill (0.0f);
+    m_wavePostTop.fill (0.0f); m_wavePostBot.fill (0.0f);
+    m_waveColsValid  = 0;
+    m_waveScrollFrac = 0.0f;
+
+    // GR readouts + the 30 s rolling Avg GR buffer.
+    m_instantGr  = 0.0f;
+    m_avgGr      = 0.0f;
+    m_grPeakHold = 0.0f;
+    m_avgGrBuf.fill (0.0f);
+    m_avgGrPos   = 0;
+    m_avgGrFill  = 0;
+
+    // Smoothed In/Out levels and the scrolling GR history plot.
+    m_smoothPreDb  = -90.0f;
+    m_smoothPostDb = -90.0f;
+    m_gr.fill (0.0f);
+    m_grPos = 0;
+
+    // Brief flash for feedback (same as the old double-click).
+    m_grFlashEnd = juce::Time::getMillisecondCounterHiRes() + 200.0;
+    repaint();
 }
 
 void DynamicsView::mouseMove (const juce::MouseEvent& e)

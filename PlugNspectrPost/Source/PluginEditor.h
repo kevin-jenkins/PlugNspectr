@@ -113,6 +113,7 @@ public:
     void paint   (juce::Graphics& g) override;
     void resized ()                   override;
     void update  ();
+    void reset   ();   // clear all accumulated readings and history (keeps the zoom)
 
 private:
     //──────────────────────────────────────────────────────────────────────────
@@ -160,6 +161,7 @@ private:
 
     juce::TextButton m_zoom6s  { "6s"  };
     juce::TextButton m_zoom12s { "12s" };
+    juce::TextButton m_reset   { "Reset" };
 
     // GR readout — instantaneous + 30s rolling average + peak hold
     float  m_instantGr        = 0.0f;
