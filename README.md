@@ -2,7 +2,7 @@
 ### by Biltroy Audio
 
 [![Latest release](https://img.shields.io/github/v/release/kevin-jenkins/PlugNspectr?sort=semver)](https://github.com/kevin-jenkins/PlugNspectr/releases/latest)
-[![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPLv3-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%C2%B7%20macOS-lightgrey)
 ![Format](https://img.shields.io/badge/format-VST3%20%C2%B7%20AU-9cf)
 
@@ -354,7 +354,7 @@ The footer hosts the test-tone controls and global level trim:
 ## Building from Source
 
 ### Prerequisites
-- [JUCE](https://juce.com) 8.x (the CMake build takes `-DJUCE_DIR=<path>`)
+- [JUCE](https://juce.com) 8.x (the CMake build takes `-DJUCE_DIR=<path>`) — used under its AGPLv3 option; see [License](#license)
 - **Windows:** Visual Studio 2022/2026 (C++ Desktop Development) + Windows 10/11 SDK
 - **macOS:** Xcode 15+ (command-line tools) + CMake 3.22+
 
@@ -478,9 +478,11 @@ A tracked **pre-push hook** runs the suites before every push; enable it once pe
 
 ## License
 
-PlugNspectr is free software: you can redistribute it and/or modify it under the terms of the **GNU General Public License v3.0** as published by the Free Software Foundation.
+PlugNspectr is free software: you can redistribute it and/or modify it under the terms of the **GNU Affero General Public License v3.0** as published by the Free Software Foundation.
 
 See [LICENSE](LICENSE) for the full license text.
+
+PlugNspectr is built with the [JUCE](https://juce.com) framework, whose modules are used here under their **AGPLv3** open-source option — which is why this project is AGPLv3 rather than GPLv3. JUCE is © Raw Material Software Limited.
 
 © 2026 Biltroy Audio
 
