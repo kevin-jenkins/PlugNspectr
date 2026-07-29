@@ -1,0 +1,19 @@
+PlugNspectr {VERSION}  -  Windows x64 (VST3)
+
+INSTALL
+  1. Copy BOTH .vst3 folders into your VST3 plugin directory:
+       C:\Program Files\Common Files\VST3\
+  2. Rescan plugins in your DAW.
+
+Both plugins appear under "Biltroy Audio".
+Insert PlugNspectr Pre BEFORE the plugin you want to analyze and
+PlugNspectr Post AFTER it - both on the SAME track or bus.
+
+Requires Windows 10/11 (64-bit) and a VST3 host (Cubase, Reaper, Live, ...).
+
+Licensed under the GNU Affero General Public License v3.0 (AGPLv3).
+PlugNspectr is built with the JUCE framework, used under its AGPLv3
+open-source option. JUCE is (c) Raw Material Software Limited.
+
+Source, docs, and the full licence text:
+  https://github.com/kevin-jenkins/PlugNspectr
