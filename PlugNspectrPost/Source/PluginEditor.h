@@ -248,9 +248,10 @@ private:
 
     //──────────────────────────────────────────────────────────────────────────
     PlugNspectrPostProcessor& m_proc;
-    uint32_t                  m_lastCaptureCount = 0;
+    // Capture-ring drain cursor + scratch chunk (see readCaptureSince).
+    uint64_t                  m_capReadPos = 0;
+    juce::AudioBuffer<float>  m_capPre, m_capPost;
     bool                      m_preConnected     = false;
-    int                       m_waveTickCounter  = 0;  // gates waveform ingestion to 30fps
 
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseMove        (const juce::MouseEvent&) override;
@@ -285,7 +286,8 @@ private:
     int      m_ringAvail  = 0;
     uint64_t m_totalWritten = 0;
     uint64_t m_searchFrom   = 0;
-    uint32_t m_lastCaptureCount = 0;
+    uint64_t m_capReadPos = 0;
+    juce::AudioBuffer<float> m_capPre, m_capPost;
 
     // Display buffer — written by update(), read by paint()
     std::array<float, kMaxCapture> m_displayPre  {};
@@ -339,7 +341,8 @@ private:
     std::array<float, kGonioPoints> m_gxPre  {}, m_gyPre  {};
     int      m_gonioPos  = 0;
     int      m_gonioFill = 0;
-    uint32_t m_lastCaptureCount = 0;
+    uint64_t m_capReadPos = 0;
+    juce::AudioBuffer<float> m_capPre, m_capPost;
     float    m_gonioScale = 2.0f;   // smoothed auto-gain so quiet material still reads
 
     float m_cursorX = -1.0f;

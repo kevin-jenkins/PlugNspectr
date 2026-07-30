@@ -985,20 +985,20 @@ void DynamicsView::resized()
 
 void DynamicsView::update()
 {
-    // ── Waveform sample buffer — gated to 30fps so scroll speed is constant
-    if (++m_waveTickCounter % 2 == 0)
+    // Drain the capture ring once per tick; the waveform and the GR/level block
+    // below both consume this same chunk. This used to be gated to 30 fps "so
+    // scroll speed is constant", which was compensating for the old snapshot API
+    // dropping blocks — with a ring the scroll rate follows the sample count and
+    // is correct at any buffer size, so the gate is gone.
+    const int capN = m_proc.readCaptureSince (m_capReadPos, m_capPre, m_capPost);
+
+    // ── Waveform sample buffer ────────────────────────────────────────────
     {
-        const auto cap = m_proc.getCapture();
-
-        if (cap.captureCount != m_lastCaptureCount)
+        const int n = juce::jmin (capN, kSampleBufLen);
+        if (n > 0)
         {
-            m_lastCaptureCount = cap.captureCount;
-
-            const int n = juce::jmin (cap.postSamples, kSampleBufLen);
-            const float* postData = (cap.post.getNumChannels() > 0)
-                                        ? cap.post.getReadPointer (0) : nullptr;
-            const float* preData  = (cap.pre.getNumChannels() > 0)
-                                        ? cap.pre.getReadPointer (0)  : nullptr;
+            const float* postData = m_capPost.getReadPointer (0);
+            const float* preData  = m_capPre .getReadPointer (0);
             for (int i = 0; i < n; ++i)
             {
                 m_postSamples[m_sampleWritePos] = postData ? postData[i] : 0.0f;
@@ -1118,18 +1118,21 @@ void DynamicsView::update()
     }
 
     // ── Peak-based GR + rolling average + smoothed RMS volume ────────────
+    // Only when the ring actually produced audio. The UI ticks at 60 Hz but at
+    // larger buffer sizes blocks arrive less often, so some ticks legitimately
+    // drain nothing — treating those as "GR = 0" injected spurious zeros into the
+    // history and the rolling average (a visible sawtooth).
+    if (capN > 0)
     {
-        const auto cap2 = m_proc.getCapture();
-        const int  n    = cap2.post.getNumSamples();
+        // Peak over everything drained this tick, not just the newest block — the
+        // old snapshot could miss transients entirely at small buffer sizes.
+        const int n = capN;
 
         float currentGr = 0.0f;
 
-        if (n > 0
-            && cap2.pre .getNumChannels() > 0
-            && cap2.post.getNumChannels() > 0)
         {
-            const float* prePtr  = cap2.pre .getReadPointer (0);
-            const float* postPtr = cap2.post.getReadPointer (0);
+            const float* prePtr  = m_capPre .getReadPointer (0);
+            const float* postPtr = m_capPost.getReadPointer (0);
 
             float prePeak = 0.0f, postPeak = 0.0f;
             for (int i = 0; i < n; ++i)
@@ -1695,20 +1698,17 @@ void OscilloscopeView::update()
 {
     // ── Accumulate samples from processor into ring buffer ────────────────
     {
-        const auto cap = m_proc.getCapture();
-        if (cap.captureCount != m_lastCaptureCount)
+        // Drain the ring: every sample, so the 10/50/100 ms windows mean what they
+        // say regardless of the host buffer size.
+        const int n = m_proc.readCaptureSince (m_capReadPos, m_capPre, m_capPost);
+        if (n > 0)
         {
-            m_lastCaptureCount = cap.captureCount;
-            // Valid count, not the allocation — the buffers are oversized and the
-            // tail is never written, so ingesting it would run the timebase fast.
-            const int n     = cap.postSamples;
-            const int preN  = juce::jmin (n, cap.preSamples);
-            const float* prePtr  = (cap.pre .getNumChannels() > 0) ? cap.pre .getReadPointer (0) : nullptr;
-            const float* postPtr = (cap.post.getNumChannels() > 0) ? cap.post.getReadPointer (0) : nullptr;
+            const float* prePtr  = m_capPre .getReadPointer (0);
+            const float* postPtr = m_capPost.getReadPointer (0);
 
             for (int i = 0; i < n; ++i)
             {
-                m_ringPre [m_ringWrite] = (prePtr && i < preN) ? prePtr [i] : 0.0f;
+                m_ringPre [m_ringWrite] = prePtr  ? prePtr [i] : 0.0f;
                 m_ringPost[m_ringWrite] = postPtr ? postPtr[i] : 0.0f;
                 m_ringWrite = (m_ringWrite + 1) % kRingLen;
                 if (m_ringAvail < kRingLen) ++m_ringAvail;
@@ -1939,23 +1939,14 @@ void StereoView::update()
 
     // Goniometer trail — pull raw L/R (capture channels 1/2) and rotate 45° so a
     // mono signal draws a vertical line.
-    const auto cap = m_proc.getCapture();
-    if (cap.captureCount != m_lastCaptureCount)
     {
-        m_lastCaptureCount = cap.captureCount;
-        const int n = cap.postSamples;
-        if (cap.post.getNumChannels() > PlugNspectrPostProcessor::kCapR && n > 0)
+        const int n = m_proc.readCaptureSince (m_capReadPos, m_capPre, m_capPost);
+        if (n > 0)
         {
-            const float* pl = cap.post.getReadPointer (PlugNspectrPostProcessor::kCapL);
-            const float* pr = cap.post.getReadPointer (PlugNspectrPostProcessor::kCapR);
-            // Only read Pre as far as it is actually valid — the two counts can
-            // differ (Pre is 0 when not connected) and the buffers can be sized
-            // independently via injectTestCapture.
-            const int    preN  = juce::jmin (n, cap.preSamples);
-            const bool   preOk = cap.pre.getNumChannels() > PlugNspectrPostProcessor::kCapR
-                              && preN > 0;
-            const float* ql = preOk ? cap.pre.getReadPointer (PlugNspectrPostProcessor::kCapL) : nullptr;
-            const float* qr = preOk ? cap.pre.getReadPointer (PlugNspectrPostProcessor::kCapR) : nullptr;
+            const float* pl = m_capPost.getReadPointer (PlugNspectrPostProcessor::kCapL);
+            const float* pr = m_capPost.getReadPointer (PlugNspectrPostProcessor::kCapR);
+            const float* ql = m_capPre .getReadPointer (PlugNspectrPostProcessor::kCapL);
+            const float* qr = m_capPre .getReadPointer (PlugNspectrPostProcessor::kCapR);
 
             constexpr float kR = 0.70710678f;   // 1/√2
             float peak = 0.0f;
@@ -1966,7 +1957,7 @@ void StereoView::update()
                 const float l = pl[i], r = pr[i];
                 m_gxPost[(size_t) m_gonioPos] = (l - r) * kR;
                 m_gyPost[(size_t) m_gonioPos] = (l + r) * kR;
-                if (ql != nullptr && i < preN)
+                if (ql != nullptr)
                 {
                     m_gxPre[(size_t) m_gonioPos] = (ql[i] - qr[i]) * kR;
                     m_gyPre[(size_t) m_gonioPos] = (ql[i] + qr[i]) * kR;

@@ -41,19 +41,13 @@ public:
 
     //==========================================================================
     // Thread-safe snapshot of the most recent pre + post audio block.
-    struct CaptureBufs
-    {
-        juce::AudioBuffer<float> pre;
-        juce::AudioBuffer<float> post;
-        // Valid sample counts — NOT the allocation. The buffers are sized to
-        // jmax(samplesPerBlock, kMaxSamples), so at a typical 512-sample host
-        // block only the first 512 frames are written and the rest stay zero.
-        // Consumers must use these, or they ingest thousands of dead samples and
-        // (worse) advance their timebase far too fast.
-        int                      preSamples  = 0;
-        int                      postSamples = 0;
-        uint32_t                 captureCount = 0;
-    };
+    // Capture ring. This used to be a single latest-block snapshot that the UI
+    // polled, which silently dropped every block arriving between polls — at a
+    // 512-sample buffer that is ~68% of the audio, so any view deriving time from
+    // it ran its timebase ~3x fast, and peak readings missed transients entirely.
+    // It is now a ring the consumers drain, so no audio is lost and the timebase
+    // is exact at any buffer size.
+    static constexpr int kCaptureRingLen = 1 << 16;   // 65536 samples ≈ 1.4 s @48k
 
     // Per-block RMS levels, published for the dynamics display.
     struct RmsPair
@@ -101,8 +95,16 @@ public:
     //==========================================================================
     // Editor API — all called from the message thread at ~30 fps.
 
-    // Returns a copy of the current capture buffers (pre + post audio blocks).
-    CaptureBufs getCapture() const;
+    // Drain the capture ring. Copies everything written since `readPos` into
+    // outPre/outPost (each kCaptureChannels x n), advances readPos, returns n.
+    // Start with readPos = 0. A caller that falls further behind than the ring
+    // holds receives the most recent kCaptureRingLen samples and, if `dropped`
+    // is supplied, has it set — so a UI stall degrades visibly rather than
+    // corrupting the timebase.
+    int readCaptureSince (uint64_t& readPos,
+                          juce::AudioBuffer<float>& outPre,
+                          juce::AudioBuffer<float>& outPost,
+                          bool* dropped = nullptr) const;
 
     // Fills outPre / outPost with the latest FFT magnitude spectra (linear scale).
     void getSpectra (std::array<float, kNumSpecBins>& outPre,
@@ -252,7 +254,15 @@ private:
     pns::AudioPayload  m_preIn;    // last Pre block, copied out under the seqlock
 
     mutable juce::CriticalSection m_captureLock;
-    CaptureBufs                   m_capture;
+    // kCaptureChannels x kCaptureRingLen: 0 = derived analysis signal, 1 = L, 2 = R.
+    juce::AudioBuffer<float>      m_capRingPre, m_capRingPost;
+    uint64_t                      m_capWritePos = 0;   // monotonic, never wraps
+
+    // Append one block to the ring (wraps internally). Pre is zero-filled beyond
+    // preN so Pre and Post stay time-aligned when Pre is absent or short.
+    void writeCaptureRing (const float* postDerived, const float* postL, const float* postR,
+                           const float* preDerived,  const float* preL,  const float* preR,
+                           int n, int preN);
     bool                          m_testPreActive = false;   // forced by render harness
     std::atomic<bool>             m_transportPlaying { true };
     std::atomic<bool>             m_linearMeasuring  { false };

@@ -33,14 +33,19 @@ void PlugNspectrPostProcessor::prepareToPlay (double sampleRate, int samplesPerB
     m_ipc.open();          // create-or-open the IPC segment, off the audio thread
     m_measSampleRate = sampleRate;
 
-    const int safeSamples = juce::jmax (samplesPerBlock, pns::kMaxSamples);
-
+    // The ring is a fixed size independent of the host block size — that
+    // independence is the point, so there is no samplesPerBlock-derived
+    // allocation here any more.
+    juce::ignoreUnused (samplesPerBlock);
     {
         juce::ScopedLock sl (m_captureLock);
         // 3 channels: 0 = derived analysis signal (waveform / oscilloscope),
         // 1 = raw L, 2 = raw R (goniometer on the Stereo tab).
-        m_capture.pre .setSize (kCaptureChannels, safeSamples, false, true, false);
-        m_capture.post.setSize (kCaptureChannels, safeSamples, false, true, false);
+        m_capRingPre .setSize (kCaptureChannels, kCaptureRingLen, false, true, false);
+        m_capRingPost.setSize (kCaptureChannels, kCaptureRingLen, false, true, false);
+        m_capRingPre .clear();
+        m_capRingPost.clear();
+        m_capWritePos = 0;
     }
 
     resetMeasurement();
@@ -514,43 +519,20 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
     }
 
-    // ── Capture pre/post audio blocks ─────────────────────────────────────
+    // ── Append pre/post to the capture ring ───────────────────────────────
+    // Channel 0 holds the derived analysis signal so the waveform / oscilloscope
+    // views follow the L+R/Side selection; channels 1/2 carry raw L/R for the
+    // Stereo goniometer, which needs the untouched pair. The ring advances by the
+    // Post count, and Pre is zero-filled past preSmp so the two stay aligned.
     {
-        juce::ScopedLock sl (m_captureLock);
+        const float* post0 = (numCh > 0) ? buffer.getReadPointer (0) : nullptr;
+        const float* post1 = (numCh > 1) ? buffer.getReadPointer (1) : post0;
+        const float* pre0  = (preSmp > 0) ? m_preIn.preData[0] : nullptr;
+        const float* pre1  = (preSmp > 0) ? ((preCh > 1) ? m_preIn.preData[1] : pre0) : nullptr;
 
-        // Channel 0 of the capture holds the derived analysis signal so the
-        // waveform / oscilloscope views follow the L/R/Mid/Side selection.
-        // Channels 1/2 carry raw L/R for the Stereo tab's goniometer, which
-        // needs the untouched pair rather than the derived mono signal.
-        if (preSmp > 0)
-            std::memcpy (m_capture.pre.getWritePointer (0), m_anaPre.data(),
-                         static_cast<size_t> (preSmp) * sizeof (float));
-
-        std::memcpy (m_capture.post.getWritePointer (0), m_anaPost.data(),
-                     static_cast<size_t> (numSmp) * sizeof (float));
-
-        {
-            const float* post0 = (numCh > 0) ? buffer.getReadPointer (0) : nullptr;
-            const float* post1 = (numCh > 1) ? buffer.getReadPointer (1) : post0;
-            if (post0 != nullptr)
-            {
-                const auto n = static_cast<size_t> (numSmp) * sizeof (float);
-                std::memcpy (m_capture.post.getWritePointer (kCapL), post0, n);
-                std::memcpy (m_capture.post.getWritePointer (kCapR), post1, n);
-            }
-            if (preSmp > 0)
-            {
-                const float* pre0 = m_preIn.preData[0];
-                const float* pre1 = (preCh > 1) ? m_preIn.preData[1] : pre0;
-                const auto n = static_cast<size_t> (preSmp) * sizeof (float);
-                std::memcpy (m_capture.pre.getWritePointer (kCapL), pre0, n);
-                std::memcpy (m_capture.pre.getWritePointer (kCapR), pre1, n);
-            }
-        }
-
-        m_capture.preSamples  = preSmp;
-        m_capture.postSamples = numSmp;
-        ++m_capture.captureCount;
+        writeCaptureRing (m_anaPost.data(), post0, post1,
+                          (preSmp > 0) ? m_anaPre.data() : nullptr, pre0, pre1,
+                          numSmp, preSmp);
     }
 
     // ── FFT accumulation (on the derived analysis channel) ────────────────
@@ -610,10 +592,85 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 }
 
 //==============================================================================
-PlugNspectrPostProcessor::CaptureBufs PlugNspectrPostProcessor::getCapture() const
+// Capture ring: append with wraparound. Called from the audio thread.
+void PlugNspectrPostProcessor::writeCaptureRing (
+    const float* postDerived, const float* postL, const float* postR,
+    const float* preDerived,  const float* preL,  const float* preR,
+    int n, int preN)
+{
+    if (n <= 0) return;
+
+    juce::ScopedLock sl (m_captureLock);
+    if (m_capRingPost.getNumSamples() < kCaptureRingLen) return;   // not prepared yet
+
+    const int start = (int) (m_capWritePos % (uint64_t) kCaptureRingLen);
+    const int first = juce::jmin (n, kCaptureRingLen - start);
+    const int rest  = n - first;
+
+    // src == nullptr writes silence, so a missing Pre still advances the ring and
+    // stays time-aligned with Post rather than skewing it.
+    auto put = [&] (juce::AudioBuffer<float>& ring, int ch, const float* src, int valid)
+    {
+        float* d = ring.getWritePointer (ch);
+        for (int i = 0; i < first; ++i)
+            d[start + i] = (src != nullptr && i < valid) ? src[i] : 0.0f;
+        for (int i = 0; i < rest; ++i)
+            d[i] = (src != nullptr && (first + i) < valid) ? src[first + i] : 0.0f;
+    };
+
+    put (m_capRingPost, 0,     postDerived, n);
+    put (m_capRingPost, kCapL, postL,       n);
+    put (m_capRingPost, kCapR, postR,       n);
+    put (m_capRingPre,  0,     preDerived,  preN);
+    put (m_capRingPre,  kCapL, preL,        preN);
+    put (m_capRingPre,  kCapR, preR,        preN);
+
+    m_capWritePos += (uint64_t) n;
+}
+
+int PlugNspectrPostProcessor::readCaptureSince (uint64_t& readPos,
+                                               juce::AudioBuffer<float>& outPre,
+                                               juce::AudioBuffer<float>& outPost,
+                                               bool* dropped) const
 {
     juce::ScopedLock sl (m_captureLock);
-    return m_capture;
+    if (dropped != nullptr) *dropped = false;
+
+    const uint64_t w = m_capWritePos;
+    if (readPos > w) readPos = w;             // ring was reset under us
+    uint64_t avail = w - readPos;
+    if (avail == 0) return 0;
+
+    if (avail > (uint64_t) kCaptureRingLen)   // caller fell behind; keep the newest
+    {
+        if (dropped != nullptr) *dropped = true;
+        readPos = w - (uint64_t) kCaptureRingLen;
+        avail   = (uint64_t) kCaptureRingLen;
+    }
+
+    const int n = (int) avail;
+    if (outPre .getNumChannels() != kCaptureChannels || outPre .getNumSamples() < n)
+        outPre .setSize (kCaptureChannels, n, false, true, false);
+    if (outPost.getNumChannels() != kCaptureChannels || outPost.getNumSamples() < n)
+        outPost.setSize (kCaptureChannels, n, false, true, false);
+
+    const int start = (int) (readPos % (uint64_t) kCaptureRingLen);
+    const int first = juce::jmin (n, kCaptureRingLen - start);
+    const int rest  = n - first;
+
+    for (int ch = 0; ch < kCaptureChannels; ++ch)
+    {
+        outPost.copyFrom (ch, 0,     m_capRingPost, ch, start, first);
+        outPre .copyFrom (ch, 0,     m_capRingPre,  ch, start, first);
+        if (rest > 0)
+        {
+            outPost.copyFrom (ch, first, m_capRingPost, ch, 0, rest);
+            outPre .copyFrom (ch, first, m_capRingPre,  ch, 0, rest);
+        }
+    }
+
+    readPos = w;
+    return n;
 }
 
 void PlugNspectrPostProcessor::injectTestCapture (const juce::AudioBuffer<float>& pre,
@@ -621,12 +678,13 @@ void PlugNspectrPostProcessor::injectTestCapture (const juce::AudioBuffer<float>
                                                   float preDb, float postDb)
 {
     {
-        juce::ScopedLock sl (m_captureLock);
-        m_capture.pre  = pre;
-        m_capture.post = post;
-        m_capture.preSamples  = pre.getNumSamples();
-        m_capture.postSamples = post.getNumSamples();
-        ++m_capture.captureCount;
+        const int n    = post.getNumSamples();
+        const int preN = pre.getNumSamples();
+        auto ch = [] (const juce::AudioBuffer<float>& b, int c) -> const float*
+                  { return b.getNumChannels() > c ? b.getReadPointer (c) : nullptr; };
+        writeCaptureRing (ch (post, 0), ch (post, kCapL), ch (post, kCapR),
+                          ch (pre,  0), ch (pre,  kCapL), ch (pre,  kCapR),
+                          n, preN);
     }
     {
         juce::ScopedLock sl (m_rmsLock);
