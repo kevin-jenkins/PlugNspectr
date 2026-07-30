@@ -106,6 +106,7 @@ target_sources(PnsTests PRIVATE
     "${TESTS_DIR}/test_shared_abi.cpp"
     "${TESTS_DIR}/test_seqlock.cpp"
     "${TESTS_DIR}/test_transport.cpp"
+    "${TESTS_DIR}/test_stereo.cpp"
     "${POST_DIR}/Source/PluginProcessor.cpp")
 target_include_directories(PnsTests PRIVATE "${POST_DIR}/Source" "${TESTS_DIR}")
 target_compile_definitions(PnsTests PRIVATE

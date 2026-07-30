@@ -41,12 +41,13 @@ public:
 
     //==========================================================================
     // Thread-safe snapshot of the most recent pre + post audio block.
-    struct CaptureBufs
-    {
-        juce::AudioBuffer<float> pre;
-        juce::AudioBuffer<float> post;
-        uint32_t                 captureCount = 0;
-    };
+    // Capture ring. This used to be a single latest-block snapshot that the UI
+    // polled, which silently dropped every block arriving between polls — at a
+    // 512-sample buffer that is ~68% of the audio, so any view deriving time from
+    // it ran its timebase ~3x fast, and peak readings missed transients entirely.
+    // It is now a ring the consumers drain, so no audio is lost and the timebase
+    // is exact at any buffer size.
+    static constexpr int kCaptureRingLen = 1 << 16;   // 65536 samples ≈ 1.4 s @48k
 
     // Per-block RMS levels, published for the dynamics display.
     struct RmsPair
@@ -94,8 +95,21 @@ public:
     //==========================================================================
     // Editor API — all called from the message thread at ~30 fps.
 
-    // Returns a copy of the current capture buffers (pre + post audio blocks).
-    CaptureBufs getCapture() const;
+    // Drain the capture ring. Copies everything written since `readPos` into
+    // outPre/outPost (each kCaptureChannels x n), advances readPos, returns n.
+    // Start with readPos = 0.
+    //
+    // A caller that falls further behind than the ring holds receives only the
+    // most recent kCaptureRingLen samples. It can detect that without an extra
+    // out-param, because readPos is advanced to the true write position:
+    //     const uint64_t before = pos;
+    //     const int n = readCaptureSince (pos, ...);
+    //     const uint64_t lost = (pos - before) - (uint64_t) n;   // 0 normally
+    // Anything deriving time from the stream must add the full (pos - before),
+    // not just n, or its timebase compresses permanently after a stall.
+    int readCaptureSince (uint64_t& readPos,
+                          juce::AudioBuffer<float>& outPre,
+                          juce::AudioBuffer<float>& outPost) const;
 
     // Fills outPre / outPost with the latest FFT magnitude spectra (linear scale).
     void getSpectra (std::array<float, kNumSpecBins>& outPre,
@@ -103,6 +117,43 @@ public:
 
     // Returns the most recent per-block RMS levels for the dynamics display.
     RmsPair getRms() const;
+
+    //==========================================================================
+    // Stereo image analysis — what the plugin does to the stereo field.
+    //
+    // Per bin we FFT L and R (not Mid/Side) and average three Welch-style terms:
+    //     Sll = E|L|²,  Srr = E|R|²,  SlrRe = Re{L·conj(R)}
+    // Both displayed curves fall out of those exactly, with no assumption that
+    // L and R are level-matched:
+    //     correlation = SlrRe / sqrt(Sll·Srr)              (bounded -1..+1)
+    //     |M|² = (Sll + Srr + 2·SlrRe)/4                   (mid power)
+    //     |S|² = (Sll + Srr - 2·SlrRe)/4                   (side power)
+    //     width(dB) = 10·log10(|S|²/|M|²)                  (floored for display)
+    // Width says how much side energy there is; correlation says whether it is
+    // genuine decorrelation or a phase trick that will collapse in mono. A plain
+    // side-level boost moves width but not correlation.
+    struct StereoResult
+    {
+        std::array<float, kNumSpecBins> widthPre {}, widthPost {};   // dB, floored
+        std::array<float, kNumSpecBins> corrPre  {}, corrPost  {};   // -1..+1
+        std::array<bool,  kNumSpecBins> valid    {};                 // enough energy to trust
+        float bbWidthPre = kStereoFloorDb, bbWidthPost = kStereoFloorDb;   // broadband dB
+        float bbCorrPre  = 1.0f,           bbCorrPost  = 1.0f;
+        float monoLossPre = 0.0f,          monoLossPost = 0.0f;      // dB lost summing to mono
+        bool  stereoSource = false;        // false => mono track, curves meaningless
+    };
+    static constexpr float kStereoFloorDb = -40.0f;   // display floor for width
+    // Capture layout: 0 = derived analysis signal, 1 = raw L, 2 = raw R.
+    static constexpr int   kCaptureChannels = 3;
+    static constexpr int   kCapL = 1, kCapR = 2;
+
+    void getStereo (StereoResult& out) const;
+    void resetStereo ();
+    // Editor gates this on tab visibility — it costs four extra FFTs per frame.
+    void setStereoActive (bool b) { m_stereoActive.store (b); }
+    // Test seam: drive the engine directly, no IPC or editor required.
+    void injectStereoBlock (const float* preL, const float* preR,
+                            const float* postL, const float* postR, int n);
 
     //==========================================================================
     // Linear measurement — transfer function of the plugin(s) under analysis,
@@ -208,7 +259,15 @@ private:
     pns::AudioPayload  m_preIn;    // last Pre block, copied out under the seqlock
 
     mutable juce::CriticalSection m_captureLock;
-    CaptureBufs                   m_capture;
+    // kCaptureChannels x kCaptureRingLen: 0 = derived analysis signal, 1 = L, 2 = R.
+    juce::AudioBuffer<float>      m_capRingPre, m_capRingPost;
+    uint64_t                      m_capWritePos = 0;   // monotonic, never wraps
+
+    // Append one block to the ring (wraps internally). Pre is zero-filled beyond
+    // preN so Pre and Post stay time-aligned when Pre is absent or short.
+    void writeCaptureRing (const float* postDerived, const float* postL, const float* postR,
+                           const float* preDerived,  const float* preL,  const float* preR,
+                           int n, int preN);
     bool                          m_testPreActive = false;   // forced by render harness
     std::atomic<bool>             m_transportPlaying { true };
     std::atomic<bool>             m_linearMeasuring  { false };
@@ -233,6 +292,51 @@ private:
     std::array<float, kNumSpecBins>      m_postSpectrum {};
     std::array<float, kNumSpecBins>      m_preSpectrum  {};
     mutable juce::CriticalSection        m_specLock;
+
+    //==========================================================================
+    // Stereo engine — L/R frames → averaged power + cross terms (see StereoResult).
+    // Reuses m_fft/m_window (same 2048 frame as the spectrum) so the Stereo tab's
+    // X axis and update rate match the Spectrum tab. Gated by m_stereoActive.
+    std::atomic<bool>                    m_stereoActive { false };
+    // False when the track is mono (L == R by construction) — the view says so
+    // rather than drawing a floored width curve and a flat +1 correlation.
+    std::atomic<bool>                    m_stereoSource { false };
+
+    // Pre and Post arrive in separate blocks of differing length, so each pair
+    // needs its own frame position (mirrors m_pre/m_postAccumPos above).
+    std::array<float, kFftSize>          m_stPreL {},  m_stPreR {};
+    std::array<float, kFftSize>          m_stPostL {}, m_stPostR {};
+    int                                  m_stPrePos = 0, m_stPostPos = 0;
+    // Two work buffers: L and R of one signal must be transformed and held
+    // together to form the cross term.
+    std::array<float, 2 * kFftSize>      m_stWorkA {}, m_stWorkB {};
+
+    struct StereoAccum
+    {
+        std::array<double, kNumSpecBins> sll {}, srr {}, slrRe {};
+        int frames = 0;
+    };
+    StereoAccum                          m_stPreAcc, m_stPostAcc;
+
+    // Broadband (time-domain) sums for the correlation / mono-loss readouts.
+    struct StereoBroadband { double ll = 0.0, rr = 0.0, lr = 0.0; };
+    // Accumulated on the audio thread (private), then published as a consistent
+    // triple under m_stereoLock when a frame completes. Correlation needs all
+    // three to come from the same moment, so they cannot be separate atomics.
+    StereoBroadband                      m_stBbPreLive,  m_stBbPostLive;
+    StereoBroadband                      m_stBbPre,      m_stBbPost;
+    mutable juce::CriticalSection        m_stereoLock;
+
+    // Transforms one L/R pair into the accumulator (called when a frame fills).
+    void accumulateStereoFrame (const std::array<float, kFftSize>& l,
+                                const std::array<float, kFftSize>& r,
+                                StereoAccum& acc,
+                                const StereoBroadband& bbLive, StereoBroadband& bbPub);
+    void pushStereoSamples (const float* l, const float* r, int n,
+                            std::array<float, kFftSize>& accumL,
+                            std::array<float, kFftSize>& accumR,
+                            int& pos, StereoAccum& acc,
+                            StereoBroadband& bbLive, StereoBroadband& bbPub);
 
     //==========================================================================
     // Linear measurement engine — time-aligned Pre/Post frames → cross-spectrum.

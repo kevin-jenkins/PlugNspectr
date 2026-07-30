@@ -46,7 +46,9 @@ frames to check scroll/jitter, or wire into CI as a visual-regression check.
 
 - `PlugNspectrPostProcessor::injectTestCapture(pre, post, preDb, postDb)` — a
   test-only seam that pushes synthetic pre/post audio + RMS into the same path
-  the editor reads (`getCapture()` / `getRms()`), bypassing shared memory.
+  the editor reads (the capture ring, drained via `readCaptureSince()`, plus
+  `getRms()`), bypassing shared memory. Channel 0 is the derived analysis signal;
+  channels 1/2 are raw L/R for the Stereo goniometer.
 - `setTestPreActive(true)` forces `isPreActive()` so the "No Pre signal" overlay
   stays off.
 - `PlugNspectrPostEditor::selectTabForTest(index)` selects a tab programmatically.

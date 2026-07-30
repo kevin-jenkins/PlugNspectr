@@ -248,9 +248,10 @@ private:
 
     //──────────────────────────────────────────────────────────────────────────
     PlugNspectrPostProcessor& m_proc;
-    uint32_t                  m_lastCaptureCount = 0;
+    // Capture-ring drain cursor + scratch chunk (see readCaptureSince).
+    uint64_t                  m_capReadPos = 0;
+    juce::AudioBuffer<float>  m_capPre, m_capPost;
     bool                      m_preConnected     = false;
-    int                       m_waveTickCounter  = 0;  // gates waveform ingestion to 30fps
 
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseMove        (const juce::MouseEvent&) override;
@@ -285,7 +286,8 @@ private:
     int      m_ringAvail  = 0;
     uint64_t m_totalWritten = 0;
     uint64_t m_searchFrom   = 0;
-    uint32_t m_lastCaptureCount = 0;
+    uint64_t m_capReadPos = 0;
+    juce::AudioBuffer<float> m_capPre, m_capPost;
 
     // Display buffer — written by update(), read by paint()
     std::array<float, kMaxCapture> m_displayPre  {};
@@ -304,6 +306,62 @@ private:
 
     PlugNspectrPostProcessor& m_proc;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (OscilloscopeView)
+};
+
+//==============================================================================
+// Stereo view — what the plugin does to the stereo image. Two stacked lanes
+// (width = Side/Mid in dB, and correlation) comparing Pre against Post, plus a
+// 45°-rotated goniometer and the broadband readouts. Width says how much side
+// energy there is; correlation says whether it is real decorrelation or a phase
+// trick that collapses in mono.
+//==============================================================================
+class StereoView : public juce::Component
+{
+public:
+    explicit StereoView (PlugNspectrPostProcessor& p);
+    void paint   (juce::Graphics& g) override;
+    void resized ()                   override;
+    void update  ();
+    void reset   ();   // clear the averages and the goniometer trail
+
+    void setCursorForTest (int x) { m_cursorX = (float) x; m_cursorLocked = true; }
+
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+
+private:
+    static constexpr int kBins = PlugNspectrPostProcessor::kNumSpecBins;
+    static constexpr float kLoHz = 20.0f, kHiHz = 20000.0f;
+
+    // Goniometer trail — a ring of rotated L/R points (X = (L-R)/√2, Y = (L+R)/√2,
+    // so mono draws a vertical line, the convention engineers expect).
+    static constexpr int kGonioPoints = 3000;
+    std::array<float, kGonioPoints> m_gxPost {}, m_gyPost {};
+    std::array<float, kGonioPoints> m_gxPre  {}, m_gyPre  {};
+    int      m_gonioPos  = 0;
+    int      m_gonioFill = 0;
+    uint64_t m_capReadPos = 0;
+    juce::AudioBuffer<float> m_capPre, m_capPost;
+    float    m_gonioScale = 2.0f;   // smoothed auto-gain so quiet material still reads
+
+    float m_cursorX = -1.0f;
+    bool  m_cursorLocked = false;
+
+    float freqToX (double hz, juce::Rectangle<float> plot) const;
+    void  drawLane (juce::Graphics& g, juce::Rectangle<float> area, const char* title,
+                    const std::array<float, kBins>& pre,
+                    const std::array<float, kBins>& post,
+                    float vMin, float vMax, const juce::String& unit,
+                    int steps, bool fillDelta) const;
+    void  drawGonio    (juce::Graphics& g, juce::Rectangle<float> area) const;
+    void  drawReadouts (juce::Graphics& g, juce::Rectangle<float> area) const;
+
+    PlugNspectrPostProcessor& m_proc;
+    PlugNspectrPostProcessor::StereoResult m_st;
+    ResetButton m_reset;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (StereoView)
 };
 
 //==============================================================================
@@ -671,6 +729,18 @@ class PlugNspectrPostEditor : public juce::AudioProcessorEditor,
                               private juce::Timer
 {
 public:
+    // Tab order, as laid out left-to-right in the tab bar. Live tabs first, then
+    // the test-signal tabs on the amber tray (see kFirstMeasTab). Named so the
+    // gating/visibility/layout logic never hardcodes an index — inserting a tab
+    // used to mean chasing the same integers through eight unrelated places.
+    enum Tab
+    {
+        TabSpectrum = 0, TabDynamics, TabOscilloscope, TabStereo,
+        TabHarmonics, TabLinear, TabTransfer, TabEnvelope, TabThd,
+        TabCount
+    };
+    static constexpr int kFirstMeasTab = TabHarmonics;   // first tab on the amber tray
+
     explicit PlugNspectrPostEditor (PlugNspectrPostProcessor& p);
     ~PlugNspectrPostEditor() override;
 
@@ -700,14 +770,15 @@ private:
     juce::TextButton m_tabSpectrum     { "Spectrum"        };
     juce::TextButton m_tabDynamics     { "Dynamics"        };
     juce::TextButton m_tabOscilloscope { "Oscilloscope"    };
+    juce::TextButton m_tabStereo       { "Stereo"          };
     juce::TextButton m_tabHarmonics    { "Harmonics"       };
     juce::TextButton m_tabLinear       { "Freq Response"   };
     juce::TextButton m_tabTransfer     { "Compression"     };
     juce::TextButton m_tabEnvelope     { "Attack / Release"};
     juce::TextButton m_tabThd          { "Distortion"      };
 
-    // Test-signal tabs (indices 3..7) sit on a recessed amber tray; the live
-    // tabs (0..2) sit plain to the left. Tray bounds computed in resized().
+    // Test-signal tabs (kFirstMeasTab..TabCount-1) sit on a recessed amber tray;
+    // the live tabs sit plain to the left. Tray bounds computed in resized().
     juce::Rectangle<int> m_trayBounds;
     int              m_activeTab   = 0;
     int              m_tickCounter = 0;
@@ -745,6 +816,7 @@ private:
     SpectrumView      m_specView;
     DynamicsView      m_dynView;
     OscilloscopeView  m_oscView;
+    StereoView        m_stereoView;
     HarmonicsView     m_harmView;
     LinearView        m_linearView;
     TransferView      m_transferView;

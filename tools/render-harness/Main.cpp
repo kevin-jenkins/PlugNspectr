@@ -339,14 +339,21 @@ int main (int argc, char* argv[])
 
     // Render modes feed a known plugin into the matching measurement tab.
     const bool spectrumRender = (argc > 1 && juce::String (argv[1]) == "spectrum-render");
+    const bool stereoRender   = (argc > 1 && juce::String (argv[1]) == "stereo-render");
     const bool linearRender   = (argc > 1 && juce::String (argv[1]) == "linear-render");
     const bool transferRender = (argc > 1 && juce::String (argv[1]) == "transfer-render");
     const bool envelopeRender = (argc > 1 && juce::String (argv[1]) == "envelope-render");
     const bool thdRender      = (argc > 1 && juce::String (argv[1]) == "thd-render");
 
+    using Tabs = PlugNspectrPostEditor;
     editor->setSize (1000, 640);
-    editor->selectTabForTest (spectrumRender ? 0 : linearRender ? 4 : transferRender ? 5
-                              : envelopeRender ? 6 : thdRender ? 7 : 1);
+    editor->selectTabForTest (stereoRender   ? Tabs::TabStereo
+                            : spectrumRender ? Tabs::TabSpectrum
+                            : linearRender   ? Tabs::TabLinear
+                            : transferRender ? Tabs::TabTransfer
+                            : envelopeRender ? Tabs::TabEnvelope
+                            : thdRender      ? Tabs::TabThd
+                                             : Tabs::TabDynamics);
     if (linearRender) editor->armMeasureForTest();   // show the measuring border/banner
     if (linearRender)   editor->setLinearCursorForTest (700);    // hairline ~3 kHz
     if (transferRender) editor->setTransferCursorForTest (520);  // ~-15 dB input
@@ -364,10 +371,48 @@ int main (int argc, char* argv[])
     double trPhase = 0.0; int trStep = 0;      // transfer-curve level sweep state
     double enPhase = 0.0, enGr = 0.0; uint32_t enPos = 0;   // envelope step + compressor state
     double thdPh = 0.0; int thdStep = 0;       // THD sweep state (5% 2nd-harmonic plugin)
+    double stLpS = 0.0;                        // stereo widener crossover state
 
     for (int f = 0; f < numFrames; ++f)
     {
-        if (thdRender)
+        if (stereoRender)
+        {
+            // Synthetic HF widener over broadband noise — representative of real
+            // program material, so the curves and the goniometer cloud look like
+            // they would in a DAW. Pre is fully mono; Post gains decorrelated
+            // side energy above the ~1 kHz crossover, so width should sit at the
+            // floor in the lows and rise in the highs, with correlation falling
+            // to match.
+            std::vector<float> preL ((size_t) kBlock),  preR ((size_t) kBlock);
+            std::vector<float> postL ((size_t) kBlock), postR ((size_t) kBlock);
+            const double a1k = 1.0 - std::exp (-2.0 * juce::MathConstants<double>::pi
+                                               * 1000.0 / kSampleRate);
+            for (int i = 0; i < kBlock; ++i)
+            {
+                const float m = 0.25f * (rng.nextFloat() * 2.0f - 1.0f);   // shared (mono) noise
+                const float s = 0.25f * (rng.nextFloat() * 2.0f - 1.0f);   // independent noise
+
+                // One-pole split of the independent noise; keep only its highs so
+                // the widening is band-limited.
+                stLpS += a1k * (s - stLpS);
+                const float sideHi = (float) (s - stLpS);
+
+                preL [(size_t) i] = m;                 // Pre: perfectly mono
+                preR [(size_t) i] = m;
+                postL[(size_t) i] = m + sideHi;        // Post: HF side added
+                postR[(size_t) i] = m - sideHi;
+            }
+            proc.injectStereoBlock (preL.data(), preR.data(), postL.data(), postR.data(), kBlock);
+            // Also feed the capture so the goniometer has raw L/R to draw.
+            juce::AudioBuffer<float> capPre (3, kBlock), capPost (3, kBlock);
+            capPre.clear(); capPost.clear();
+            std::memcpy (capPre .getWritePointer (1), preL .data(), sizeof (float) * (size_t) kBlock);
+            std::memcpy (capPre .getWritePointer (2), preR .data(), sizeof (float) * (size_t) kBlock);
+            std::memcpy (capPost.getWritePointer (1), postL.data(), sizeof (float) * (size_t) kBlock);
+            std::memcpy (capPost.getWritePointer (2), postR.data(), sizeof (float) * (size_t) kBlock);
+            proc.injectTestCapture (capPre, capPost, -12.0f, -12.0f);
+        }
+        else if (thdRender)
         {
             // Halfway through, FREEZE and drop the distortion (5% → 2%) to A/B.
             // The old curve stays as a dim ghost while the new sweep restarts from

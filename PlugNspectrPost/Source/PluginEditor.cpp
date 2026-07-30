@@ -985,20 +985,25 @@ void DynamicsView::resized()
 
 void DynamicsView::update()
 {
-    // ── Waveform sample buffer — gated to 30fps so scroll speed is constant
-    if (++m_waveTickCounter % 2 == 0)
+    // Drain the capture ring once per tick; the waveform and the GR/level block
+    // below both consume this same chunk. This used to be gated to 30 fps "so
+    // scroll speed is constant", which was compensating for the old snapshot API
+    // dropping blocks — with a ring the scroll rate follows the sample count and
+    // is correct at any buffer size, so the gate is gone.
+    const uint64_t capBefore = m_capReadPos;
+    const int      capN       = m_proc.readCaptureSince (m_capReadPos, m_capPre, m_capPost);
+    // If the UI stalled longer than the ring holds, some audio is gone. Advance
+    // the absolute clock by the elapsed amount, not just what survived, or the
+    // waveform stays permanently time-compressed after the stall.
+    const uint64_t capElapsed = m_capReadPos - capBefore;
+
+    // ── Waveform sample buffer ────────────────────────────────────────────
     {
-        const auto cap = m_proc.getCapture();
-
-        if (cap.captureCount != m_lastCaptureCount)
+        const int n = juce::jmin (capN, kSampleBufLen);
+        if (n > 0)
         {
-            m_lastCaptureCount = cap.captureCount;
-
-            const int n = juce::jmin (cap.post.getNumSamples(), kSampleBufLen);
-            const float* postData = (cap.post.getNumChannels() > 0)
-                                        ? cap.post.getReadPointer (0) : nullptr;
-            const float* preData  = (cap.pre.getNumChannels() > 0)
-                                        ? cap.pre.getReadPointer (0)  : nullptr;
+            const float* postData = m_capPost.getReadPointer (0);
+            const float* preData  = m_capPre .getReadPointer (0);
             for (int i = 0; i < n; ++i)
             {
                 m_postSamples[m_sampleWritePos] = postData ? postData[i] : 0.0f;
@@ -1006,7 +1011,7 @@ void DynamicsView::update()
                 m_sampleWritePos = (m_sampleWritePos + 1) % kSampleBufLen;
             }
             m_samplesStored = juce::jmin (m_samplesStored + n, kSampleBufLen);
-            m_totalSamplesWritten += n;
+            m_totalSamplesWritten += (juce::int64) capElapsed;
         }
     }
 
@@ -1079,13 +1084,30 @@ void DynamicsView::update()
         {
             if (hasSignal)
             {
+                // Count the audio actually ingested. This used to add sr/60 per
+                // tick, i.e. assume the timer really runs at 60 Hz — the very
+                // assumption the capture ring exists to stop relying on. Under
+                // load that made the window shorter than the 2 s it claims.
+                const bool firstAccum = (m_waveCalibSamples == 0);
                 m_waveCalibPeak     = juce::jmax (m_waveCalibPeak, winPeak);
-                m_waveCalibSamples += (int) (sr / 60.0);   // ~one tick of audio
+                m_waveCalibSamples += capN;
+
+                // Follow the running peak for the whole window rather than sitting
+                // on a fixed guess and snapping at the end. The first tick with
+                // signal jumps straight to the right ballpark, so the view is
+                // usable immediately; after that the scale eases toward the target
+                // (~90 ms). Because the peak is a running maximum, the target only
+                // ever decreases, so this is a smooth monotonic zoom-out with no
+                // hunting — then it locks, which keeps quiet passages from zooming
+                // back in.
+                // 0.65 → calibration peak fills ~65% of half-height (headroom)
+                const float target = juce::jlimit (1.0f, 64.0f, 0.65f / m_waveCalibPeak);
+                m_waveScale = firstAccum ? target
+                                         : m_waveScale + (target - m_waveScale) * 0.18f;
 
                 if (m_waveCalibSamples >= (int) (sr * 2.0) && m_waveCalibPeak > kSilence)
                 {
-                    // 0.65 → calibration peak fills ~65% of half-height (headroom)
-                    m_waveScale       = juce::jlimit (1.0f, 64.0f, 0.65f / m_waveCalibPeak);
+                    m_waveScale       = target;
                     m_waveScaleLocked = true;
                 }
             }
@@ -1105,18 +1127,21 @@ void DynamicsView::update()
     }
 
     // ── Peak-based GR + rolling average + smoothed RMS volume ────────────
+    // Only when the ring actually produced audio. The UI ticks at 60 Hz but at
+    // larger buffer sizes blocks arrive less often, so some ticks legitimately
+    // drain nothing — treating those as "GR = 0" injected spurious zeros into the
+    // history and the rolling average (a visible sawtooth).
+    if (capN > 0)
     {
-        const auto cap2 = m_proc.getCapture();
-        const int  n    = cap2.post.getNumSamples();
+        // Peak over everything drained this tick, not just the newest block — the
+        // old snapshot could miss transients entirely at small buffer sizes.
+        const int n = capN;
 
         float currentGr = 0.0f;
 
-        if (n > 0
-            && cap2.pre .getNumChannels() > 0
-            && cap2.post.getNumChannels() > 0)
         {
-            const float* prePtr  = cap2.pre .getReadPointer (0);
-            const float* postPtr = cap2.post.getReadPointer (0);
+            const float* prePtr  = m_capPre .getReadPointer (0);
+            const float* postPtr = m_capPost.getReadPointer (0);
 
             float prePeak = 0.0f, postPeak = 0.0f;
             for (int i = 0; i < n; ++i)
@@ -1682,13 +1707,13 @@ void OscilloscopeView::update()
 {
     // ── Accumulate samples from processor into ring buffer ────────────────
     {
-        const auto cap = m_proc.getCapture();
-        if (cap.captureCount != m_lastCaptureCount)
+        // Drain the ring: every sample, so the 10/50/100 ms windows mean what they
+        // say regardless of the host buffer size.
+        const int n = m_proc.readCaptureSince (m_capReadPos, m_capPre, m_capPost);
+        if (n > 0)
         {
-            m_lastCaptureCount = cap.captureCount;
-            const int n = cap.post.getNumSamples();
-            const float* prePtr  = (cap.pre .getNumChannels() > 0) ? cap.pre .getReadPointer (0) : nullptr;
-            const float* postPtr = (cap.post.getNumChannels() > 0) ? cap.post.getReadPointer (0) : nullptr;
+            const float* prePtr  = m_capPre .getReadPointer (0);
+            const float* postPtr = m_capPost.getReadPointer (0);
 
             for (int i = 0; i < n; ++i)
             {
@@ -1883,6 +1908,384 @@ void OscilloscopeView::paint (juce::Graphics& g)
     // ── Border ────────────────────────────────────────────────────────────
     g.setColour (PnsTheme::kBorderSubtle);
     g.drawRect (px, py, pw, ph, 1.0f);
+}
+
+//==============================================================================
+// StereoView
+//==============================================================================
+// Shared cursor chip helper, defined further down with the other measurement views.
+static void drawCursorChip (juce::Graphics& g, juce::Rectangle<float> plot, float cx,
+                            float cy, juce::Colour accent,
+                            const juce::StringArray& rows, bool locked);
+
+StereoView::StereoView (PlugNspectrPostProcessor& p) : m_proc (p)
+{
+    m_reset.setTooltip ("Clear the stereo averages and the goniometer trail and "
+                        "start over (after tweaking the plugin chain)");
+    m_reset.onClick = [this] { reset(); };
+    addAndMakeVisible (m_reset);
+    setInterceptsMouseClicks (true, false);
+}
+
+void StereoView::resized()
+{
+    constexpr int bw = 28, marginR = PnsTheme::kPaddingSmall, marginT = PnsTheme::kPaddingSmall;
+    m_reset.setBounds (getWidth() - marginR - bw, marginT, bw, PnsTheme::kButtonHeight);
+}
+
+void StereoView::reset()
+{
+    m_proc.resetStereo();
+    m_gxPost.fill (0.0f); m_gyPost.fill (0.0f);
+    m_gxPre .fill (0.0f); m_gyPre .fill (0.0f);
+    m_gonioPos = m_gonioFill = 0;
+    repaint();
+}
+
+void StereoView::update()
+{
+    m_proc.getStereo (m_st);
+
+    // Goniometer trail — pull raw L/R (capture channels 1/2) and rotate 45° so a
+    // mono signal draws a vertical line.
+    {
+        const int n = m_proc.readCaptureSince (m_capReadPos, m_capPre, m_capPost);
+        if (n > 0)
+        {
+            const float* pl = m_capPost.getReadPointer (PlugNspectrPostProcessor::kCapL);
+            const float* pr = m_capPost.getReadPointer (PlugNspectrPostProcessor::kCapR);
+            const float* ql = m_capPre .getReadPointer (PlugNspectrPostProcessor::kCapL);
+            const float* qr = m_capPre .getReadPointer (PlugNspectrPostProcessor::kCapR);
+
+            constexpr float kR = 0.70710678f;   // 1/√2
+            float peak = 0.0f;
+            // Decimate: a few hundred points per block is plenty for the cloud.
+            const int step = juce::jmax (1, n / 512);
+            for (int i = 0; i < n; i += step)
+            {
+                const float l = pl[i], r = pr[i];
+                m_gxPost[(size_t) m_gonioPos] = (l - r) * kR;
+                m_gyPost[(size_t) m_gonioPos] = (l + r) * kR;
+                if (ql != nullptr)
+                {
+                    m_gxPre[(size_t) m_gonioPos] = (ql[i] - qr[i]) * kR;
+                    m_gyPre[(size_t) m_gonioPos] = (ql[i] + qr[i]) * kR;
+                }
+                peak = juce::jmax (peak, std::abs (l), std::abs (r));
+                m_gonioPos = (m_gonioPos + 1) % kGonioPoints;
+                m_gonioFill = juce::jmin (m_gonioFill + 1, kGonioPoints);
+            }
+
+            // Smoothed auto-gain so quiet material still fills the square.
+            if (peak > 1.0e-4f)
+            {
+                const float target = juce::jlimit (0.5f, 12.0f, 0.9f / peak);
+                m_gonioScale += (target - m_gonioScale) * 0.05f;
+            }
+        }
+    }
+}
+
+float StereoView::freqToX (double hz, juce::Rectangle<float> plot) const
+{
+    const double t = std::log (juce::jlimit ((double) kLoHz, (double) kHiHz, hz) / kLoHz)
+                   / std::log ((double) kHiHz / kLoHz);
+    return plot.getX() + plot.getWidth() * (float) t;
+}
+
+// One stacked lane: log-frequency X, linear value Y, Pre dim under Post bright.
+void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const char* title,
+                           const std::array<float, kBins>& pre,
+                           const std::array<float, kBins>& post,
+                           float vMin, float vMax, const juce::String& unit,
+                           int steps, bool fillDelta) const
+{
+    constexpr float kML = 42.0f, kMR = 10.0f, kMT = 16.0f, kMB = 16.0f;
+    const juce::Rectangle<float> plot { area.getX() + kML, area.getY() + kMT,
+                                        area.getWidth() - kML - kMR,
+                                        area.getHeight() - kMT - kMB };
+    if (plot.getWidth() <= 0.0f || plot.getHeight() <= 0.0f) return;
+
+    g.setFont (PnsTheme::fontLabel());
+    g.setColour (PnsTheme::kTextSecondary);
+    g.drawText (title, (int) area.getX(), (int) area.getY(),
+                (int) area.getWidth(), 13, juce::Justification::centred);
+
+    g.setColour (PnsTheme::kBgPanel);
+    g.fillRect (plot);
+
+    // 2 px inset so a curve sitting exactly at vMin/vMax (a mono signal reads
+    // correlation 1.0 and width at the floor) is drawn just inside the frame
+    // instead of vanishing underneath it.
+    constexpr float kInset = 2.0f;
+    auto valToY = [&] (float v)
+    {
+        const float t = juce::jlimit (0.0f, 1.0f, (v - vMin) / (vMax - vMin));
+        return (plot.getBottom() - kInset) - t * (plot.getHeight() - 2.0f * kInset);
+    };
+
+    // Horizontal gridlines + labels; `steps` chosen per lane so values are round.
+    for (int i = 0; i <= steps; ++i)
+    {
+        const float v  = vMin + (vMax - vMin) * (float) i / (float) steps;
+        const float gy = valToY (v);
+        g.setColour (PnsTheme::kGridLine);
+        g.drawHorizontalLine (juce::roundToInt (gy), plot.getX(), plot.getRight());
+        g.setColour (PnsTheme::kGridLabel);
+        g.drawText (juce::String (v, (std::abs (vMax - vMin) <= 2.5f) ? 1 : 0) + unit,
+                    (int) area.getX(), juce::roundToInt (gy) - 6, (int) kML - 5, 12,
+                    juce::Justification::centredRight);
+    }
+    // Frequency gridlines.
+    for (double f : { 50.0, 100.0, 500.0, 1000.0, 5000.0, 10000.0 })
+    {
+        const float gx = freqToX (f, plot);
+        g.setColour (PnsTheme::kGridLine);
+        g.drawVerticalLine (juce::roundToInt (gx), plot.getY(), plot.getBottom());
+        g.setColour (PnsTheme::kGridLabel);
+        g.drawText (f >= 1000.0 ? juce::String (f / 1000.0, 0) + "k" : juce::String ((int) f),
+                    juce::roundToInt (gx) - 14, (int) plot.getBottom() + 2, 28, 11,
+                    juce::Justification::centred);
+    }
+
+    const double sr  = m_proc.getSampleRate() > 0.0 ? m_proc.getSampleRate() : 48000.0;
+    const double binW = sr / (double) PlugNspectrPostProcessor::kFftSize;
+
+    // Collect the visible points once — both the curves and the delta polygon
+    // are built from the same screen coordinates.
+    std::vector<juce::Point<float>> ptsPre, ptsPost;
+    ptsPre.reserve ((size_t) kBins);
+    ptsPost.reserve ((size_t) kBins);
+    for (int k = 1; k < kBins; ++k)
+    {
+        if (! m_st.valid[(size_t) k]) continue;
+        const double f = k * binW;
+        if (f < kLoHz || f > kHiHz) continue;
+        const float x = freqToX (f, plot);
+        ptsPre .push_back ({ x, valToY (pre [(size_t) k]) });
+        ptsPost.push_back ({ x, valToY (post[(size_t) k]) });
+    }
+
+    auto toPath = [] (const std::vector<juce::Point<float>>& pts)
+    {
+        juce::Path p;
+        if (pts.size() > 1)
+        {
+            p.startNewSubPath (pts.front());
+            for (size_t i = 1; i < pts.size(); ++i) p.lineTo (pts[i]);
+        }
+        return p;
+    };
+
+    juce::Graphics::ScopedSaveState clip (g);
+    g.reduceClipRegion (plot.toNearestInt());
+
+    const juce::Path pPre  = toPath (ptsPre);
+    const juce::Path pPost = toPath (ptsPost);
+    const bool haveBoth = ptsPost.size() > 1;
+
+    // Amber fill between the curves — the change the plugin made, same visual
+    // language as the Spectrum tab's Pre/Post average difference.
+    if (fillDelta && haveBoth)
+    {
+        juce::Path band;
+        band.startNewSubPath (ptsPost.front());
+        for (size_t i = 1; i < ptsPost.size(); ++i) band.lineTo (ptsPost[i]);
+        for (size_t i = ptsPre.size(); i-- > 0; )   band.lineTo (ptsPre[i]);
+        band.closeSubPath();
+        g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.18f));
+        g.fillPath (band);
+    }
+
+    if (ptsPre.size() > 1)
+    {
+        g.setColour (PnsTheme::kColorPre.withAlpha (0.55f));
+        g.strokePath (pPre, juce::PathStrokeType (1.0f));
+    }
+    if (haveBoth)
+        PnsTheme::drawGlowLine (g, pPost, PnsTheme::kAccentPrimary, 1.5f);
+
+    // Cursor readout — frequency → value for both signals.
+    if (haveBoth && m_cursorX >= 0.0f)
+    {
+        const float cx = juce::jlimit (plot.getX(), plot.getRight(), m_cursorX);
+        const double t = (double) (cx - plot.getX()) / plot.getWidth();
+        const double f = (double) kLoHz * std::pow ((double) kHiHz / kLoHz, t);
+        const int k = juce::jlimit (1, kBins - 1, (int) std::lround (f / binW));
+        if (m_st.valid[(size_t) k])
+        {
+            juce::StringArray rows;
+            rows.add (f >= 1000.0 ? juce::String (f / 1000.0, 2) + " kHz"
+                                  : juce::String ((int) f) + " Hz");
+            rows.add ("Post " + juce::String (post[(size_t) k], 2) + unit);
+            rows.add ("Pre  " + juce::String (pre [(size_t) k], 2) + unit);
+            drawCursorChip (g, plot, cx, valToY (post[(size_t) k]),
+                            PnsTheme::kAccentPrimary, rows, m_cursorLocked);
+        }
+    }
+
+    g.setColour (PnsTheme::kBorderSubtle);
+    g.drawRect (plot, 1.0f);
+}
+
+void StereoView::drawGonio (juce::Graphics& g, juce::Rectangle<float> area) const
+{
+    g.setFont (PnsTheme::fontLabel());
+    g.setColour (PnsTheme::kTextSecondary);
+    g.drawText ("GONIOMETER", (int) area.getX(), (int) area.getY(),
+                (int) area.getWidth(), 13, juce::Justification::centred);
+
+    // Square plot, centred.
+    const float d = juce::jmin (area.getWidth(), area.getHeight() - 16.0f);
+    const juce::Rectangle<float> sq =
+        juce::Rectangle<float> (d, d).withCentre ({ area.getCentreX(),
+                                                    area.getY() + 16.0f + (area.getHeight() - 16.0f) * 0.5f });
+    g.setColour (PnsTheme::kBgPanel);
+    g.fillRect (sq);
+
+    const float cx = sq.getCentreX(), cy = sq.getCentreY(), half = d * 0.5f;
+
+    // Guides: vertical = mono, diagonals = hard L / hard R.
+    g.setColour (PnsTheme::kGridLine);
+    g.drawVerticalLine (juce::roundToInt (cx), sq.getY(), sq.getBottom());
+    g.drawHorizontalLine (juce::roundToInt (cy), sq.getX(), sq.getRight());
+    g.drawLine (sq.getX(), sq.getY(), sq.getRight(), sq.getBottom(), 0.5f);
+    g.drawLine (sq.getX(), sq.getBottom(), sq.getRight(), sq.getY(), 0.5f);
+    g.setColour (PnsTheme::kGridLabel);
+    g.drawText ("M", (int) cx - 8, (int) sq.getY() + 2, 16, 11, juce::Justification::centred);
+    g.drawText ("L", (int) sq.getX() + 2, (int) cy - 6, 12, 11, juce::Justification::centredLeft);
+    g.drawText ("R", (int) sq.getRight() - 14, (int) cy - 6, 12, 11, juce::Justification::centredRight);
+
+    if (m_gonioFill < 2) { g.setColour (PnsTheme::kBorderSubtle); g.drawRect (sq, 1.0f); return; }
+
+    juce::Graphics::ScopedSaveState clip (g);
+    g.reduceClipRegion (sq.toNearestInt());
+
+    // Per-dot integer fillRect. Two things matter here:
+    //  - It must stay per-dot, not one accumulated Path filled once, because
+    //    overlapping dots building up alpha is what makes dense regions read as
+    //    bright. That density *is* the information on a goniometer — flattening
+    //    it to uniform opacity loses the mono line entirely.
+    //  - Integer rects hit JUCE's axis-aligned span fill, so there is no path
+    //    construction or AA edge table per dot, unlike the fillEllipse this
+    //    replaced (3000 dots x 2 trails at 30 fps was ~180k rasterised paths/s).
+    auto plotTrail = [&] (const std::array<float, kGonioPoints>& xs,
+                          const std::array<float, kGonioPoints>& ys,
+                          juce::Colour c, int dotPx)
+    {
+        g.setColour (c);
+        for (int i = 0; i < m_gonioFill; ++i)
+        {
+            const float px = cx + juce::jlimit (-1.0f, 1.0f, xs[(size_t) i] * m_gonioScale) * half;
+            const float py = cy - juce::jlimit (-1.0f, 1.0f, ys[(size_t) i] * m_gonioScale) * half;
+            g.fillRect (juce::roundToInt (px), juce::roundToInt (py), dotPx, dotPx);
+        }
+    };
+
+    plotTrail (m_gxPre,  m_gyPre,  PnsTheme::kColorPre.withAlpha (0.22f), 2);
+    plotTrail (m_gxPost, m_gyPost, PnsTheme::kAccentPrimary.withAlpha (0.30f), 2);
+
+    g.setColour (PnsTheme::kBorderSubtle);
+    g.drawRect (sq, 1.0f);
+}
+
+void StereoView::drawReadouts (juce::Graphics& g, juce::Rectangle<float> area) const
+{
+    g.setColour (PnsTheme::kBgWidget.withAlpha (0.85f));
+    g.fillRoundedRectangle (area, (float) PnsTheme::kCornerRadius);
+    g.setColour (PnsTheme::kBorderSubtle);
+    g.drawRoundedRectangle (area, (float) PnsTheme::kCornerRadius, 1.0f);
+
+    const int lx = (int) area.getX() + 10;
+    const int lw = (int) area.getWidth() - 20;
+    int y = (int) area.getY() + 8;
+
+    auto row = [&] (const juce::String& label, const juce::String& pre,
+                    const juce::String& post, juce::Colour postCol)
+    {
+        g.setFont (PnsTheme::fontLabel());
+        g.setColour (PnsTheme::kTextSecondary);
+        g.drawText (label, lx, y, lw / 3, 14, juce::Justification::centredLeft);
+        g.drawText (pre,  lx + lw / 3,     y, lw / 3, 14, juce::Justification::centredRight);
+        g.setColour (postCol);
+        g.drawText (post, lx + lw * 2 / 3, y, lw / 3, 14, juce::Justification::centredRight);
+        y += 17;
+    };
+
+    g.setFont (PnsTheme::fontLabel());
+    g.setColour (PnsTheme::kTextSecondary);
+    g.drawText ("PRE",  lx + lw / 3,     y, lw / 3, 12, juce::Justification::centredRight);
+    g.setColour (PnsTheme::kAccentPrimary);
+    g.drawText ("POST", lx + lw * 2 / 3, y, lw / 3, 12, juce::Justification::centredRight);
+    y += 16;
+
+    auto dbStr = [] (float v) { return (v <= PlugNspectrPostProcessor::kStereoFloorDb + 0.01f)
+                                       ? juce::String ("mono") : juce::String (v, 1) + " dB"; };
+
+    row ("Width", dbStr (m_st.bbWidthPre), dbStr (m_st.bbWidthPost), PnsTheme::kAccentPrimary);
+    row ("Corr",  juce::String (m_st.bbCorrPre, 2), juce::String (m_st.bbCorrPost, 2),
+         m_st.bbCorrPost < 0.0f ? PnsTheme::kColorPostAvg : PnsTheme::kAccentPrimary);
+    // Mono-sum loss: how much level disappears when summed. Amber once it bites.
+    row ("Mono",  juce::String (m_st.monoLossPre, 1) + " dB",
+                  juce::String (m_st.monoLossPost, 1) + " dB",
+         m_st.monoLossPost < -3.0f ? PnsTheme::kColorPostAvg : PnsTheme::kAccentPrimary);
+}
+
+void StereoView::paint (juce::Graphics& g)
+{
+    auto b = getLocalBounds().toFloat().reduced (8.0f, 6.0f);
+
+    // Right column: goniometer above the readouts. Left: the two stacked lanes.
+    constexpr float kRightW = 250.0f, kGap = 8.0f;
+    const float rightW = juce::jmin (kRightW, b.getWidth() * 0.34f);
+    auto right = b.removeFromRight (rightW);
+    b.removeFromRight (kGap);
+    auto left = b;
+    // Leave room for the reset button on the first lane's title row.
+    left.removeFromTop (2.0f);
+
+    // -40..+10 dB in 5 steps and -1..+1 in 4 give round axis labels.
+    const float laneH = (left.getHeight() - kGap) * 0.5f;
+    drawLane (g, left.removeFromTop (laneH), "WIDTH  (Side / Mid)",
+              m_st.widthPre, m_st.widthPost,
+              PlugNspectrPostProcessor::kStereoFloorDb, 10.0f, " dB", 5, true);
+    left.removeFromTop (kGap);
+    drawLane (g, left, "CORRELATION",
+              m_st.corrPre, m_st.corrPost, -1.0f, 1.0f, "", 4, false);
+
+    // Goniometer gets a square slot so it doesn't float in a tall column.
+    auto gonio = right.removeFromTop (juce::jmin (right.getWidth() + 16.0f,
+                                                  right.getHeight() - 86.0f));
+    drawGonio (g, gonio);
+    drawReadouts (g, right.removeFromTop (78.0f));
+
+    // Mono source: the curves are meaningless, so say so plainly.
+    if (! m_st.stereoSource)
+    {
+        g.setColour (PnsTheme::kBgDark.withAlpha (0.72f));
+        g.fillRect (getLocalBounds());
+        g.setFont (PnsTheme::fontPrimary());
+        g.setColour (PnsTheme::kTextSecondary);
+        g.drawText ("Stereo analysis needs a stereo track",
+                    getLocalBounds().reduced (20), juce::Justification::centred);
+    }
+}
+
+void StereoView::mouseMove (const juce::MouseEvent& e)
+{
+    if (! m_cursorLocked) { m_cursorX = (float) e.x; repaint(); }
+}
+
+void StereoView::mouseExit (const juce::MouseEvent&)
+{
+    if (! m_cursorLocked) { m_cursorX = -1.0f; repaint(); }
+}
+
+void StereoView::mouseDown (const juce::MouseEvent& e)
+{
+    m_cursorLocked = ! m_cursorLocked;
+    m_cursorX = (float) e.x;
+    repaint();
 }
 
 //==============================================================================
@@ -3168,6 +3571,7 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
       m_specView (p),
       m_dynView  (p),
       m_oscView  (p),
+      m_stereoView (p),
       m_harmView (p),
       m_linearView (p),
       m_transferView (p),
@@ -3178,7 +3582,7 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
 
     m_pnsLogo = juce::ImageCache::getFromMemory (kPnsLogoPng, kPnsLogoPngSize);
 
-    for (auto* btn : { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope,
+    for (auto* btn : { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope, &m_tabStereo,
                        &m_tabHarmonics, &m_tabLinear, &m_tabTransfer, &m_tabEnvelope,
                        &m_tabThd })
     {
@@ -3186,18 +3590,20 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
         addAndMakeVisible (btn);
     }
 
-    m_tabSpectrum    .onClick = [this] { switchTab (0); };
-    m_tabDynamics    .onClick = [this] { switchTab (1); };
-    m_tabOscilloscope.onClick = [this] { switchTab (2); };
-    m_tabHarmonics   .onClick = [this] { switchTab (3); };
-    m_tabLinear      .onClick = [this] { switchTab (4); };
-    m_tabTransfer    .onClick = [this] { switchTab (5); };
-    m_tabEnvelope    .onClick = [this] { switchTab (6); };
-    m_tabThd         .onClick = [this] { switchTab (7); };
+    m_tabSpectrum    .onClick = [this] { switchTab (TabSpectrum);     };
+    m_tabDynamics    .onClick = [this] { switchTab (TabDynamics);     };
+    m_tabOscilloscope.onClick = [this] { switchTab (TabOscilloscope); };
+    m_tabStereo      .onClick = [this] { switchTab (TabStereo);       };
+    m_tabHarmonics   .onClick = [this] { switchTab (TabHarmonics);    };
+    m_tabLinear      .onClick = [this] { switchTab (TabLinear);       };
+    m_tabTransfer    .onClick = [this] { switchTab (TabTransfer);     };
+    m_tabEnvelope    .onClick = [this] { switchTab (TabEnvelope);     };
+    m_tabThd         .onClick = [this] { switchTab (TabThd);          };
 
     addAndMakeVisible (m_specView);
     addAndMakeVisible (m_dynView);
     addAndMakeVisible (m_oscView);
+    addAndMakeVisible (m_stereoView);
     addAndMakeVisible (m_harmView);
     addAndMakeVisible (m_linearView);
     addAndMakeVisible (m_transferView);
@@ -3293,6 +3699,9 @@ PlugNspectrPostEditor::~PlugNspectrPostEditor()
 {
     // Stop any stimulus so Pre goes quiet immediately on editor close.
     audioProcessor.postCommand (pns::PNS_CmdBlock{});
+    // Drop the stereo gate too — otherwise closing the window while the Stereo
+    // tab is showing leaves four FFTs per frame running with nothing reading them.
+    audioProcessor.setStereoActive (false);
     setLookAndFeel (nullptr);
     stopTimer();
 }
@@ -3305,13 +3714,13 @@ void PlugNspectrPostEditor::writeCmdBlock()
     c.testToneLevelDb   = m_toneLevel;
     c.testToneActive    = m_toneActive ? 1u : 0u;
     // Noise stimulus only while the Linear tab is showing AND Measure is on.
-    c.measureActive     = (m_activeTab == 4 && m_linearView.isMeasureActive()) ? 1u : 0u;
+    c.measureActive     = (m_activeTab == TabLinear && m_linearView.isMeasureActive()) ? 1u : 0u;
     // Dynamics stimulus: level ramp on the Transfer tab, level step on the
     // Envelope tab, THD sweep on the Distortion tab — only while showing + Measure on.
-    c.dynMeasureMode    = (m_activeTab == 5 && m_transferView.isMeasureActive()) ? 1u
-                        : (m_activeTab == 6 && m_envelopeView.isMeasureActive()) ? 2u
-                        : (m_activeTab == 7 && m_thdView.isMeasureActive())      ? 3u
-                                                                                 : 0u;
+    c.dynMeasureMode    = (m_activeTab == TabTransfer && m_transferView.isMeasureActive()) ? 1u
+                        : (m_activeTab == TabEnvelope && m_envelopeView.isMeasureActive()) ? 2u
+                        : (m_activeTab == TabThd      && m_thdView.isMeasureActive())      ? 3u
+                                                                                          : 0u;
     audioProcessor.postCommand (c);
 
     // Keep the Linear accumulation gate in lock-step with its noise stimulus so
@@ -3322,10 +3731,10 @@ void PlugNspectrPostEditor::writeCmdBlock()
 bool PlugNspectrPostEditor::isStimulusActive() const
 {
     if (m_toneActive) return true;
-    if (m_activeTab == 4 && m_linearView  .isMeasureActive()) return true;
-    if (m_activeTab == 5 && m_transferView.isMeasureActive()) return true;
-    if (m_activeTab == 6 && m_envelopeView.isMeasureActive()) return true;
-    if (m_activeTab == 7 && m_thdView     .isMeasureActive()) return true;
+    if (m_activeTab == TabLinear   && m_linearView  .isMeasureActive()) return true;
+    if (m_activeTab == TabTransfer && m_transferView.isMeasureActive()) return true;
+    if (m_activeTab == TabEnvelope && m_envelopeView.isMeasureActive()) return true;
+    if (m_activeTab == TabThd      && m_thdView     .isMeasureActive()) return true;
     return false;
 }
 
@@ -3379,30 +3788,33 @@ void PlugNspectrPostEditor::timerCallback()
 
     // ── Views ──────────────────────────────────────────────────────────────
     m_dynView.update();
-    if (m_activeTab == 1) m_dynView.repaint();
+    if (m_activeTab == TabDynamics) m_dynView.repaint();
 
     if (++m_tickCounter % 2 == 0)
     {
         m_specView.update();
-        if (m_activeTab == 0) m_specView.repaint();
+        if (m_activeTab == TabSpectrum) m_specView.repaint();
 
         m_oscView.update();
-        if (m_activeTab == 2) m_oscView.repaint();
+        if (m_activeTab == TabOscilloscope) m_oscView.repaint();
+
+        m_stereoView.update();
+        if (m_activeTab == TabStereo) m_stereoView.repaint();
 
         m_harmView.update();
-        if (m_activeTab == 3) m_harmView.repaint();
+        if (m_activeTab == TabHarmonics) m_harmView.repaint();
 
         m_linearView.update();
-        if (m_activeTab == 4) m_linearView.repaint();
+        if (m_activeTab == TabLinear) m_linearView.repaint();
 
         m_transferView.update();
-        if (m_activeTab == 5) m_transferView.repaint();
+        if (m_activeTab == TabTransfer) m_transferView.repaint();
 
         m_envelopeView.update();
-        if (m_activeTab == 6) m_envelopeView.repaint();
+        if (m_activeTab == TabEnvelope) m_envelopeView.repaint();
 
         m_thdView.update();
-        if (m_activeTab == 7) m_thdView.repaint();
+        if (m_activeTab == TabThd) m_thdView.repaint();
     }
 }
 
@@ -3554,10 +3966,10 @@ void PlugNspectrPostEditor::switchTab (int index)
 {
     m_activeTab = index;
 
-    juce::TextButton* tabs[8] = { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope,
-                                   &m_tabHarmonics, &m_tabLinear, &m_tabTransfer,
-                                   &m_tabEnvelope, &m_tabThd };
-    for (int i = 0; i < 8; ++i)
+    juce::TextButton* tabs[TabCount] = { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope,
+                                         &m_tabStereo, &m_tabHarmonics, &m_tabLinear, &m_tabTransfer,
+                                         &m_tabEnvelope, &m_tabThd };
+    for (int i = 0; i < TabCount; ++i)
     {
         const bool active = (i == index);
         tabs[i]->setColour (juce::TextButton::textColourOffId,
@@ -3566,22 +3978,34 @@ void PlugNspectrPostEditor::switchTab (int index)
         tabs[i]->repaint();
     }
 
-    m_specView    .setVisible (index == 0);
-    m_dynView     .setVisible (index == 1);
-    m_oscView     .setVisible (index == 2);
-    m_harmView    .setVisible (index == 3);
-    m_linearView  .setVisible (index == 4);
-    m_transferView.setVisible (index == 5);
-    m_envelopeView.setVisible (index == 6);
-    m_thdView     .setVisible (index == 7);
+    m_specView    .setVisible (index == TabSpectrum);
+    m_dynView     .setVisible (index == TabDynamics);
+    m_oscView     .setVisible (index == TabOscilloscope);
+    m_stereoView  .setVisible (index == TabStereo);
+    m_harmView    .setVisible (index == TabHarmonics);
+    m_linearView  .setVisible (index == TabLinear);
+    m_transferView.setVisible (index == TabTransfer);
+    m_envelopeView.setVisible (index == TabEnvelope);
+    m_thdView     .setVisible (index == TabThd);
 
     // ── Footer relevance per tab ───────────────────────────────────────────
     // FREQ + Test Tone belong to the single-tone tabs (live tabs + Harmonics);
     // LEVEL also drives the Distortion sweep level. The other measurement tabs
     // are driven entirely by Measure/Freeze, so dim + disable the footer there.
-    const bool freqOn  = (index <= 3);
-    const bool levelOn = (index <= 3 || index == 7);
-    const bool toneOn  = (index <= 3);
+    // Stereo is excluded despite being a live tab: every Pre generator is mono
+    // (writes ch0 then copies), so a test tone there reads as zero side energy.
+    const bool freqOn  = (index <= TabOscilloscope || index == TabHarmonics);
+    const bool levelOn = (freqOn || index == TabThd);
+    const bool toneOn  = freqOn;
+
+    // Four extra FFTs — only run them while the Stereo tab is actually showing.
+    audioProcessor.setStereoActive (index == TabStereo);
+    // The L+R / Side selector is meaningless on Stereo: it uses both inherently.
+    const bool chOn = (index != TabStereo);
+    m_chLR  .setEnabled (chOn);
+    m_chSide.setEnabled (chOn);
+    m_chLR  .setAlpha (chOn ? 1.0f : 0.4f);
+    m_chSide.setAlpha (chOn ? 1.0f : 0.4f);
 
     // Entering a tab that doesn't own the tone kills a stray tone so it can't
     // override the measurement stimulus (Pre prioritises the tone otherwise).
@@ -3680,8 +4104,8 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
 
     // Footer controls are only relevant on some tabs (see switchTab) — dim the
     // FREQ/LEVEL labels to match the enabled/disabled state of their knobs.
-    const bool freqOn  = (m_activeTab <= 3);
-    const bool levelOn = (m_activeTab <= 3 || m_activeTab == 7);
+    const bool freqOn  = (m_activeTab <= TabOscilloscope || m_activeTab == TabHarmonics);
+    const bool levelOn = (freqOn || m_activeTab == TabThd);
     const auto dim      = [] (juce::Colour c, bool on) { return on ? c : c.withAlpha (0.35f); };
 
     // "FREQ" label — to the right of the knob (knob is 28px wide at kPaddingLarge)
@@ -3744,6 +4168,7 @@ void PlugNspectrPostEditor::resized()
     auto place = [&] (juce::TextButton& b) { const int w = tabW (b); b.setBounds (x, hH, w, tbH); x += w; };
 
     place (m_tabSpectrum); place (m_tabDynamics); place (m_tabOscilloscope);
+    place (m_tabStereo);
 
     constexpr int trayGap = 12, trayPadL = 18, trayPadR = 10;
     x += trayGap;
@@ -3776,6 +4201,7 @@ void PlugNspectrPostEditor::resized()
     m_specView  .setBounds (content);
     m_dynView   .setBounds (content);
     m_oscView   .setBounds (content);
+    m_stereoView.setBounds (content);
     m_harmView    .setBounds (content);
     m_linearView  .setBounds (content);
     m_transferView.setBounds (content);
