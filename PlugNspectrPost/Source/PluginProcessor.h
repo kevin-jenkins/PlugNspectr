@@ -97,14 +97,19 @@ public:
 
     // Drain the capture ring. Copies everything written since `readPos` into
     // outPre/outPost (each kCaptureChannels x n), advances readPos, returns n.
-    // Start with readPos = 0. A caller that falls further behind than the ring
-    // holds receives the most recent kCaptureRingLen samples and, if `dropped`
-    // is supplied, has it set — so a UI stall degrades visibly rather than
-    // corrupting the timebase.
+    // Start with readPos = 0.
+    //
+    // A caller that falls further behind than the ring holds receives only the
+    // most recent kCaptureRingLen samples. It can detect that without an extra
+    // out-param, because readPos is advanced to the true write position:
+    //     const uint64_t before = pos;
+    //     const int n = readCaptureSince (pos, ...);
+    //     const uint64_t lost = (pos - before) - (uint64_t) n;   // 0 normally
+    // Anything deriving time from the stream must add the full (pos - before),
+    // not just n, or its timebase compresses permanently after a stall.
     int readCaptureSince (uint64_t& readPos,
                           juce::AudioBuffer<float>& outPre,
-                          juce::AudioBuffer<float>& outPost,
-                          bool* dropped = nullptr) const;
+                          juce::AudioBuffer<float>& outPost) const;
 
     // Fills outPre / outPost with the latest FFT magnitude spectra (linear scale).
     void getSpectra (std::array<float, kNumSpecBins>& outPre,

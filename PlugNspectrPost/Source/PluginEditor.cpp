@@ -990,7 +990,12 @@ void DynamicsView::update()
     // scroll speed is constant", which was compensating for the old snapshot API
     // dropping blocks — with a ring the scroll rate follows the sample count and
     // is correct at any buffer size, so the gate is gone.
-    const int capN = m_proc.readCaptureSince (m_capReadPos, m_capPre, m_capPost);
+    const uint64_t capBefore = m_capReadPos;
+    const int      capN       = m_proc.readCaptureSince (m_capReadPos, m_capPre, m_capPost);
+    // If the UI stalled longer than the ring holds, some audio is gone. Advance
+    // the absolute clock by the elapsed amount, not just what survived, or the
+    // waveform stays permanently time-compressed after the stall.
+    const uint64_t capElapsed = m_capReadPos - capBefore;
 
     // ── Waveform sample buffer ────────────────────────────────────────────
     {
@@ -1006,7 +1011,7 @@ void DynamicsView::update()
                 m_sampleWritePos = (m_sampleWritePos + 1) % kSampleBufLen;
             }
             m_samplesStored = juce::jmin (m_samplesStored + n, kSampleBufLen);
-            m_totalSamplesWritten += n;
+            m_totalSamplesWritten += (juce::int64) capElapsed;
         }
     }
 
@@ -1079,8 +1084,13 @@ void DynamicsView::update()
         {
             if (hasSignal)
             {
+                // Count the audio actually ingested. This used to add sr/60 per
+                // tick, i.e. assume the timer really runs at 60 Hz — the very
+                // assumption the capture ring exists to stop relying on. Under
+                // load that made the window shorter than the 2 s it claims.
+                const bool firstAccum = (m_waveCalibSamples == 0);
                 m_waveCalibPeak     = juce::jmax (m_waveCalibPeak, winPeak);
-                m_waveCalibSamples += (int) (sr / 60.0);   // ~one tick of audio
+                m_waveCalibSamples += capN;
 
                 // Follow the running peak for the whole window rather than sitting
                 // on a fixed guess and snapping at the end. The first tick with
@@ -1092,9 +1102,8 @@ void DynamicsView::update()
                 // back in.
                 // 0.65 → calibration peak fills ~65% of half-height (headroom)
                 const float target = juce::jlimit (1.0f, 64.0f, 0.65f / m_waveCalibPeak);
-                const bool  firstTick = (m_waveCalibSamples <= (int) (sr / 60.0));
-                m_waveScale = firstTick ? target
-                                        : m_waveScale + (target - m_waveScale) * 0.18f;
+                m_waveScale = firstAccum ? target
+                                         : m_waveScale + (target - m_waveScale) * 0.18f;
 
                 if (m_waveCalibSamples >= (int) (sr * 2.0) && m_waveCalibPeak > kSilence)
                 {

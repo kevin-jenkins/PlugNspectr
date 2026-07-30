@@ -600,6 +600,14 @@ void PlugNspectrPostProcessor::writeCaptureRing (
 {
     if (n <= 0) return;
 
+    // A block larger than the ring would make `rest` exceed it and walk the
+    // second copy loop off the end. Unreachable while kMaxSamples (4096) is far
+    // below kCaptureRingLen (65536), but the two live in different headers, so
+    // fail loudly in debug and clamp in release rather than corrupt the heap.
+    jassert (n <= kCaptureRingLen);
+    n    = juce::jmin (n, kCaptureRingLen);
+    preN = juce::jmin (preN, n);
+
     juce::ScopedLock sl (m_captureLock);
     if (m_capRingPost.getNumSamples() < kCaptureRingLen) return;   // not prepared yet
 
@@ -630,11 +638,9 @@ void PlugNspectrPostProcessor::writeCaptureRing (
 
 int PlugNspectrPostProcessor::readCaptureSince (uint64_t& readPos,
                                                juce::AudioBuffer<float>& outPre,
-                                               juce::AudioBuffer<float>& outPost,
-                                               bool* dropped) const
+                                               juce::AudioBuffer<float>& outPost) const
 {
     juce::ScopedLock sl (m_captureLock);
-    if (dropped != nullptr) *dropped = false;
 
     const uint64_t w = m_capWritePos;
     if (readPos > w) readPos = w;             // ring was reset under us
@@ -643,9 +649,10 @@ int PlugNspectrPostProcessor::readCaptureSince (uint64_t& readPos,
 
     if (avail > (uint64_t) kCaptureRingLen)   // caller fell behind; keep the newest
     {
-        if (dropped != nullptr) *dropped = true;
-        readPos = w - (uint64_t) kCaptureRingLen;
-        avail   = (uint64_t) kCaptureRingLen;
+        // readPos still ends up at w below, so the caller can see the shortfall
+        // as (newReadPos - oldReadPos) - n and account for the lost time.
+        avail = (uint64_t) kCaptureRingLen;
+        readPos = w - avail;
     }
 
     const int n = (int) avail;
