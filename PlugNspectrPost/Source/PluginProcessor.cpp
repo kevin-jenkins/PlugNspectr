@@ -548,6 +548,8 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             }
         }
 
+        m_capture.preSamples  = preSmp;
+        m_capture.postSamples = numSmp;
         ++m_capture.captureCount;
     }
 
@@ -622,6 +624,8 @@ void PlugNspectrPostProcessor::injectTestCapture (const juce::AudioBuffer<float>
         juce::ScopedLock sl (m_captureLock);
         m_capture.pre  = pre;
         m_capture.post = post;
+        m_capture.preSamples  = pre.getNumSamples();
+        m_capture.postSamples = post.getNumSamples();
         ++m_capture.captureCount;
     }
     {
@@ -789,10 +793,10 @@ void PlugNspectrPostProcessor::getStereo (StereoResult& out) const
     fill (preAcc,  out.widthPre,  out.corrPre,  &out.valid);
     // Post shares the Pre validity mask: a bin is comparable only where both have
     // energy, and Pre is the reference.
-    std::array<bool, kNumSpecBins> ignored {};
-    fill (postAcc, out.widthPost, out.corrPost, &ignored);
+    std::array<bool, kNumSpecBins> postValid {};
+    fill (postAcc, out.widthPost, out.corrPost, &postValid);
     for (int k = 0; k < kNumSpecBins; ++k)
-        out.valid[k] = out.valid[k] && ignored[k];
+        out.valid[k] = out.valid[k] && postValid[k];
 
     // ── Broadband readouts ────────────────────────────────────────────────────
     auto broadband = [] (const StereoBroadband& bb, float& widthDb, float& corr, float& monoLoss)

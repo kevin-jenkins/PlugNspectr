@@ -45,6 +45,13 @@ public:
     {
         juce::AudioBuffer<float> pre;
         juce::AudioBuffer<float> post;
+        // Valid sample counts — NOT the allocation. The buffers are sized to
+        // jmax(samplesPerBlock, kMaxSamples), so at a typical 512-sample host
+        // block only the first 512 frames are written and the rest stay zero.
+        // Consumers must use these, or they ingest thousands of dead samples and
+        // (worse) advance their timebase far too fast.
+        int                      preSamples  = 0;
+        int                      postSamples = 0;
         uint32_t                 captureCount = 0;
     };
 

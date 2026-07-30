@@ -994,7 +994,7 @@ void DynamicsView::update()
         {
             m_lastCaptureCount = cap.captureCount;
 
-            const int n = juce::jmin (cap.post.getNumSamples(), kSampleBufLen);
+            const int n = juce::jmin (cap.postSamples, kSampleBufLen);
             const float* postData = (cap.post.getNumChannels() > 0)
                                         ? cap.post.getReadPointer (0) : nullptr;
             const float* preData  = (cap.pre.getNumChannels() > 0)
@@ -1686,13 +1686,16 @@ void OscilloscopeView::update()
         if (cap.captureCount != m_lastCaptureCount)
         {
             m_lastCaptureCount = cap.captureCount;
-            const int n = cap.post.getNumSamples();
+            // Valid count, not the allocation — the buffers are oversized and the
+            // tail is never written, so ingesting it would run the timebase fast.
+            const int n     = cap.postSamples;
+            const int preN  = juce::jmin (n, cap.preSamples);
             const float* prePtr  = (cap.pre .getNumChannels() > 0) ? cap.pre .getReadPointer (0) : nullptr;
             const float* postPtr = (cap.post.getNumChannels() > 0) ? cap.post.getReadPointer (0) : nullptr;
 
             for (int i = 0; i < n; ++i)
             {
-                m_ringPre [m_ringWrite] = prePtr  ? prePtr [i] : 0.0f;
+                m_ringPre [m_ringWrite] = (prePtr && i < preN) ? prePtr [i] : 0.0f;
                 m_ringPost[m_ringWrite] = postPtr ? postPtr[i] : 0.0f;
                 m_ringWrite = (m_ringWrite + 1) % kRingLen;
                 if (m_ringAvail < kRingLen) ++m_ringAvail;
@@ -1927,25 +1930,30 @@ void StereoView::update()
     if (cap.captureCount != m_lastCaptureCount)
     {
         m_lastCaptureCount = cap.captureCount;
-        const int n = cap.post.getNumSamples();
+        const int n = cap.postSamples;
         if (cap.post.getNumChannels() > PlugNspectrPostProcessor::kCapR && n > 0)
         {
             const float* pl = cap.post.getReadPointer (PlugNspectrPostProcessor::kCapL);
             const float* pr = cap.post.getReadPointer (PlugNspectrPostProcessor::kCapR);
-            const bool   preOk = cap.pre.getNumChannels() > PlugNspectrPostProcessor::kCapR;
+            // Only read Pre as far as it is actually valid — the two counts can
+            // differ (Pre is 0 when not connected) and the buffers can be sized
+            // independently via injectTestCapture.
+            const int    preN  = juce::jmin (n, cap.preSamples);
+            const bool   preOk = cap.pre.getNumChannels() > PlugNspectrPostProcessor::kCapR
+                              && preN > 0;
             const float* ql = preOk ? cap.pre.getReadPointer (PlugNspectrPostProcessor::kCapL) : nullptr;
             const float* qr = preOk ? cap.pre.getReadPointer (PlugNspectrPostProcessor::kCapR) : nullptr;
 
             constexpr float kR = 0.70710678f;   // 1/√2
             float peak = 0.0f;
-            // Decimate: one point every few samples keeps the path cheap to stroke.
+            // Decimate: a few hundred points per block is plenty for the cloud.
             const int step = juce::jmax (1, n / 512);
             for (int i = 0; i < n; i += step)
             {
                 const float l = pl[i], r = pr[i];
                 m_gxPost[(size_t) m_gonioPos] = (l - r) * kR;
                 m_gyPost[(size_t) m_gonioPos] = (l + r) * kR;
-                if (ql != nullptr)
+                if (ql != nullptr && i < preN)
                 {
                     m_gxPre[(size_t) m_gonioPos] = (ql[i] - qr[i]) * kR;
                     m_gyPre[(size_t) m_gonioPos] = (ql[i] + qr[i]) * kR;
@@ -2083,10 +2091,9 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
     }
     if (haveBoth)
         PnsTheme::drawGlowLine (g, pPost, PnsTheme::kAccentPrimary, 1.5f);
-    const int nPost = (int) ptsPost.size();
 
     // Cursor readout — frequency → value for both signals.
-    if (nPost > 1 && m_cursorX >= 0.0f)
+    if (haveBoth && m_cursorX >= 0.0f)
     {
         const float cx = juce::jlimit (plot.getX(), plot.getRight(), m_cursorX);
         const double t = (double) (cx - plot.getX()) / plot.getWidth();
@@ -2141,21 +2148,29 @@ void StereoView::drawGonio (juce::Graphics& g, juce::Rectangle<float> area) cons
     juce::Graphics::ScopedSaveState clip (g);
     g.reduceClipRegion (sq.toNearestInt());
 
+    // Per-dot integer fillRect. Two things matter here:
+    //  - It must stay per-dot, not one accumulated Path filled once, because
+    //    overlapping dots building up alpha is what makes dense regions read as
+    //    bright. That density *is* the information on a goniometer — flattening
+    //    it to uniform opacity loses the mono line entirely.
+    //  - Integer rects hit JUCE's axis-aligned span fill, so there is no path
+    //    construction or AA edge table per dot, unlike the fillEllipse this
+    //    replaced (3000 dots x 2 trails at 30 fps was ~180k rasterised paths/s).
     auto plotTrail = [&] (const std::array<float, kGonioPoints>& xs,
                           const std::array<float, kGonioPoints>& ys,
-                          juce::Colour c, float thickness)
+                          juce::Colour c, int dotPx)
     {
         g.setColour (c);
         for (int i = 0; i < m_gonioFill; ++i)
         {
             const float px = cx + juce::jlimit (-1.0f, 1.0f, xs[(size_t) i] * m_gonioScale) * half;
             const float py = cy - juce::jlimit (-1.0f, 1.0f, ys[(size_t) i] * m_gonioScale) * half;
-            g.fillEllipse (px - thickness * 0.5f, py - thickness * 0.5f, thickness, thickness);
+            g.fillRect (juce::roundToInt (px), juce::roundToInt (py), dotPx, dotPx);
         }
     };
 
-    plotTrail (m_gxPre,  m_gyPre,  PnsTheme::kColorPre.withAlpha (0.30f), 1.6f);
-    plotTrail (m_gxPost, m_gyPost, PnsTheme::kAccentPrimary.withAlpha (0.65f), 1.8f);
+    plotTrail (m_gxPre,  m_gyPre,  PnsTheme::kColorPre.withAlpha (0.22f), 2);
+    plotTrail (m_gxPost, m_gyPost, PnsTheme::kAccentPrimary.withAlpha (0.30f), 2);
 
     g.setColour (PnsTheme::kBorderSubtle);
     g.drawRect (sq, 1.0f);
