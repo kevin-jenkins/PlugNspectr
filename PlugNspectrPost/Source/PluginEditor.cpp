@@ -1942,9 +1942,45 @@ void StereoView::reset()
     repaint();
 }
 
+// Average a per-bin curve over a fractional-octave window, skipping bins with no
+// energy. Prefix sums keep it O(bins) rather than O(bins x window) — at 10 kHz
+// the window is over a hundred bins wide, so the naive form would be ~60k
+// operations per curve per frame, x4 curves at 30 fps.
+void StereoView::smoothOctave (const std::array<float, kBins>& in,
+                               std::array<float, kBins>& out)
+{
+    m_cumV[0] = 0.0;
+    m_cumN[0] = 0.0;
+    for (int k = 0; k < kBins; ++k)
+    {
+        const bool v = m_st.valid[(size_t) k];
+        m_cumV[(size_t) k + 1] = m_cumV[(size_t) k] + (v ? (double) in[(size_t) k] : 0.0);
+        m_cumN[(size_t) k + 1] = m_cumN[(size_t) k] + (v ? 1.0 : 0.0);
+    }
+
+    // Window is a constant *ratio* of the centre frequency, so it is narrow in
+    // the lows (few bins per octave) and wide in the highs — which is exactly
+    // where the noise is.
+    const double halfRatio = std::pow (2.0, kSmoothOctaves * 0.5);
+    for (int k = 0; k < kBins; ++k)
+    {
+        const int lo = juce::jlimit (0, kBins, (int) std::floor (k / halfRatio));
+        const int hi = juce::jlimit (0, kBins, (int) std::ceil  (k * halfRatio) + 1);
+        const double n = m_cumN[(size_t) hi] - m_cumN[(size_t) lo];
+        out[(size_t) k] = (n > 0.0)
+                        ? (float) ((m_cumV[(size_t) hi] - m_cumV[(size_t) lo]) / n)
+                        : in[(size_t) k];
+    }
+}
+
 void StereoView::update()
 {
     m_proc.getStereo (m_st);
+
+    smoothOctave (m_st.widthPre,  m_dWidthPre);
+    smoothOctave (m_st.widthPost, m_dWidthPost);
+    smoothOctave (m_st.corrPre,   m_dCorrPre);
+    smoothOctave (m_st.corrPost,  m_dCorrPost);
 
     // Goniometer trail — pull raw L/R (capture channels 1/2) and rotate 45° so a
     // mono signal draws a vertical line.
@@ -2279,11 +2315,11 @@ void StereoView::paint (juce::Graphics& g)
     // -40..+10 dB in 5 steps and -1..+1 in 4 give round axis labels.
     const float laneH = (left.getHeight() - kGap) * 0.5f;
     drawLane (g, left.removeFromTop (laneH), "WIDTH  (Side / Mid)",
-              m_st.widthPre, m_st.widthPost,
+              m_dWidthPre, m_dWidthPost,
               PlugNspectrPostProcessor::kStereoFloorDb, 10.0f, " dB", 5, true);
     left.removeFromTop (kGap);
     drawLane (g, left, "CORRELATION",
-              m_st.corrPre, m_st.corrPost, -1.0f, 1.0f, "", 4, false);
+              m_dCorrPre, m_dCorrPost, -1.0f, 1.0f, "", 4, false);
 
     // Goniometer gets a square slot so it doesn't float in a tall column.
     auto gonio = right.removeFromTop (juce::jmin (right.getWidth() + 16.0f,

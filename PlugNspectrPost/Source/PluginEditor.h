@@ -352,6 +352,16 @@ private:
     float m_cursorX = -1.0f;
     bool  m_cursorLocked = false;
 
+    // Display copies, smoothed over a fractional-octave window. The raw per-bin
+    // estimates are far too jagged to compare by eye: the FFT is linearly spaced,
+    // so an octave up at 10 kHz spans hundreds of bins and single-bin variance
+    // swamps the shape. Smoothing is what makes the Pre/Post difference legible.
+    static constexpr double kSmoothOctaves = 1.0 / 6.0;
+    std::array<float, kBins> m_dWidthPre {}, m_dWidthPost {};
+    std::array<float, kBins> m_dCorrPre  {}, m_dCorrPost  {};
+    std::array<double, kBins + 1> m_cumV {}, m_cumN {};   // prefix sums, O(bins)
+    void smoothOctave (const std::array<float, kBins>& in, std::array<float, kBins>& out);
+
     float freqToX (double hz, juce::Rectangle<float> plot) const;
     void  drawLane (juce::Graphics& g, juce::Rectangle<float> area, const char* title,
                     const std::array<float, kBins>& pre,
