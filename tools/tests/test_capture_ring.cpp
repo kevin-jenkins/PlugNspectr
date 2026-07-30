@@ -9,7 +9,6 @@
 #include "helpers.h"
 #include "PluginProcessor.h"
 
-#include <vector>
 
 using P = PlugNspectrPostProcessor;
 
@@ -45,6 +44,30 @@ void writeChunk (P& proc, int64_t from, int n, int preN)
         for (int i = 0; i < preN; ++i) pre .setSample (c, i, expected (c, from + i));
     }
     proc.injectTestCapture (pre, post, -12.0f, -12.0f);
+}
+
+// Advances the ring to just short of the wrap boundary, draining as it goes so
+// nothing is lost, and returns the absolute write position reached.
+//
+// kCaptureRingLen is a power of two, so power-of-two chunks would land exactly ON
+// the boundary and never straddle it — the case the wrap tests exist for. An
+// odd-sized first write breaks that alignment.
+int64_t advanceToWrapBoundary (P& proc, uint64_t& pos, int step,
+                               juce::AudioBuffer<float>& outPre,
+                               juce::AudioBuffer<float>& outPost)
+{
+    int64_t wrote = 0;
+    writeChunk (proc, wrote, 1234, 1234);
+    wrote += 1234;
+    proc.readCaptureSince (pos, outPre, outPost);
+
+    while (wrote + step < (int64_t) kRing)
+    {
+        writeChunk (proc, wrote, step, step);
+        wrote += step;
+        proc.readCaptureSince (pos, outPre, outPost);
+    }
+    return wrote;
 }
 } // namespace
 
@@ -82,22 +105,8 @@ TEST_CASE ("Capture ring: data stays contiguous across the wrap boundary")
     uint64_t pos = 0;
     juce::AudioBuffer<float> outPre, outPost;
 
-    // kRing is a power of two, so power-of-two chunks would land exactly ON the
-    // boundary and never straddle it — the case this test exists for. Start with
-    // an odd-sized write to break that alignment.
     constexpr int kStep = 4096;
-    int64_t wrote = 0;
-    writeChunk (proc, wrote, 1234, 1234);
-    wrote += 1234;
-    proc.readCaptureSince (pos, outPre, outPost);
-
-    // Walk up to just under the ring end, draining as we go so nothing is lost.
-    while (wrote + kStep < (int64_t) kRing)
-    {
-        writeChunk (proc, wrote, kStep, kStep);
-        wrote += kStep;
-        proc.readCaptureSince (pos, outPre, outPost);
-    }
+    const int64_t wrote = advanceToWrapBoundary (proc, pos, kStep, outPre, outPost);
     REQUIRE (pos == (uint64_t) wrote);
     // The next chunk must genuinely span the boundary, or this proves nothing.
     REQUIRE ((int64_t) kRing - wrote < kStep);
@@ -128,6 +137,50 @@ TEST_CASE ("Capture ring: data stays contiguous across the wrap boundary")
     INFO ("wrote=" << wrote << " ring=" << kRing << " badCh=" << badCh
                    << " badIdx=" << badIdx << " inPre=" << badWasPre);
     CHECK (badCh == -1);             // no discontinuity where the copy split
+}
+
+TEST_CASE ("Capture ring: a short Pre straddling the wrap zero-fills past its end")
+{
+    // The one configuration that exercises `(first + i) < valid` in
+    // writeCaptureRing's wrapped copy loop — the only place the wrap offset and
+    // the Pre-validity boundary interact. The plain wrap test passes preN == n so
+    // the check never bites, and the short-Pre test never wraps, so without this
+    // case that expression can be wrong and still ship green (verified: weakening
+    // it to `i < valid` passed the whole suite).
+    P proc;
+    proc.prepareToPlay (pnst::kSR, 512);
+
+    constexpr int kStep = 4096;
+    uint64_t pos = 0;
+    juce::AudioBuffer<float> outPre, outPost;
+    const int64_t wrote = advanceToWrapBoundary (proc, pos, kStep, outPre, outPost);
+
+    const int first = (int) ((int64_t) kRing - wrote);   // lands before the wrap
+    REQUIRE (first > 0);
+    REQUIRE (first < kStep);
+
+    // first < preN < n puts the Pre cut-off INSIDE the wrapped half.
+    const int preN = first + (kStep - first) / 2;
+    REQUIRE (preN > first);
+    REQUIRE (preN < kStep);
+
+    writeChunk (proc, wrote, kStep, preN);
+    const int n = proc.readCaptureSince (pos, outPre, outPost);
+    REQUIRE (n == kStep);
+
+    int badIdx = -1; bool badPre = false;
+    for (int c = 0; c < kCh && badIdx < 0; ++c)
+        for (int i = 0; i < n; ++i)
+        {
+            if (outPost.getSample (c, i) != expected (c, wrote + i))
+            { badIdx = i; badPre = false; break; }                 // Post is whole
+            const float wantPre = (i < preN) ? expected (c, wrote + i) : 0.0f;
+            if (outPre.getSample (c, i) != wantPre)
+            { badIdx = i; badPre = true;  break; }                 // Pre cuts off
+        }
+    INFO ("wrote=" << wrote << " first=" << first << " preN=" << preN
+                   << " badIdx=" << badIdx << " inPre=" << badPre);
+    CHECK (badIdx == -1);
 }
 
 TEST_CASE ("Capture ring: falling behind keeps the newest and reveals the loss")
@@ -171,8 +224,7 @@ TEST_CASE ("Capture ring: falling behind keeps the newest and reveals the loss")
     const uint64_t lost    = elapsed - (uint64_t) n;
     INFO ("before=" << before << " wrote=" << wrote << " elapsed=" << elapsed
                     << " n=" << n << " lost=" << lost);
-    CHECK (elapsed == (uint64_t) wrote - before);
-    CHECK (lost    == elapsed - (uint64_t) kRing);
+    CHECK (lost == elapsed - (uint64_t) kRing);
 
     // What survived must be the NEWEST audio, ending at the write position.
     const int64_t firstKept = wrote - kRing;
