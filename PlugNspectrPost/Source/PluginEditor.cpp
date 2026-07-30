@@ -1886,6 +1886,381 @@ void OscilloscopeView::paint (juce::Graphics& g)
 }
 
 //==============================================================================
+// StereoView
+//==============================================================================
+// Shared cursor chip helper, defined further down with the other measurement views.
+static void drawCursorChip (juce::Graphics& g, juce::Rectangle<float> plot, float cx,
+                            float cy, juce::Colour accent,
+                            const juce::StringArray& rows, bool locked);
+
+StereoView::StereoView (PlugNspectrPostProcessor& p) : m_proc (p)
+{
+    m_reset.setTooltip ("Clear the stereo averages and the goniometer trail and "
+                        "start over (after tweaking the plugin chain)");
+    m_reset.onClick = [this] { reset(); };
+    addAndMakeVisible (m_reset);
+    setInterceptsMouseClicks (true, false);
+}
+
+void StereoView::resized()
+{
+    constexpr int bw = 28, marginR = PnsTheme::kPaddingSmall, marginT = PnsTheme::kPaddingSmall;
+    m_reset.setBounds (getWidth() - marginR - bw, marginT, bw, PnsTheme::kButtonHeight);
+}
+
+void StereoView::reset()
+{
+    m_proc.resetStereo();
+    m_gxPost.fill (0.0f); m_gyPost.fill (0.0f);
+    m_gxPre .fill (0.0f); m_gyPre .fill (0.0f);
+    m_gonioPos = m_gonioFill = 0;
+    repaint();
+}
+
+void StereoView::update()
+{
+    m_proc.getStereo (m_st);
+
+    // Goniometer trail — pull raw L/R (capture channels 1/2) and rotate 45° so a
+    // mono signal draws a vertical line.
+    const auto cap = m_proc.getCapture();
+    if (cap.captureCount != m_lastCaptureCount)
+    {
+        m_lastCaptureCount = cap.captureCount;
+        const int n = cap.post.getNumSamples();
+        if (cap.post.getNumChannels() > PlugNspectrPostProcessor::kCapR && n > 0)
+        {
+            const float* pl = cap.post.getReadPointer (PlugNspectrPostProcessor::kCapL);
+            const float* pr = cap.post.getReadPointer (PlugNspectrPostProcessor::kCapR);
+            const bool   preOk = cap.pre.getNumChannels() > PlugNspectrPostProcessor::kCapR;
+            const float* ql = preOk ? cap.pre.getReadPointer (PlugNspectrPostProcessor::kCapL) : nullptr;
+            const float* qr = preOk ? cap.pre.getReadPointer (PlugNspectrPostProcessor::kCapR) : nullptr;
+
+            constexpr float kR = 0.70710678f;   // 1/√2
+            float peak = 0.0f;
+            // Decimate: one point every few samples keeps the path cheap to stroke.
+            const int step = juce::jmax (1, n / 512);
+            for (int i = 0; i < n; i += step)
+            {
+                const float l = pl[i], r = pr[i];
+                m_gxPost[(size_t) m_gonioPos] = (l - r) * kR;
+                m_gyPost[(size_t) m_gonioPos] = (l + r) * kR;
+                if (ql != nullptr)
+                {
+                    m_gxPre[(size_t) m_gonioPos] = (ql[i] - qr[i]) * kR;
+                    m_gyPre[(size_t) m_gonioPos] = (ql[i] + qr[i]) * kR;
+                }
+                peak = juce::jmax (peak, std::abs (l), std::abs (r));
+                m_gonioPos = (m_gonioPos + 1) % kGonioPoints;
+                m_gonioFill = juce::jmin (m_gonioFill + 1, kGonioPoints);
+            }
+
+            // Smoothed auto-gain so quiet material still fills the square.
+            if (peak > 1.0e-4f)
+            {
+                const float target = juce::jlimit (0.5f, 12.0f, 0.9f / peak);
+                m_gonioScale += (target - m_gonioScale) * 0.05f;
+            }
+        }
+    }
+}
+
+float StereoView::freqToX (double hz, juce::Rectangle<float> plot) const
+{
+    const double t = std::log (juce::jlimit ((double) kLoHz, (double) kHiHz, hz) / kLoHz)
+                   / std::log ((double) kHiHz / kLoHz);
+    return plot.getX() + plot.getWidth() * (float) t;
+}
+
+// One stacked lane: log-frequency X, linear value Y, Pre dim under Post bright.
+void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const char* title,
+                           const std::array<float, kBins>& pre,
+                           const std::array<float, kBins>& post,
+                           float vMin, float vMax, const juce::String& unit,
+                           int steps, bool fillDelta) const
+{
+    constexpr float kML = 42.0f, kMR = 10.0f, kMT = 16.0f, kMB = 16.0f;
+    const juce::Rectangle<float> plot { area.getX() + kML, area.getY() + kMT,
+                                        area.getWidth() - kML - kMR,
+                                        area.getHeight() - kMT - kMB };
+    if (plot.getWidth() <= 0.0f || plot.getHeight() <= 0.0f) return;
+
+    g.setFont (PnsTheme::fontLabel());
+    g.setColour (PnsTheme::kTextSecondary);
+    g.drawText (title, (int) area.getX(), (int) area.getY(),
+                (int) area.getWidth(), 13, juce::Justification::centred);
+
+    g.setColour (PnsTheme::kBgPanel);
+    g.fillRect (plot);
+
+    // 2 px inset so a curve sitting exactly at vMin/vMax (a mono signal reads
+    // correlation 1.0 and width at the floor) is drawn just inside the frame
+    // instead of vanishing underneath it.
+    constexpr float kInset = 2.0f;
+    auto valToY = [&] (float v)
+    {
+        const float t = juce::jlimit (0.0f, 1.0f, (v - vMin) / (vMax - vMin));
+        return (plot.getBottom() - kInset) - t * (plot.getHeight() - 2.0f * kInset);
+    };
+
+    // Horizontal gridlines + labels; `steps` chosen per lane so values are round.
+    for (int i = 0; i <= steps; ++i)
+    {
+        const float v  = vMin + (vMax - vMin) * (float) i / (float) steps;
+        const float gy = valToY (v);
+        g.setColour (PnsTheme::kGridLine);
+        g.drawHorizontalLine (juce::roundToInt (gy), plot.getX(), plot.getRight());
+        g.setColour (PnsTheme::kGridLabel);
+        g.drawText (juce::String (v, (std::abs (vMax - vMin) <= 2.5f) ? 1 : 0) + unit,
+                    (int) area.getX(), juce::roundToInt (gy) - 6, (int) kML - 5, 12,
+                    juce::Justification::centredRight);
+    }
+    // Frequency gridlines.
+    for (double f : { 50.0, 100.0, 500.0, 1000.0, 5000.0, 10000.0 })
+    {
+        const float gx = freqToX (f, plot);
+        g.setColour (PnsTheme::kGridLine);
+        g.drawVerticalLine (juce::roundToInt (gx), plot.getY(), plot.getBottom());
+        g.setColour (PnsTheme::kGridLabel);
+        g.drawText (f >= 1000.0 ? juce::String (f / 1000.0, 0) + "k" : juce::String ((int) f),
+                    juce::roundToInt (gx) - 14, (int) plot.getBottom() + 2, 28, 11,
+                    juce::Justification::centred);
+    }
+
+    const double sr  = m_proc.getSampleRate() > 0.0 ? m_proc.getSampleRate() : 48000.0;
+    const double binW = sr / (double) PlugNspectrPostProcessor::kFftSize;
+
+    // Collect the visible points once — both the curves and the delta polygon
+    // are built from the same screen coordinates.
+    std::vector<juce::Point<float>> ptsPre, ptsPost;
+    ptsPre.reserve ((size_t) kBins);
+    ptsPost.reserve ((size_t) kBins);
+    for (int k = 1; k < kBins; ++k)
+    {
+        if (! m_st.valid[(size_t) k]) continue;
+        const double f = k * binW;
+        if (f < kLoHz || f > kHiHz) continue;
+        const float x = freqToX (f, plot);
+        ptsPre .push_back ({ x, valToY (pre [(size_t) k]) });
+        ptsPost.push_back ({ x, valToY (post[(size_t) k]) });
+    }
+
+    auto toPath = [] (const std::vector<juce::Point<float>>& pts)
+    {
+        juce::Path p;
+        if (pts.size() > 1)
+        {
+            p.startNewSubPath (pts.front());
+            for (size_t i = 1; i < pts.size(); ++i) p.lineTo (pts[i]);
+        }
+        return p;
+    };
+
+    juce::Graphics::ScopedSaveState clip (g);
+    g.reduceClipRegion (plot.toNearestInt());
+
+    const juce::Path pPre  = toPath (ptsPre);
+    const juce::Path pPost = toPath (ptsPost);
+    const bool haveBoth = ptsPost.size() > 1;
+
+    // Amber fill between the curves — the change the plugin made, same visual
+    // language as the Spectrum tab's Pre/Post average difference.
+    if (fillDelta && haveBoth)
+    {
+        juce::Path band;
+        band.startNewSubPath (ptsPost.front());
+        for (size_t i = 1; i < ptsPost.size(); ++i) band.lineTo (ptsPost[i]);
+        for (size_t i = ptsPre.size(); i-- > 0; )   band.lineTo (ptsPre[i]);
+        band.closeSubPath();
+        g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.18f));
+        g.fillPath (band);
+    }
+
+    if (ptsPre.size() > 1)
+    {
+        g.setColour (PnsTheme::kColorPre.withAlpha (0.55f));
+        g.strokePath (pPre, juce::PathStrokeType (1.0f));
+    }
+    if (haveBoth)
+        PnsTheme::drawGlowLine (g, pPost, PnsTheme::kAccentPrimary, 1.5f);
+    const int nPost = (int) ptsPost.size();
+
+    // Cursor readout — frequency → value for both signals.
+    if (nPost > 1 && m_cursorX >= 0.0f)
+    {
+        const float cx = juce::jlimit (plot.getX(), plot.getRight(), m_cursorX);
+        const double t = (double) (cx - plot.getX()) / plot.getWidth();
+        const double f = (double) kLoHz * std::pow ((double) kHiHz / kLoHz, t);
+        const int k = juce::jlimit (1, kBins - 1, (int) std::lround (f / binW));
+        if (m_st.valid[(size_t) k])
+        {
+            juce::StringArray rows;
+            rows.add (f >= 1000.0 ? juce::String (f / 1000.0, 2) + " kHz"
+                                  : juce::String ((int) f) + " Hz");
+            rows.add ("Post " + juce::String (post[(size_t) k], 2) + unit);
+            rows.add ("Pre  " + juce::String (pre [(size_t) k], 2) + unit);
+            drawCursorChip (g, plot, cx, valToY (post[(size_t) k]),
+                            PnsTheme::kAccentPrimary, rows, m_cursorLocked);
+        }
+    }
+
+    g.setColour (PnsTheme::kBorderSubtle);
+    g.drawRect (plot, 1.0f);
+}
+
+void StereoView::drawGonio (juce::Graphics& g, juce::Rectangle<float> area) const
+{
+    g.setFont (PnsTheme::fontLabel());
+    g.setColour (PnsTheme::kTextSecondary);
+    g.drawText ("GONIOMETER", (int) area.getX(), (int) area.getY(),
+                (int) area.getWidth(), 13, juce::Justification::centred);
+
+    // Square plot, centred.
+    const float d = juce::jmin (area.getWidth(), area.getHeight() - 16.0f);
+    const juce::Rectangle<float> sq =
+        juce::Rectangle<float> (d, d).withCentre ({ area.getCentreX(),
+                                                    area.getY() + 16.0f + (area.getHeight() - 16.0f) * 0.5f });
+    g.setColour (PnsTheme::kBgPanel);
+    g.fillRect (sq);
+
+    const float cx = sq.getCentreX(), cy = sq.getCentreY(), half = d * 0.5f;
+
+    // Guides: vertical = mono, diagonals = hard L / hard R.
+    g.setColour (PnsTheme::kGridLine);
+    g.drawVerticalLine (juce::roundToInt (cx), sq.getY(), sq.getBottom());
+    g.drawHorizontalLine (juce::roundToInt (cy), sq.getX(), sq.getRight());
+    g.drawLine (sq.getX(), sq.getY(), sq.getRight(), sq.getBottom(), 0.5f);
+    g.drawLine (sq.getX(), sq.getBottom(), sq.getRight(), sq.getY(), 0.5f);
+    g.setColour (PnsTheme::kGridLabel);
+    g.drawText ("M", (int) cx - 8, (int) sq.getY() + 2, 16, 11, juce::Justification::centred);
+    g.drawText ("L", (int) sq.getX() + 2, (int) cy - 6, 12, 11, juce::Justification::centredLeft);
+    g.drawText ("R", (int) sq.getRight() - 14, (int) cy - 6, 12, 11, juce::Justification::centredRight);
+
+    if (m_gonioFill < 2) { g.setColour (PnsTheme::kBorderSubtle); g.drawRect (sq, 1.0f); return; }
+
+    juce::Graphics::ScopedSaveState clip (g);
+    g.reduceClipRegion (sq.toNearestInt());
+
+    auto plotTrail = [&] (const std::array<float, kGonioPoints>& xs,
+                          const std::array<float, kGonioPoints>& ys,
+                          juce::Colour c, float thickness)
+    {
+        g.setColour (c);
+        for (int i = 0; i < m_gonioFill; ++i)
+        {
+            const float px = cx + juce::jlimit (-1.0f, 1.0f, xs[(size_t) i] * m_gonioScale) * half;
+            const float py = cy - juce::jlimit (-1.0f, 1.0f, ys[(size_t) i] * m_gonioScale) * half;
+            g.fillEllipse (px - thickness * 0.5f, py - thickness * 0.5f, thickness, thickness);
+        }
+    };
+
+    plotTrail (m_gxPre,  m_gyPre,  PnsTheme::kColorPre.withAlpha (0.30f), 1.6f);
+    plotTrail (m_gxPost, m_gyPost, PnsTheme::kAccentPrimary.withAlpha (0.65f), 1.8f);
+
+    g.setColour (PnsTheme::kBorderSubtle);
+    g.drawRect (sq, 1.0f);
+}
+
+void StereoView::drawReadouts (juce::Graphics& g, juce::Rectangle<float> area) const
+{
+    g.setColour (PnsTheme::kBgWidget.withAlpha (0.85f));
+    g.fillRoundedRectangle (area, (float) PnsTheme::kCornerRadius);
+    g.setColour (PnsTheme::kBorderSubtle);
+    g.drawRoundedRectangle (area, (float) PnsTheme::kCornerRadius, 1.0f);
+
+    const int lx = (int) area.getX() + 10;
+    const int lw = (int) area.getWidth() - 20;
+    int y = (int) area.getY() + 8;
+
+    auto row = [&] (const juce::String& label, const juce::String& pre,
+                    const juce::String& post, juce::Colour postCol)
+    {
+        g.setFont (PnsTheme::fontLabel());
+        g.setColour (PnsTheme::kTextSecondary);
+        g.drawText (label, lx, y, lw / 3, 14, juce::Justification::centredLeft);
+        g.drawText (pre,  lx + lw / 3,     y, lw / 3, 14, juce::Justification::centredRight);
+        g.setColour (postCol);
+        g.drawText (post, lx + lw * 2 / 3, y, lw / 3, 14, juce::Justification::centredRight);
+        y += 17;
+    };
+
+    g.setFont (PnsTheme::fontLabel());
+    g.setColour (PnsTheme::kTextSecondary);
+    g.drawText ("PRE",  lx + lw / 3,     y, lw / 3, 12, juce::Justification::centredRight);
+    g.setColour (PnsTheme::kAccentPrimary);
+    g.drawText ("POST", lx + lw * 2 / 3, y, lw / 3, 12, juce::Justification::centredRight);
+    y += 16;
+
+    auto dbStr = [] (float v) { return (v <= PlugNspectrPostProcessor::kStereoFloorDb + 0.01f)
+                                       ? juce::String ("mono") : juce::String (v, 1) + " dB"; };
+
+    row ("Width", dbStr (m_st.bbWidthPre), dbStr (m_st.bbWidthPost), PnsTheme::kAccentPrimary);
+    row ("Corr",  juce::String (m_st.bbCorrPre, 2), juce::String (m_st.bbCorrPost, 2),
+         m_st.bbCorrPost < 0.0f ? PnsTheme::kColorPostAvg : PnsTheme::kAccentPrimary);
+    // Mono-sum loss: how much level disappears when summed. Amber once it bites.
+    row ("Mono",  juce::String (m_st.monoLossPre, 1) + " dB",
+                  juce::String (m_st.monoLossPost, 1) + " dB",
+         m_st.monoLossPost < -3.0f ? PnsTheme::kColorPostAvg : PnsTheme::kAccentPrimary);
+}
+
+void StereoView::paint (juce::Graphics& g)
+{
+    auto b = getLocalBounds().toFloat().reduced (8.0f, 6.0f);
+
+    // Right column: goniometer above the readouts. Left: the two stacked lanes.
+    constexpr float kRightW = 250.0f, kGap = 8.0f;
+    const float rightW = juce::jmin (kRightW, b.getWidth() * 0.34f);
+    auto right = b.removeFromRight (rightW);
+    b.removeFromRight (kGap);
+    auto left = b;
+    // Leave room for the reset button on the first lane's title row.
+    left.removeFromTop (2.0f);
+
+    // -40..+10 dB in 5 steps and -1..+1 in 4 give round axis labels.
+    const float laneH = (left.getHeight() - kGap) * 0.5f;
+    drawLane (g, left.removeFromTop (laneH), "WIDTH  (Side / Mid)",
+              m_st.widthPre, m_st.widthPost,
+              PlugNspectrPostProcessor::kStereoFloorDb, 10.0f, " dB", 5, true);
+    left.removeFromTop (kGap);
+    drawLane (g, left, "CORRELATION",
+              m_st.corrPre, m_st.corrPost, -1.0f, 1.0f, "", 4, false);
+
+    // Goniometer gets a square slot so it doesn't float in a tall column.
+    auto gonio = right.removeFromTop (juce::jmin (right.getWidth() + 16.0f,
+                                                  right.getHeight() - 86.0f));
+    drawGonio (g, gonio);
+    drawReadouts (g, right.removeFromTop (78.0f));
+
+    // Mono source: the curves are meaningless, so say so plainly.
+    if (! m_st.stereoSource)
+    {
+        g.setColour (PnsTheme::kBgDark.withAlpha (0.72f));
+        g.fillRect (getLocalBounds());
+        g.setFont (PnsTheme::fontPrimary());
+        g.setColour (PnsTheme::kTextSecondary);
+        g.drawText ("Stereo analysis needs a stereo track",
+                    getLocalBounds().reduced (20), juce::Justification::centred);
+    }
+}
+
+void StereoView::mouseMove (const juce::MouseEvent& e)
+{
+    if (! m_cursorLocked) { m_cursorX = (float) e.x; repaint(); }
+}
+
+void StereoView::mouseExit (const juce::MouseEvent&)
+{
+    if (! m_cursorLocked) { m_cursorX = -1.0f; repaint(); }
+}
+
+void StereoView::mouseDown (const juce::MouseEvent& e)
+{
+    m_cursorLocked = ! m_cursorLocked;
+    m_cursorX = (float) e.x;
+    repaint();
+}
+
+//==============================================================================
 // HarmonicsView
 //==============================================================================
 HarmonicsView::HarmonicsView (PlugNspectrPostProcessor& p) : m_proc (p)
@@ -3168,6 +3543,7 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
       m_specView (p),
       m_dynView  (p),
       m_oscView  (p),
+      m_stereoView (p),
       m_harmView (p),
       m_linearView (p),
       m_transferView (p),
@@ -3178,7 +3554,7 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
 
     m_pnsLogo = juce::ImageCache::getFromMemory (kPnsLogoPng, kPnsLogoPngSize);
 
-    for (auto* btn : { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope,
+    for (auto* btn : { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope, &m_tabStereo,
                        &m_tabHarmonics, &m_tabLinear, &m_tabTransfer, &m_tabEnvelope,
                        &m_tabThd })
     {
@@ -3189,6 +3565,7 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     m_tabSpectrum    .onClick = [this] { switchTab (TabSpectrum);     };
     m_tabDynamics    .onClick = [this] { switchTab (TabDynamics);     };
     m_tabOscilloscope.onClick = [this] { switchTab (TabOscilloscope); };
+    m_tabStereo      .onClick = [this] { switchTab (TabStereo);       };
     m_tabHarmonics   .onClick = [this] { switchTab (TabHarmonics);    };
     m_tabLinear      .onClick = [this] { switchTab (TabLinear);       };
     m_tabTransfer    .onClick = [this] { switchTab (TabTransfer);     };
@@ -3198,6 +3575,7 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     addAndMakeVisible (m_specView);
     addAndMakeVisible (m_dynView);
     addAndMakeVisible (m_oscView);
+    addAndMakeVisible (m_stereoView);
     addAndMakeVisible (m_harmView);
     addAndMakeVisible (m_linearView);
     addAndMakeVisible (m_transferView);
@@ -3389,6 +3767,9 @@ void PlugNspectrPostEditor::timerCallback()
         m_oscView.update();
         if (m_activeTab == TabOscilloscope) m_oscView.repaint();
 
+        m_stereoView.update();
+        if (m_activeTab == TabStereo) m_stereoView.repaint();
+
         m_harmView.update();
         if (m_activeTab == TabHarmonics) m_harmView.repaint();
 
@@ -3555,7 +3936,7 @@ void PlugNspectrPostEditor::switchTab (int index)
     m_activeTab = index;
 
     juce::TextButton* tabs[TabCount] = { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope,
-                                         &m_tabHarmonics, &m_tabLinear, &m_tabTransfer,
+                                         &m_tabStereo, &m_tabHarmonics, &m_tabLinear, &m_tabTransfer,
                                          &m_tabEnvelope, &m_tabThd };
     for (int i = 0; i < TabCount; ++i)
     {
@@ -3569,6 +3950,7 @@ void PlugNspectrPostEditor::switchTab (int index)
     m_specView    .setVisible (index == TabSpectrum);
     m_dynView     .setVisible (index == TabDynamics);
     m_oscView     .setVisible (index == TabOscilloscope);
+    m_stereoView  .setVisible (index == TabStereo);
     m_harmView    .setVisible (index == TabHarmonics);
     m_linearView  .setVisible (index == TabLinear);
     m_transferView.setVisible (index == TabTransfer);
@@ -3579,9 +3961,20 @@ void PlugNspectrPostEditor::switchTab (int index)
     // FREQ + Test Tone belong to the single-tone tabs (live tabs + Harmonics);
     // LEVEL also drives the Distortion sweep level. The other measurement tabs
     // are driven entirely by Measure/Freeze, so dim + disable the footer there.
-    const bool freqOn  = (index <= TabHarmonics);
-    const bool levelOn = (index <= TabHarmonics || index == TabThd);
-    const bool toneOn  = (index <= TabHarmonics);
+    // Stereo is excluded despite being a live tab: every Pre generator is mono
+    // (writes ch0 then copies), so a test tone there reads as zero side energy.
+    const bool freqOn  = (index <= TabOscilloscope || index == TabHarmonics);
+    const bool levelOn = (freqOn || index == TabThd);
+    const bool toneOn  = freqOn;
+
+    // Four extra FFTs — only run them while the Stereo tab is actually showing.
+    audioProcessor.setStereoActive (index == TabStereo);
+    // The L+R / Side selector is meaningless on Stereo: it uses both inherently.
+    const bool chOn = (index != TabStereo);
+    m_chLR  .setEnabled (chOn);
+    m_chSide.setEnabled (chOn);
+    m_chLR  .setAlpha (chOn ? 1.0f : 0.4f);
+    m_chSide.setAlpha (chOn ? 1.0f : 0.4f);
 
     // Entering a tab that doesn't own the tone kills a stray tone so it can't
     // override the measurement stimulus (Pre prioritises the tone otherwise).
@@ -3680,8 +4073,8 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
 
     // Footer controls are only relevant on some tabs (see switchTab) — dim the
     // FREQ/LEVEL labels to match the enabled/disabled state of their knobs.
-    const bool freqOn  = (m_activeTab <= TabHarmonics);
-    const bool levelOn = (m_activeTab <= TabHarmonics || m_activeTab == TabThd);
+    const bool freqOn  = (m_activeTab <= TabOscilloscope || m_activeTab == TabHarmonics);
+    const bool levelOn = (freqOn || m_activeTab == TabThd);
     const auto dim      = [] (juce::Colour c, bool on) { return on ? c : c.withAlpha (0.35f); };
 
     // "FREQ" label — to the right of the knob (knob is 28px wide at kPaddingLarge)
@@ -3744,6 +4137,7 @@ void PlugNspectrPostEditor::resized()
     auto place = [&] (juce::TextButton& b) { const int w = tabW (b); b.setBounds (x, hH, w, tbH); x += w; };
 
     place (m_tabSpectrum); place (m_tabDynamics); place (m_tabOscilloscope);
+    place (m_tabStereo);
 
     constexpr int trayGap = 12, trayPadL = 18, trayPadR = 10;
     x += trayGap;
@@ -3776,6 +4170,7 @@ void PlugNspectrPostEditor::resized()
     m_specView  .setBounds (content);
     m_dynView   .setBounds (content);
     m_oscView   .setBounds (content);
+    m_stereoView.setBounds (content);
     m_harmView    .setBounds (content);
     m_linearView  .setBounds (content);
     m_transferView.setBounds (content);

@@ -725,6 +725,9 @@ void PlugNspectrPostProcessor::injectStereoBlock (const float* preL, const float
                                                   const float* postL, const float* postR,
                                                   int n)
 {
+    // The caller is explicitly supplying an L/R pair, so this counts as a stereo
+    // source — real mono detection stays in processBlock (numCh/preCh).
+    m_stereoSource.store (true);
     pushStereoSamples (preL,  preR,  n, m_stPreL,  m_stPreR,  m_stPrePos,  m_stPreAcc,  m_stBbPre);
     pushStereoSamples (postL, postR, n, m_stPostL, m_stPostR, m_stPostPos, m_stPostAcc, m_stBbPost);
 }
