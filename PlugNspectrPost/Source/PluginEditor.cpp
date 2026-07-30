@@ -1979,15 +1979,18 @@ void StereoView::update()
             // Smoothed auto-gain so quiet material still fills the square.
             if (peak > 1.0e-4f)
             {
-                const float target = juce::jlimit (0.5f, 12.0f, 0.9f / peak);
-                // Fast attack, slow release. A loud onset has to pull the scale
-                // down immediately — a symmetric lerp took ~20 ticks to follow,
-                // and the trace sat pinned to the edge of the square for a third
-                // of a second. Coming back up stays gentle so quiet passages do
-                // not pump.
-                m_gonioScale = (target < m_gonioScale)
-                             ? target
-                             : m_gonioScale + (target - m_gonioScale) * 0.02f;
+                // Meter ballistics: hold a peak envelope that captures a
+                // transient instantly and decays slowly (~3 s), then track it.
+                // Scaling off the raw per-chunk peak made the scale oscillate —
+                // the trace overflowed the square on an onset and then collapsed
+                // to a dot moments later, because the instantaneous peak swings
+                // wildly between chunks. A decaying envelope is smooth, so the
+                // scale can follow it quickly without jitter and recovers on its
+                // own instead of staying stuck small.
+                m_gonioPeak = juce::jmax (peak, m_gonioPeak * 0.995f);
+                const float target = juce::jlimit (0.5f, 12.0f,
+                                                   0.9f / juce::jmax (m_gonioPeak, 1.0e-4f));
+                m_gonioScale += (target - m_gonioScale) * 0.20f;
             }
         }
     }

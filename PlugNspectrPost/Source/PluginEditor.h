@@ -347,6 +347,7 @@ private:
     uint64_t m_capReadPos = 0;
     juce::AudioBuffer<float> m_capPre, m_capPost;
     float    m_gonioScale = 2.0f;   // smoothed auto-gain so quiet material still reads
+    float    m_gonioPeak  = 0.0f;   // decaying peak envelope the gain tracks
 
     float m_cursorX = -1.0f;
     bool  m_cursorLocked = false;
