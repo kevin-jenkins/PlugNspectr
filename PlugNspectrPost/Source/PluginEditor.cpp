@@ -2207,8 +2207,15 @@ void StereoView::drawGonio (juce::Graphics& g, juce::Rectangle<float> area) cons
                                                juce::PathStrokeType::rounded));
     };
 
-    plotTrail (m_gxPre,  m_gyPre,  PnsTheme::kColorPre .withAlpha (0.35f), 1.0f);
-    plotTrail (m_gxPost, m_gyPost, PnsTheme::kColorPost.withAlpha (0.85f), 1.3f);
+    // Post underneath, Pre ON TOP. Everywhere else in the plugin Pre is the
+    // receding background, but here that fails: Pre is usually the narrower
+    // signal, so its trace sits geometrically *inside* Post's and gets buried —
+    // a mono Pre is a thin vertical line hidden within a widened Post blob. No
+    // amount of alpha fixes occlusion. Drawing the reference over the result
+    // keeps it readable while Post still reads as the dominant shape, since it
+    // is the wider and heavier stroke.
+    plotTrail (m_gxPost, m_gyPost, PnsTheme::kColorPost.withAlpha (0.80f), 1.3f);
+    plotTrail (m_gxPre,  m_gyPre,  PnsTheme::kColorPre .withAlpha (0.85f), 1.0f);
 
     g.setColour (PnsTheme::kBorderSubtle);
     g.drawRect (sq, 1.0f);
