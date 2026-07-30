@@ -336,7 +336,10 @@ private:
 
     // Goniometer trail — a ring of rotated L/R points (X = (L-R)/√2, Y = (L+R)/√2,
     // so mono draws a vertical line, the convention engineers expect).
-    static constexpr int kGonioPoints = 3000;
+    // ~21 ms at 48 kHz. Short on purpose: as a continuous trace this is a
+    // Lissajous, and a long trail turns dense material into a solid scribble.
+    // Classic goniometers show a comparable window.
+    static constexpr int kGonioPoints = 1024;
     std::array<float, kGonioPoints> m_gxPost {}, m_gyPost {};
     std::array<float, kGonioPoints> m_gxPre  {}, m_gyPre  {};
     int      m_gonioPos  = 0;

@@ -371,7 +371,7 @@ int main (int argc, char* argv[])
     double trPhase = 0.0; int trStep = 0;      // transfer-curve level sweep state
     double enPhase = 0.0, enGr = 0.0; uint32_t enPos = 0;   // envelope step + compressor state
     double thdPh = 0.0; int thdStep = 0;       // THD sweep state (5% 2nd-harmonic plugin)
-    double stLpS = 0.0;                        // stereo widener crossover state
+    double stLpS = 0.0, stLpM = 0.0;           // stereo widener crossover / mono-bed state
 
     for (int f = 0; f < numFrames; ++f)
     {
@@ -387,9 +387,18 @@ int main (int argc, char* argv[])
             std::vector<float> postL ((size_t) kBlock), postR ((size_t) kBlock);
             const double a1k = 1.0 - std::exp (-2.0 * juce::MathConstants<double>::pi
                                                * 1000.0 / kSampleRate);
+            const double a800 = 1.0 - std::exp (-2.0 * juce::MathConstants<double>::pi
+                                                * 800.0 / kSampleRate);
+            // The mono bed is low-passed, not raw white noise. Real programme
+            // material is bandlimited, so adjacent samples are correlated and the
+            // goniometer traces a smooth curve; full-band white noise jumps
+            // randomly sample to sample and turns any line trace into a solid
+            // block, which tells you nothing about the display.
             for (int i = 0; i < kBlock; ++i)
             {
-                const float m = 0.25f * (rng.nextFloat() * 2.0f - 1.0f);   // shared (mono) noise
+                const float nm = 0.5f * (rng.nextFloat() * 2.0f - 1.0f);
+                stLpM += a800 * (nm - stLpM);
+                const float m = 1.8f * (float) stLpM;                      // mono bed
                 const float s = 0.25f * (rng.nextFloat() * 2.0f - 1.0f);   // independent noise
 
                 // One-pole split of the independent noise; keep only its highs so

@@ -2099,11 +2099,11 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
 
     if (ptsPre.size() > 1)
     {
-        g.setColour (PnsTheme::kColorPre.withAlpha (0.55f));
+        g.setColour (PnsTheme::kColorPre.withAlpha (PnsTheme::kColorPreAlpha));
         g.strokePath (pPre, juce::PathStrokeType (1.0f));
     }
     if (haveBoth)
-        PnsTheme::drawGlowLine (g, pPost, PnsTheme::kAccentPrimary, 1.5f);
+        PnsTheme::drawGlowLine (g, pPost, PnsTheme::kColorPost, 1.5f);
 
     // Cursor readout — frequency → value for both signals.
     if (haveBoth && m_cursorX >= 0.0f)
@@ -2120,7 +2120,7 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
             rows.add ("Post " + juce::String (post[(size_t) k], 2) + unit);
             rows.add ("Pre  " + juce::String (pre [(size_t) k], 2) + unit);
             drawCursorChip (g, plot, cx, valToY (post[(size_t) k]),
-                            PnsTheme::kAccentPrimary, rows, m_cursorLocked);
+                            PnsTheme::kColorPost, rows, m_cursorLocked);
         }
     }
 
@@ -2161,29 +2161,39 @@ void StereoView::drawGonio (juce::Graphics& g, juce::Rectangle<float> area) cons
     juce::Graphics::ScopedSaveState clip (g);
     g.reduceClipRegion (sq.toNearestInt());
 
-    // Per-dot integer fillRect. Two things matter here:
-    //  - It must stay per-dot, not one accumulated Path filled once, because
-    //    overlapping dots building up alpha is what makes dense regions read as
-    //    bright. That density *is* the information on a goniometer — flattening
-    //    it to uniform opacity loses the mono line entirely.
-    //  - Integer rects hit JUCE's axis-aligned span fill, so there is no path
-    //    construction or AA edge table per dot, unlike the fillEllipse this
-    //    replaced (3000 dots x 2 trails at 30 fps was ~180k rasterised paths/s).
+    // Continuous Lissajous trace rather than a scatter of dots: the shape of the
+    // trajectory is what tells Pre and Post apart, and two line traces read far
+    // more clearly overlaid than two interleaved point clouds.
+    //
+    // This MUST walk the ring in time order, not array order. Once the buffer has
+    // filled, the oldest sample sits at m_gonioPos — iterating 0..fill would join
+    // the newest point to the oldest and draw a bogus segment straight across the
+    // plot at the wrap. (Harmless for dots, which is why the old code got away
+    // with it.) One path stroked once is also far cheaper than per-sample fills.
     auto plotTrail = [&] (const std::array<float, kGonioPoints>& xs,
                           const std::array<float, kGonioPoints>& ys,
-                          juce::Colour c, int dotPx)
+                          juce::Colour c, float thickness)
     {
-        g.setColour (c);
-        for (int i = 0; i < m_gonioFill; ++i)
+        const int count = m_gonioFill;
+        if (count < 2) return;
+        const int start = (count == kGonioPoints) ? m_gonioPos : 0;   // oldest sample
+
+        juce::Path p;
+        for (int k = 0; k < count; ++k)
         {
+            const int i = (start + k) % kGonioPoints;
             const float px = cx + juce::jlimit (-1.0f, 1.0f, xs[(size_t) i] * m_gonioScale) * half;
             const float py = cy - juce::jlimit (-1.0f, 1.0f, ys[(size_t) i] * m_gonioScale) * half;
-            g.fillRect (juce::roundToInt (px), juce::roundToInt (py), dotPx, dotPx);
+            if (k == 0) p.startNewSubPath (px, py);
+            else        p.lineTo (px, py);
         }
+        g.setColour (c);
+        g.strokePath (p, juce::PathStrokeType (thickness, juce::PathStrokeType::curved,
+                                               juce::PathStrokeType::rounded));
     };
 
-    plotTrail (m_gxPre,  m_gyPre,  PnsTheme::kColorPre.withAlpha (0.22f), 2);
-    plotTrail (m_gxPost, m_gyPost, PnsTheme::kAccentPrimary.withAlpha (0.30f), 2);
+    plotTrail (m_gxPre,  m_gyPre,  PnsTheme::kColorPre .withAlpha (0.35f), 1.0f);
+    plotTrail (m_gxPost, m_gyPost, PnsTheme::kColorPost.withAlpha (0.85f), 1.3f);
 
     g.setColour (PnsTheme::kBorderSubtle);
     g.drawRect (sq, 1.0f);
