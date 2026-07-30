@@ -1980,7 +1980,14 @@ void StereoView::update()
             if (peak > 1.0e-4f)
             {
                 const float target = juce::jlimit (0.5f, 12.0f, 0.9f / peak);
-                m_gonioScale += (target - m_gonioScale) * 0.05f;
+                // Fast attack, slow release. A loud onset has to pull the scale
+                // down immediately — a symmetric lerp took ~20 ticks to follow,
+                // and the trace sat pinned to the edge of the square for a third
+                // of a second. Coming back up stays gentle so quiet passages do
+                // not pump.
+                m_gonioScale = (target < m_gonioScale)
+                             ? target
+                             : m_gonioScale + (target - m_gonioScale) * 0.02f;
             }
         }
     }
@@ -2182,8 +2189,13 @@ void StereoView::drawGonio (juce::Graphics& g, juce::Rectangle<float> area) cons
         for (int k = 0; k < count; ++k)
         {
             const int i = (start + k) % kGonioPoints;
-            const float px = cx + juce::jlimit (-1.0f, 1.0f, xs[(size_t) i] * m_gonioScale) * half;
-            const float py = cy - juce::jlimit (-1.0f, 1.0f, ys[(size_t) i] * m_gonioScale) * half;
+            // Clamp generously, NOT to the square's edge. At +/-1 an overshooting
+            // sample lands exactly on the border, so consecutive ones draw a
+            // segment along it and the trace appears to smear off the graph.
+            // Overshoot instead and let the clip region cut it, so a loud
+            // transient leaves the square cleanly.
+            const float px = cx + juce::jlimit (-3.0f, 3.0f, xs[(size_t) i] * m_gonioScale) * half;
+            const float py = cy - juce::jlimit (-3.0f, 3.0f, ys[(size_t) i] * m_gonioScale) * half;
             if (k == 0) p.startNewSubPath (px, py);
             else        p.lineTo (px, py);
         }
