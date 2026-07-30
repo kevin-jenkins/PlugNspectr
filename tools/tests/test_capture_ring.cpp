@@ -36,7 +36,7 @@ float expected (int ch, int64_t idx)
 // short, which the ring must zero-fill rather than skew.
 void writeChunk (P& proc, int64_t from, int n, int preN)
 {
-    juce::AudioBuffer<float> pre  (kCh, juce::jmax (1, preN));
+    juce::AudioBuffer<float> pre  (kCh, juce::jmax (0, preN));   // 0 == "no Pre"
     juce::AudioBuffer<float> post (kCh, n);
     pre.clear();
     for (int c = 0; c < kCh; ++c)
@@ -44,8 +44,6 @@ void writeChunk (P& proc, int64_t from, int n, int preN)
         for (int i = 0; i < n;    ++i) post.setSample (c, i, expected (c, from + i));
         for (int i = 0; i < preN; ++i) pre .setSample (c, i, expected (c, from + i));
     }
-    // preN == 0 must still look like "no Pre", so hand over an empty buffer.
-    if (preN <= 0) pre.setSize (kCh, 0, false, true, false);
     proc.injectTestCapture (pre, post, -12.0f, -12.0f);
 }
 } // namespace
@@ -111,11 +109,25 @@ TEST_CASE ("Capture ring: data stays contiguous across the wrap boundary")
     const int n = proc.readCaptureSince (pos, outPre, outPost);
 
     REQUIRE (n == kStep);
-    int firstBad = -1;
-    for (int i = 0; i < n; ++i)
-        if (outPost.getSample (0, i) != expected (0, wrote + i)) { firstBad = i; break; }
-    INFO ("wrote=" << wrote << " ring=" << kRing << " firstBad=" << firstBad);
-    CHECK (firstBad == -1);          // no discontinuity where the copy split
+
+    // Check every channel of BOTH buffers. readCaptureSince splits the copy into
+    // four hand-offset copyFrom calls (post/pre x head/wrapped), and the write
+    // side's put() passes a different `valid` for Pre than Post — so verifying
+    // only post[0] would let a wrong offset in any of the other three pass.
+    int badCh = -1, badIdx = -1;
+    bool badWasPre = false;
+    for (int c = 0; c < kCh && badCh < 0; ++c)
+        for (int i = 0; i < n; ++i)
+        {
+            const float want = expected (c, wrote + i);
+            if (outPost.getSample (c, i) != want)
+            { badCh = c; badIdx = i; badWasPre = false; break; }
+            if (outPre .getSample (c, i) != want)
+            { badCh = c; badIdx = i; badWasPre = true;  break; }
+        }
+    INFO ("wrote=" << wrote << " ring=" << kRing << " badCh=" << badCh
+                   << " badIdx=" << badIdx << " inPre=" << badWasPre);
+    CHECK (badCh == -1);             // no discontinuity where the copy split
 }
 
 TEST_CASE ("Capture ring: falling behind keeps the newest and reveals the loss")
@@ -123,15 +135,29 @@ TEST_CASE ("Capture ring: falling behind keeps the newest and reveals the loss")
     P proc;
     proc.prepareToPlay (pnst::kSR, 512);
 
-    // Overrun the ring without draining.
-    constexpr int kStep  = 8192;
-    const int64_t total  = (int64_t) kRing + 5 * kStep;
-    int64_t wrote = 0;
-    while (wrote < total) { writeChunk (proc, wrote, kStep, kStep); wrote += kStep; }
-
+    constexpr int kStep = 8192;
     uint64_t pos = 0;
-    const uint64_t before = pos;
     juce::AudioBuffer<float> outPre, outPost;
+    int64_t wrote = 0;
+
+    // Drain normally for a while first. The real scenario is a view that has been
+    // keeping up and then blocks — not one opening onto an already-full ring — so
+    // the stall must begin from a mid-stream cursor, which also makes the
+    // (newPos - oldPos) - n arithmetic below a real test rather than x - 0.
+    for (int i = 0; i < 3; ++i)
+    {
+        writeChunk (proc, wrote, kStep, kStep);
+        wrote += kStep;
+        proc.readCaptureSince (pos, outPre, outPost);
+    }
+    const uint64_t before = pos;
+    REQUIRE (before == (uint64_t) wrote);
+    REQUIRE (before > 0);                     // genuinely mid-stream
+
+    // Now stall: overrun the ring without draining.
+    const int64_t stallEnd = wrote + (int64_t) kRing + 5 * kStep;
+    while (wrote < stallEnd) { writeChunk (proc, wrote, kStep, kStep); wrote += kStep; }
+
     const int n = proc.readCaptureSince (pos, outPre, outPost);
 
     // Only a ring's worth survives...
@@ -139,9 +165,14 @@ TEST_CASE ("Capture ring: falling behind keeps the newest and reveals the loss")
     // ...but the cursor still lands on the true write position, so the caller can
     // see how much elapsed and account for it (the timebase fix depends on this).
     CHECK (pos == (uint64_t) wrote);
-    const uint64_t lost = (pos - before) - (uint64_t) n;
-    INFO ("wrote=" << wrote << " n=" << n << " lost=" << lost);
-    CHECK (lost == (uint64_t) (wrote - kRing));
+    // Elapsed since the cursor last moved, minus what survived. Note this is
+    // relative to `before`, not to zero — the whole point of starting mid-stream.
+    const uint64_t elapsed = pos - before;
+    const uint64_t lost    = elapsed - (uint64_t) n;
+    INFO ("before=" << before << " wrote=" << wrote << " elapsed=" << elapsed
+                    << " n=" << n << " lost=" << lost);
+    CHECK (elapsed == (uint64_t) wrote - before);
+    CHECK (lost    == elapsed - (uint64_t) kRing);
 
     // What survived must be the NEWEST audio, ending at the write position.
     const int64_t firstKept = wrote - kRing;
