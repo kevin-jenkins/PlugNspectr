@@ -28,6 +28,7 @@
   - [Spectrum](#spectrum-tab)
   - [Dynamics](#dynamics-tab)
   - [Oscilloscope](#oscilloscope-tab)
+  - [Stereo](#stereo-tab)
 - [Measurement Tabs](#measurement-tabs)
   - [Harmonics](#harmonics-tab)
   - [Freq Response](#freq-response-tab)
@@ -159,9 +160,9 @@ A plugin can't insert its companion automatically — the DAW controls the inser
 
 ## The UI at a Glance
 
-PlugNspectr Post has **eight tabs**, grouped by how they get their signal:
+PlugNspectr Post has **nine tabs**, grouped by how they get their signal:
 
-- **Live analysis** (program material): **Spectrum · Dynamics · Oscilloscope**
+- **Live analysis** (program material): **Spectrum · Dynamics · Oscilloscope · Stereo**
 - **Measurement** (inject a test signal): **Harmonics · Freq Response · Compression · Attack / Release · Distortion**
 
 The measurement tabs sit on a recessed **amber tray** in the tab bar to set them apart — they're the ones that temporarily replace your audio with a test signal.
@@ -252,6 +253,31 @@ A zero-crossing-triggered oscilloscope of both signals — useful for phase shif
 - **Pre** (lavender, receding) vs **Post** (bright teal) overlaid; triggering locks to a rising zero-crossing in the Post signal (auto-trigger style, non-swimming).
 - Time windows: **10ms** (individual cycles / transients), **50ms** (default, attack/release), **100ms** (slower events).
 - Look for: lines overlaid = transparent; smaller Post = gain reduction; shifted Post = latency/phase; different shape = harmonic coloration; flat tops = clipping.
+
+---
+
+### Stereo Tab
+
+What the plugin does to the **stereo image** — for wideners, imagers, M/S EQs, stereo bus compressors and reverbs.
+
+**Why two plots.** Width alone can't tell you what a widener actually did, because two very different things look the same on a width meter:
+
+| What the plugin did | Width | Correlation |
+|---|---|---|
+| Boosted side **level** | rises | barely moves — *louder, not wider* |
+| Genuinely **decorrelated** (Haas delay, all-pass) | rises | **falls** — and may collapse in mono |
+
+Read together, they separate honest widening from a level trick.
+
+**WIDTH (Side / Mid, dB):** per-frequency side-to-mid ratio, Pre (dim) vs Post (bright), with an amber fill showing the change. `−40 dB` = effectively mono, `0 dB` = equal mid and side energy. Tells you *where* the plugin widens — usually only above a corner frequency.
+
+**CORRELATION (−1…+1):** per-frequency correlation between L and R. `+1` = mono/in-phase, `0` = fully decorrelated, **negative = anti-phase**, which is what collapses when summed to mono.
+
+**Goniometer:** the classic 45°-rotated X/Y display — **mono draws a vertical line**, hard-panned content sits on the diagonals. Post in bright teal over a dim Pre trail.
+
+**Readouts:** broadband **Width**, **Correlation**, and **Mono** (level lost when summed to mono — `0 dB` is mono-safe) for Pre and Post. Correlation turns amber when it goes negative and Mono when the loss exceeds 3 dB.
+
+> This tab reads your **program material**, so it needs stereo audio playing — the `L+R / Side` selector and the footer tone controls dim here, since the tab uses both channels and the internal test tone is mono. On a mono track it says so instead of drawing a meaningless curve.
 
 ---
 
@@ -458,6 +484,7 @@ A tracked **pre-push hook** runs the suites before every push; enable it once pe
 - THD-vs-frequency distortion sweep
 - Curve **Freeze** (A/B) on Freq Response, Compression, Distortion
 - **L+R / Side** channel analysis (whole signal + stereo difference)
+- **Stereo tab** — per-band width + correlation (Pre vs Post), goniometer, mono-compatibility
 - Measurement-safety system (amber border/banner, armed buttons, auto-stop on tab change or transport stop)
 - Cursor readouts on all measurement plots
 - About box (info icon → version / format / OS / manual)
@@ -470,7 +497,6 @@ A tracked **pre-push hook** runs the suites before every push; enable it once pe
 - IMD (two-tone intermodulation) and THD+N
 - Selectable FFT size; optional oversampling / aliasing view
 - Linear-vs-minimum-phase readout
-- Stereo field comparison (Lissajous display)
 - Performance tab — CPU and latency overview
 - macOS: code-signing / notarization + real-DAW (Logic/Cubase) confirmation
 
