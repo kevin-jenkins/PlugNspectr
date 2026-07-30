@@ -671,6 +671,18 @@ class PlugNspectrPostEditor : public juce::AudioProcessorEditor,
                               private juce::Timer
 {
 public:
+    // Tab order, as laid out left-to-right in the tab bar. Live tabs first, then
+    // the test-signal tabs on the amber tray (see kFirstMeasTab). Named so the
+    // gating/visibility/layout logic never hardcodes an index — inserting a tab
+    // used to mean chasing the same integers through eight unrelated places.
+    enum Tab
+    {
+        TabSpectrum = 0, TabDynamics, TabOscilloscope,
+        TabHarmonics, TabLinear, TabTransfer, TabEnvelope, TabThd,
+        TabCount
+    };
+    static constexpr int kFirstMeasTab = TabHarmonics;   // first tab on the amber tray
+
     explicit PlugNspectrPostEditor (PlugNspectrPostProcessor& p);
     ~PlugNspectrPostEditor() override;
 
@@ -706,8 +718,8 @@ private:
     juce::TextButton m_tabEnvelope     { "Attack / Release"};
     juce::TextButton m_tabThd          { "Distortion"      };
 
-    // Test-signal tabs (indices 3..7) sit on a recessed amber tray; the live
-    // tabs (0..2) sit plain to the left. Tray bounds computed in resized().
+    // Test-signal tabs (kFirstMeasTab..TabCount-1) sit on a recessed amber tray;
+    // the live tabs sit plain to the left. Tray bounds computed in resized().
     juce::Rectangle<int> m_trayBounds;
     int              m_activeTab   = 0;
     int              m_tickCounter = 0;

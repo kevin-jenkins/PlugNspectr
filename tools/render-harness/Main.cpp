@@ -344,9 +344,14 @@ int main (int argc, char* argv[])
     const bool envelopeRender = (argc > 1 && juce::String (argv[1]) == "envelope-render");
     const bool thdRender      = (argc > 1 && juce::String (argv[1]) == "thd-render");
 
+    using Tabs = PlugNspectrPostEditor;
     editor->setSize (1000, 640);
-    editor->selectTabForTest (spectrumRender ? 0 : linearRender ? 4 : transferRender ? 5
-                              : envelopeRender ? 6 : thdRender ? 7 : 1);
+    editor->selectTabForTest (spectrumRender ? Tabs::TabSpectrum
+                            : linearRender   ? Tabs::TabLinear
+                            : transferRender ? Tabs::TabTransfer
+                            : envelopeRender ? Tabs::TabEnvelope
+                            : thdRender      ? Tabs::TabThd
+                                             : Tabs::TabDynamics);
     if (linearRender) editor->armMeasureForTest();   // show the measuring border/banner
     if (linearRender)   editor->setLinearCursorForTest (700);    // hairline ~3 kHz
     if (transferRender) editor->setTransferCursorForTest (520);  // ~-15 dB input

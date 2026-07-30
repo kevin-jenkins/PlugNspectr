@@ -3186,14 +3186,14 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
         addAndMakeVisible (btn);
     }
 
-    m_tabSpectrum    .onClick = [this] { switchTab (0); };
-    m_tabDynamics    .onClick = [this] { switchTab (1); };
-    m_tabOscilloscope.onClick = [this] { switchTab (2); };
-    m_tabHarmonics   .onClick = [this] { switchTab (3); };
-    m_tabLinear      .onClick = [this] { switchTab (4); };
-    m_tabTransfer    .onClick = [this] { switchTab (5); };
-    m_tabEnvelope    .onClick = [this] { switchTab (6); };
-    m_tabThd         .onClick = [this] { switchTab (7); };
+    m_tabSpectrum    .onClick = [this] { switchTab (TabSpectrum);     };
+    m_tabDynamics    .onClick = [this] { switchTab (TabDynamics);     };
+    m_tabOscilloscope.onClick = [this] { switchTab (TabOscilloscope); };
+    m_tabHarmonics   .onClick = [this] { switchTab (TabHarmonics);    };
+    m_tabLinear      .onClick = [this] { switchTab (TabLinear);       };
+    m_tabTransfer    .onClick = [this] { switchTab (TabTransfer);     };
+    m_tabEnvelope    .onClick = [this] { switchTab (TabEnvelope);     };
+    m_tabThd         .onClick = [this] { switchTab (TabThd);          };
 
     addAndMakeVisible (m_specView);
     addAndMakeVisible (m_dynView);
@@ -3305,13 +3305,13 @@ void PlugNspectrPostEditor::writeCmdBlock()
     c.testToneLevelDb   = m_toneLevel;
     c.testToneActive    = m_toneActive ? 1u : 0u;
     // Noise stimulus only while the Linear tab is showing AND Measure is on.
-    c.measureActive     = (m_activeTab == 4 && m_linearView.isMeasureActive()) ? 1u : 0u;
+    c.measureActive     = (m_activeTab == TabLinear && m_linearView.isMeasureActive()) ? 1u : 0u;
     // Dynamics stimulus: level ramp on the Transfer tab, level step on the
     // Envelope tab, THD sweep on the Distortion tab — only while showing + Measure on.
-    c.dynMeasureMode    = (m_activeTab == 5 && m_transferView.isMeasureActive()) ? 1u
-                        : (m_activeTab == 6 && m_envelopeView.isMeasureActive()) ? 2u
-                        : (m_activeTab == 7 && m_thdView.isMeasureActive())      ? 3u
-                                                                                 : 0u;
+    c.dynMeasureMode    = (m_activeTab == TabTransfer && m_transferView.isMeasureActive()) ? 1u
+                        : (m_activeTab == TabEnvelope && m_envelopeView.isMeasureActive()) ? 2u
+                        : (m_activeTab == TabThd      && m_thdView.isMeasureActive())      ? 3u
+                                                                                          : 0u;
     audioProcessor.postCommand (c);
 
     // Keep the Linear accumulation gate in lock-step with its noise stimulus so
@@ -3322,10 +3322,10 @@ void PlugNspectrPostEditor::writeCmdBlock()
 bool PlugNspectrPostEditor::isStimulusActive() const
 {
     if (m_toneActive) return true;
-    if (m_activeTab == 4 && m_linearView  .isMeasureActive()) return true;
-    if (m_activeTab == 5 && m_transferView.isMeasureActive()) return true;
-    if (m_activeTab == 6 && m_envelopeView.isMeasureActive()) return true;
-    if (m_activeTab == 7 && m_thdView     .isMeasureActive()) return true;
+    if (m_activeTab == TabLinear   && m_linearView  .isMeasureActive()) return true;
+    if (m_activeTab == TabTransfer && m_transferView.isMeasureActive()) return true;
+    if (m_activeTab == TabEnvelope && m_envelopeView.isMeasureActive()) return true;
+    if (m_activeTab == TabThd      && m_thdView     .isMeasureActive()) return true;
     return false;
 }
 
@@ -3379,30 +3379,30 @@ void PlugNspectrPostEditor::timerCallback()
 
     // ── Views ──────────────────────────────────────────────────────────────
     m_dynView.update();
-    if (m_activeTab == 1) m_dynView.repaint();
+    if (m_activeTab == TabDynamics) m_dynView.repaint();
 
     if (++m_tickCounter % 2 == 0)
     {
         m_specView.update();
-        if (m_activeTab == 0) m_specView.repaint();
+        if (m_activeTab == TabSpectrum) m_specView.repaint();
 
         m_oscView.update();
-        if (m_activeTab == 2) m_oscView.repaint();
+        if (m_activeTab == TabOscilloscope) m_oscView.repaint();
 
         m_harmView.update();
-        if (m_activeTab == 3) m_harmView.repaint();
+        if (m_activeTab == TabHarmonics) m_harmView.repaint();
 
         m_linearView.update();
-        if (m_activeTab == 4) m_linearView.repaint();
+        if (m_activeTab == TabLinear) m_linearView.repaint();
 
         m_transferView.update();
-        if (m_activeTab == 5) m_transferView.repaint();
+        if (m_activeTab == TabTransfer) m_transferView.repaint();
 
         m_envelopeView.update();
-        if (m_activeTab == 6) m_envelopeView.repaint();
+        if (m_activeTab == TabEnvelope) m_envelopeView.repaint();
 
         m_thdView.update();
-        if (m_activeTab == 7) m_thdView.repaint();
+        if (m_activeTab == TabThd) m_thdView.repaint();
     }
 }
 
@@ -3554,10 +3554,10 @@ void PlugNspectrPostEditor::switchTab (int index)
 {
     m_activeTab = index;
 
-    juce::TextButton* tabs[8] = { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope,
-                                   &m_tabHarmonics, &m_tabLinear, &m_tabTransfer,
-                                   &m_tabEnvelope, &m_tabThd };
-    for (int i = 0; i < 8; ++i)
+    juce::TextButton* tabs[TabCount] = { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope,
+                                         &m_tabHarmonics, &m_tabLinear, &m_tabTransfer,
+                                         &m_tabEnvelope, &m_tabThd };
+    for (int i = 0; i < TabCount; ++i)
     {
         const bool active = (i == index);
         tabs[i]->setColour (juce::TextButton::textColourOffId,
@@ -3566,22 +3566,22 @@ void PlugNspectrPostEditor::switchTab (int index)
         tabs[i]->repaint();
     }
 
-    m_specView    .setVisible (index == 0);
-    m_dynView     .setVisible (index == 1);
-    m_oscView     .setVisible (index == 2);
-    m_harmView    .setVisible (index == 3);
-    m_linearView  .setVisible (index == 4);
-    m_transferView.setVisible (index == 5);
-    m_envelopeView.setVisible (index == 6);
-    m_thdView     .setVisible (index == 7);
+    m_specView    .setVisible (index == TabSpectrum);
+    m_dynView     .setVisible (index == TabDynamics);
+    m_oscView     .setVisible (index == TabOscilloscope);
+    m_harmView    .setVisible (index == TabHarmonics);
+    m_linearView  .setVisible (index == TabLinear);
+    m_transferView.setVisible (index == TabTransfer);
+    m_envelopeView.setVisible (index == TabEnvelope);
+    m_thdView     .setVisible (index == TabThd);
 
     // ── Footer relevance per tab ───────────────────────────────────────────
     // FREQ + Test Tone belong to the single-tone tabs (live tabs + Harmonics);
     // LEVEL also drives the Distortion sweep level. The other measurement tabs
     // are driven entirely by Measure/Freeze, so dim + disable the footer there.
-    const bool freqOn  = (index <= 3);
-    const bool levelOn = (index <= 3 || index == 7);
-    const bool toneOn  = (index <= 3);
+    const bool freqOn  = (index <= TabHarmonics);
+    const bool levelOn = (index <= TabHarmonics || index == TabThd);
+    const bool toneOn  = (index <= TabHarmonics);
 
     // Entering a tab that doesn't own the tone kills a stray tone so it can't
     // override the measurement stimulus (Pre prioritises the tone otherwise).
@@ -3680,8 +3680,8 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
 
     // Footer controls are only relevant on some tabs (see switchTab) — dim the
     // FREQ/LEVEL labels to match the enabled/disabled state of their knobs.
-    const bool freqOn  = (m_activeTab <= 3);
-    const bool levelOn = (m_activeTab <= 3 || m_activeTab == 7);
+    const bool freqOn  = (m_activeTab <= TabHarmonics);
+    const bool levelOn = (m_activeTab <= TabHarmonics || m_activeTab == TabThd);
     const auto dim      = [] (juce::Colour c, bool on) { return on ? c : c.withAlpha (0.35f); };
 
     // "FREQ" label — to the right of the knob (knob is 28px wide at kPaddingLarge)
