@@ -507,10 +507,10 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         {
             if (post0 != nullptr)
                 pushStereoSamples (post0, post1, numSmp, m_stPostL, m_stPostR,
-                                   m_stPostPos, m_stPostAcc, m_stBbPost);
+                                   m_stPostPos, m_stPostAcc, m_stBbPostLive, m_stBbPost);
             if (pre0 != nullptr)
                 pushStereoSamples (pre0, pre1, preSmp, m_stPreL, m_stPreR,
-                                   m_stPrePos, m_stPreAcc, m_stBbPre);
+                                   m_stPrePos, m_stPreAcc, m_stBbPreLive, m_stBbPre);
         }
     }
 
@@ -652,7 +652,8 @@ PlugNspectrPostProcessor::RmsPair PlugNspectrPostProcessor::getRms() const
 void PlugNspectrPostProcessor::accumulateStereoFrame (
     const std::array<float, kFftSize>& l,
     const std::array<float, kFftSize>& r,
-    StereoAccum& acc)
+    StereoAccum& acc,
+    const StereoBroadband& bbLive, StereoBroadband& bbPub)
 {
     auto forward = [this] (const std::array<float, kFftSize>& src,
                            std::array<float, 2 * kFftSize>& work)
@@ -685,18 +686,24 @@ void PlugNspectrPostProcessor::accumulateStereoFrame (
         acc.slrRe[k] = acc.slrRe[k] * kDecay + slrRe * (1.0 - kDecay);
     }
     ++acc.frames;
+    // Publish the broadband triple here so the reader always sees ll/rr/lr from
+    // the same moment — correlation is meaningless if they are mixed.
+    bbPub = bbLive;
 }
 
 void PlugNspectrPostProcessor::pushStereoSamples (
     const float* l, const float* r, int n,
     std::array<float, kFftSize>& accumL,
     std::array<float, kFftSize>& accumR,
-    int& pos, StereoAccum& acc, StereoBroadband& bb)
+    int& pos, StereoAccum& acc,
+    StereoBroadband& bbLive, StereoBroadband& bbPub)
 {
     if (l == nullptr || r == nullptr) return;
 
     // Broadband sums, decayed per block, for the correlation / mono-loss readouts.
+    // Accumulated privately here; published under the lock on frame completion.
     constexpr double kBbDecay = 0.95;
+    StereoBroadband& bb = bbLive;
     double ll = 0.0, rr = 0.0, lr = 0.0;
     for (int i = 0; i < n; ++i)
     {
@@ -716,7 +723,7 @@ void PlugNspectrPostProcessor::pushStereoSamples (
         if (++pos >= kFftSize)
         {
             pos = 0;
-            accumulateStereoFrame (accumL, accumR, acc);
+            accumulateStereoFrame (accumL, accumR, acc, bbLive, bbPub);
         }
     }
 }
@@ -728,13 +735,26 @@ void PlugNspectrPostProcessor::injectStereoBlock (const float* preL, const float
     // The caller is explicitly supplying an L/R pair, so this counts as a stereo
     // source — real mono detection stays in processBlock (numCh/preCh).
     m_stereoSource.store (true);
-    pushStereoSamples (preL,  preR,  n, m_stPreL,  m_stPreR,  m_stPrePos,  m_stPreAcc,  m_stBbPre);
-    pushStereoSamples (postL, postR, n, m_stPostL, m_stPostR, m_stPostPos, m_stPostAcc, m_stBbPost);
+    pushStereoSamples (preL,  preR,  n, m_stPreL,  m_stPreR,  m_stPrePos,
+                       m_stPreAcc,  m_stBbPreLive,  m_stBbPre);
+    pushStereoSamples (postL, postR, n, m_stPostL, m_stPostR, m_stPostPos,
+                       m_stPostAcc, m_stBbPostLive, m_stBbPost);
 }
 
 void PlugNspectrPostProcessor::getStereo (StereoResult& out) const
 {
-    juce::ScopedLock sl (m_stereoLock);
+    // Snapshot under the lock, then do the logs/sqrts outside it. The audio
+    // thread needs this same lock to publish frames, so holding it across ~4k
+    // transcendental ops would make the audio thread wait on UI-thread maths.
+    StereoAccum     preAcc, postAcc;
+    StereoBroadband bbPre, bbPost;
+    {
+        juce::ScopedLock sl (m_stereoLock);
+        preAcc  = m_stPreAcc;
+        postAcc = m_stPostAcc;
+        bbPre   = m_stBbPre;
+        bbPost  = m_stBbPost;
+    }
 
     // A bin is only trustworthy once there is real energy in it; below that the
     // width ratio is noise divided by noise.
@@ -766,11 +786,11 @@ void PlugNspectrPostProcessor::getStereo (StereoResult& out) const
         }
     };
 
-    fill (m_stPreAcc,  out.widthPre,  out.corrPre,  &out.valid);
+    fill (preAcc,  out.widthPre,  out.corrPre,  &out.valid);
     // Post shares the Pre validity mask: a bin is comparable only where both have
     // energy, and Pre is the reference.
     std::array<bool, kNumSpecBins> ignored {};
-    fill (m_stPostAcc, out.widthPost, out.corrPost, &ignored);
+    fill (postAcc, out.widthPost, out.corrPost, &ignored);
     for (int k = 0; k < kNumSpecBins; ++k)
         out.valid[k] = out.valid[k] && ignored[k];
 
@@ -793,8 +813,8 @@ void PlugNspectrPostProcessor::getStereo (StereoResult& out) const
                  : (stereoPow > 0.0 ? -40.0f : 0.0f);
     };
 
-    broadband (m_stBbPre,  out.bbWidthPre,  out.bbCorrPre,  out.monoLossPre);
-    broadband (m_stBbPost, out.bbWidthPost, out.bbCorrPost, out.monoLossPost);
+    broadband (bbPre,  out.bbWidthPre,  out.bbCorrPre,  out.monoLossPre);
+    broadband (bbPost, out.bbWidthPost, out.bbCorrPost, out.monoLossPost);
 
     out.stereoSource = m_stereoSource.load();
 }
@@ -806,6 +826,8 @@ void PlugNspectrPostProcessor::resetStereo()
     m_stPostAcc = StereoAccum {};
     m_stBbPre   = StereoBroadband {};
     m_stBbPost  = StereoBroadband {};
+    m_stBbPreLive  = StereoBroadband {};
+    m_stBbPostLive = StereoBroadband {};
 }
 
 //==============================================================================

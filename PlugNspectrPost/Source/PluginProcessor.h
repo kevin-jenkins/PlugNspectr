@@ -298,17 +298,23 @@ private:
 
     // Broadband (time-domain) sums for the correlation / mono-loss readouts.
     struct StereoBroadband { double ll = 0.0, rr = 0.0, lr = 0.0; };
-    StereoBroadband                      m_stBbPre, m_stBbPost;
+    // Accumulated on the audio thread (private), then published as a consistent
+    // triple under m_stereoLock when a frame completes. Correlation needs all
+    // three to come from the same moment, so they cannot be separate atomics.
+    StereoBroadband                      m_stBbPreLive,  m_stBbPostLive;
+    StereoBroadband                      m_stBbPre,      m_stBbPost;
     mutable juce::CriticalSection        m_stereoLock;
 
     // Transforms one L/R pair into the accumulator (called when a frame fills).
     void accumulateStereoFrame (const std::array<float, kFftSize>& l,
                                 const std::array<float, kFftSize>& r,
-                                StereoAccum& acc);
+                                StereoAccum& acc,
+                                const StereoBroadband& bbLive, StereoBroadband& bbPub);
     void pushStereoSamples (const float* l, const float* r, int n,
                             std::array<float, kFftSize>& accumL,
                             std::array<float, kFftSize>& accumR,
-                            int& pos, StereoAccum& acc, StereoBroadband& bb);
+                            int& pos, StereoAccum& acc,
+                            StereoBroadband& bbLive, StereoBroadband& bbPub);
 
     //==========================================================================
     // Linear measurement engine — time-aligned Pre/Post frames → cross-spectrum.

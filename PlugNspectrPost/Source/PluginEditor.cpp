@@ -3671,6 +3671,9 @@ PlugNspectrPostEditor::~PlugNspectrPostEditor()
 {
     // Stop any stimulus so Pre goes quiet immediately on editor close.
     audioProcessor.postCommand (pns::PNS_CmdBlock{});
+    // Drop the stereo gate too — otherwise closing the window while the Stereo
+    // tab is showing leaves four FFTs per frame running with nothing reading them.
+    audioProcessor.setStereoActive (false);
     setLookAndFeel (nullptr);
     stopTimer();
 }
