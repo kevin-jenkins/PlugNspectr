@@ -1082,10 +1082,23 @@ void DynamicsView::update()
                 m_waveCalibPeak     = juce::jmax (m_waveCalibPeak, winPeak);
                 m_waveCalibSamples += (int) (sr / 60.0);   // ~one tick of audio
 
+                // Follow the running peak for the whole window rather than sitting
+                // on a fixed guess and snapping at the end. The first tick with
+                // signal jumps straight to the right ballpark, so the view is
+                // usable immediately; after that the scale eases toward the target
+                // (~90 ms). Because the peak is a running maximum, the target only
+                // ever decreases, so this is a smooth monotonic zoom-out with no
+                // hunting — then it locks, which keeps quiet passages from zooming
+                // back in.
+                // 0.65 → calibration peak fills ~65% of half-height (headroom)
+                const float target = juce::jlimit (1.0f, 64.0f, 0.65f / m_waveCalibPeak);
+                const bool  firstTick = (m_waveCalibSamples <= (int) (sr / 60.0));
+                m_waveScale = firstTick ? target
+                                        : m_waveScale + (target - m_waveScale) * 0.18f;
+
                 if (m_waveCalibSamples >= (int) (sr * 2.0) && m_waveCalibPeak > kSilence)
                 {
-                    // 0.65 → calibration peak fills ~65% of half-height (headroom)
-                    m_waveScale       = juce::jlimit (1.0f, 64.0f, 0.65f / m_waveCalibPeak);
+                    m_waveScale       = target;
                     m_waveScaleLocked = true;
                 }
             }
