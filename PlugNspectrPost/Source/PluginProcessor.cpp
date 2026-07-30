@@ -37,8 +37,10 @@ void PlugNspectrPostProcessor::prepareToPlay (double sampleRate, int samplesPerB
 
     {
         juce::ScopedLock sl (m_captureLock);
-        m_capture.pre .setSize (pns::kMaxChannels, safeSamples, false, true, false);
-        m_capture.post.setSize (pns::kMaxChannels, safeSamples, false, true, false);
+        // 3 channels: 0 = derived analysis signal (waveform / oscilloscope),
+        // 1 = raw L, 2 = raw R (goniometer on the Stereo tab).
+        m_capture.pre .setSize (kCaptureChannels, safeSamples, false, true, false);
+        m_capture.post.setSize (kCaptureChannels, safeSamples, false, true, false);
     }
 
     resetMeasurement();
@@ -48,6 +50,8 @@ void PlugNspectrPostProcessor::prepareToPlay (double sampleRate, int samplesPerB
         juce::ScopedLock sl (m_thdLock);
         m_thdPct.fill (0.0f); m_thdValid.fill (0); m_thdFresh.fill (0); m_thdPos = 0;
     }
+    resetStereo();
+    m_stPrePos = m_stPostPos = 0;
 }
 
 void PlugNspectrPostProcessor::releaseResources()
@@ -494,6 +498,20 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const float* pre1 = (preReady && preCh > 1) ? m_preIn.preData[1] : pre0;
         for (int i = 0; i < preSmp; ++i)
             m_anaPre[i] = (pre0 != nullptr) ? derive (pre0[i], pre1[i]) : 0.0f;
+
+        // ── Stereo image analysis ─────────────────────────────────────────────
+        // Reuses the raw L/R pointers above. Costs four extra FFTs per frame, so
+        // it only runs while the Stereo tab is showing (set from switchTab).
+        m_stereoSource.store (numCh > 1 && preCh > 1);
+        if (m_stereoActive.load())
+        {
+            if (post0 != nullptr)
+                pushStereoSamples (post0, post1, numSmp, m_stPostL, m_stPostR,
+                                   m_stPostPos, m_stPostAcc, m_stBbPost);
+            if (pre0 != nullptr)
+                pushStereoSamples (pre0, pre1, preSmp, m_stPreL, m_stPreR,
+                                   m_stPrePos, m_stPreAcc, m_stBbPre);
+        }
     }
 
     // ── Capture pre/post audio blocks ─────────────────────────────────────
@@ -502,12 +520,33 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
         // Channel 0 of the capture holds the derived analysis signal so the
         // waveform / oscilloscope views follow the L/R/Mid/Side selection.
+        // Channels 1/2 carry raw L/R for the Stereo tab's goniometer, which
+        // needs the untouched pair rather than the derived mono signal.
         if (preSmp > 0)
             std::memcpy (m_capture.pre.getWritePointer (0), m_anaPre.data(),
                          static_cast<size_t> (preSmp) * sizeof (float));
 
         std::memcpy (m_capture.post.getWritePointer (0), m_anaPost.data(),
                      static_cast<size_t> (numSmp) * sizeof (float));
+
+        {
+            const float* post0 = (numCh > 0) ? buffer.getReadPointer (0) : nullptr;
+            const float* post1 = (numCh > 1) ? buffer.getReadPointer (1) : post0;
+            if (post0 != nullptr)
+            {
+                const auto n = static_cast<size_t> (numSmp) * sizeof (float);
+                std::memcpy (m_capture.post.getWritePointer (kCapL), post0, n);
+                std::memcpy (m_capture.post.getWritePointer (kCapR), post1, n);
+            }
+            if (preSmp > 0)
+            {
+                const float* pre0 = m_preIn.preData[0];
+                const float* pre1 = (preCh > 1) ? m_preIn.preData[1] : pre0;
+                const auto n = static_cast<size_t> (preSmp) * sizeof (float);
+                std::memcpy (m_capture.pre.getWritePointer (kCapL), pre0, n);
+                std::memcpy (m_capture.pre.getWritePointer (kCapR), pre1, n);
+            }
+        }
 
         ++m_capture.captureCount;
     }
@@ -604,6 +643,166 @@ PlugNspectrPostProcessor::RmsPair PlugNspectrPostProcessor::getRms() const
 {
     juce::ScopedLock sl (m_rmsLock);
     return m_lastRms;
+}
+
+//==============================================================================
+// Stereo engine. See StereoResult in the header for the maths; in short we FFT L
+// and R, then accumulate |L|², |R|² and Re{L·conj(R)} per bin. Width and
+// correlation both derive from those three exactly.
+void PlugNspectrPostProcessor::accumulateStereoFrame (
+    const std::array<float, kFftSize>& l,
+    const std::array<float, kFftSize>& r,
+    StereoAccum& acc)
+{
+    auto forward = [this] (const std::array<float, kFftSize>& src,
+                           std::array<float, 2 * kFftSize>& work)
+    {
+        std::copy (src.begin(), src.end(), work.begin());
+        std::fill (work.begin() + kFftSize, work.end(), 0.0f);
+        m_window.multiplyWithWindowingTable (work.data(), kFftSize);
+        m_fft.performRealOnlyForwardTransform (work.data(), true);
+    };
+
+    forward (l, m_stWorkA);
+    forward (r, m_stWorkB);
+
+    // Exponential forgetting so the display tracks the material instead of
+    // averaging the whole session. ~2 s at 2048-sample frames.
+    constexpr double kDecay = 0.90;
+
+    juce::ScopedLock sl (m_stereoLock);
+    for (int k = 0; k < kNumSpecBins; ++k)
+    {
+        const double lr_ = m_stWorkA[k * 2], li = m_stWorkA[k * 2 + 1];
+        const double rr_ = m_stWorkB[k * 2], ri = m_stWorkB[k * 2 + 1];
+
+        const double sll   = lr_ * lr_ + li * li;
+        const double srr   = rr_ * rr_ + ri * ri;
+        const double slrRe = lr_ * rr_ + li * ri;      // Re{L·conj(R)}
+
+        acc.sll  [k] = acc.sll  [k] * kDecay + sll   * (1.0 - kDecay);
+        acc.srr  [k] = acc.srr  [k] * kDecay + srr   * (1.0 - kDecay);
+        acc.slrRe[k] = acc.slrRe[k] * kDecay + slrRe * (1.0 - kDecay);
+    }
+    ++acc.frames;
+}
+
+void PlugNspectrPostProcessor::pushStereoSamples (
+    const float* l, const float* r, int n,
+    std::array<float, kFftSize>& accumL,
+    std::array<float, kFftSize>& accumR,
+    int& pos, StereoAccum& acc, StereoBroadband& bb)
+{
+    if (l == nullptr || r == nullptr) return;
+
+    // Broadband sums, decayed per block, for the correlation / mono-loss readouts.
+    constexpr double kBbDecay = 0.95;
+    double ll = 0.0, rr = 0.0, lr = 0.0;
+    for (int i = 0; i < n; ++i)
+    {
+        ll += (double) l[i] * l[i];
+        rr += (double) r[i] * r[i];
+        lr += (double) l[i] * r[i];
+    }
+    const double inv = 1.0 / juce::jmax (1, n);
+    bb.ll = bb.ll * kBbDecay + (ll * inv) * (1.0 - kBbDecay);
+    bb.rr = bb.rr * kBbDecay + (rr * inv) * (1.0 - kBbDecay);
+    bb.lr = bb.lr * kBbDecay + (lr * inv) * (1.0 - kBbDecay);
+
+    for (int i = 0; i < n; ++i)
+    {
+        accumL[pos] = l[i];
+        accumR[pos] = r[i];
+        if (++pos >= kFftSize)
+        {
+            pos = 0;
+            accumulateStereoFrame (accumL, accumR, acc);
+        }
+    }
+}
+
+void PlugNspectrPostProcessor::injectStereoBlock (const float* preL, const float* preR,
+                                                  const float* postL, const float* postR,
+                                                  int n)
+{
+    pushStereoSamples (preL,  preR,  n, m_stPreL,  m_stPreR,  m_stPrePos,  m_stPreAcc,  m_stBbPre);
+    pushStereoSamples (postL, postR, n, m_stPostL, m_stPostR, m_stPostPos, m_stPostAcc, m_stBbPost);
+}
+
+void PlugNspectrPostProcessor::getStereo (StereoResult& out) const
+{
+    juce::ScopedLock sl (m_stereoLock);
+
+    // A bin is only trustworthy once there is real energy in it; below that the
+    // width ratio is noise divided by noise.
+    auto fill = [] (const StereoAccum& acc,
+                    std::array<float, kNumSpecBins>& width,
+                    std::array<float, kNumSpecBins>& corr,
+                    std::array<bool,  kNumSpecBins>* valid)
+    {
+        double peak = 0.0;
+        for (int k = 0; k < kNumSpecBins; ++k)
+            peak = juce::jmax (peak, acc.sll[k] + acc.srr[k]);
+        const double gate = peak * 1.0e-6;   // -60 dB below the loudest bin
+
+        for (int k = 0; k < kNumSpecBins; ++k)
+        {
+            const double sll = acc.sll[k], srr = acc.srr[k], slr = acc.slrRe[k];
+            const double mid  = juce::jmax (0.0, (sll + srr + 2.0 * slr) * 0.25);
+            const double side = juce::jmax (0.0, (sll + srr - 2.0 * slr) * 0.25);
+
+            width[k] = (mid > 0.0 && side > 0.0)
+                     ? (float) juce::jmax ((double) kStereoFloorDb, 10.0 * std::log10 (side / mid))
+                     : kStereoFloorDb;
+
+            const double den = std::sqrt (sll * srr);
+            corr[k] = (den > 0.0) ? (float) juce::jlimit (-1.0, 1.0, slr / den) : 1.0f;
+
+            if (valid != nullptr)
+                (*valid)[k] = (sll + srr) > gate;
+        }
+    };
+
+    fill (m_stPreAcc,  out.widthPre,  out.corrPre,  &out.valid);
+    // Post shares the Pre validity mask: a bin is comparable only where both have
+    // energy, and Pre is the reference.
+    std::array<bool, kNumSpecBins> ignored {};
+    fill (m_stPostAcc, out.widthPost, out.corrPost, &ignored);
+    for (int k = 0; k < kNumSpecBins; ++k)
+        out.valid[k] = out.valid[k] && ignored[k];
+
+    // ── Broadband readouts ────────────────────────────────────────────────────
+    auto broadband = [] (const StereoBroadband& bb, float& widthDb, float& corr, float& monoLoss)
+    {
+        const double den = std::sqrt (bb.ll * bb.rr);
+        corr = (den > 0.0) ? (float) juce::jlimit (-1.0, 1.0, bb.lr / den) : 1.0f;
+
+        const double mid  = juce::jmax (0.0, (bb.ll + bb.rr + 2.0 * bb.lr) * 0.25);
+        const double side = juce::jmax (0.0, (bb.ll + bb.rr - 2.0 * bb.lr) * 0.25);
+        widthDb = (mid > 0.0 && side > 0.0)
+                ? (float) juce::jmax ((double) kStereoFloorDb, 10.0 * std::log10 (side / mid))
+                : kStereoFloorDb;
+
+        // Level lost when summed to mono: mid RMS against the stereo RMS.
+        const double stereoPow = (bb.ll + bb.rr) * 0.5;
+        monoLoss = (stereoPow > 0.0 && mid > 0.0)
+                 ? (float) juce::jmax (-40.0, 10.0 * std::log10 (mid / stereoPow))
+                 : (stereoPow > 0.0 ? -40.0f : 0.0f);
+    };
+
+    broadband (m_stBbPre,  out.bbWidthPre,  out.bbCorrPre,  out.monoLossPre);
+    broadband (m_stBbPost, out.bbWidthPost, out.bbCorrPost, out.monoLossPost);
+
+    out.stereoSource = m_stereoSource.load();
+}
+
+void PlugNspectrPostProcessor::resetStereo()
+{
+    juce::ScopedLock sl (m_stereoLock);
+    m_stPreAcc  = StereoAccum {};
+    m_stPostAcc = StereoAccum {};
+    m_stBbPre   = StereoBroadband {};
+    m_stBbPost  = StereoBroadband {};
 }
 
 //==============================================================================

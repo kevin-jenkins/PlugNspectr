@@ -105,6 +105,43 @@ public:
     RmsPair getRms() const;
 
     //==========================================================================
+    // Stereo image analysis — what the plugin does to the stereo field.
+    //
+    // Per bin we FFT L and R (not Mid/Side) and average three Welch-style terms:
+    //     Sll = E|L|²,  Srr = E|R|²,  SlrRe = Re{L·conj(R)}
+    // Both displayed curves fall out of those exactly, with no assumption that
+    // L and R are level-matched:
+    //     correlation = SlrRe / sqrt(Sll·Srr)              (bounded -1..+1)
+    //     |M|² = (Sll + Srr + 2·SlrRe)/4                   (mid power)
+    //     |S|² = (Sll + Srr - 2·SlrRe)/4                   (side power)
+    //     width(dB) = 10·log10(|S|²/|M|²)                  (floored for display)
+    // Width says how much side energy there is; correlation says whether it is
+    // genuine decorrelation or a phase trick that will collapse in mono. A plain
+    // side-level boost moves width but not correlation.
+    struct StereoResult
+    {
+        std::array<float, kNumSpecBins> widthPre {}, widthPost {};   // dB, floored
+        std::array<float, kNumSpecBins> corrPre  {}, corrPost  {};   // -1..+1
+        std::array<bool,  kNumSpecBins> valid    {};                 // enough energy to trust
+        float bbWidthPre = kStereoFloorDb, bbWidthPost = kStereoFloorDb;   // broadband dB
+        float bbCorrPre  = 1.0f,           bbCorrPost  = 1.0f;
+        float monoLossPre = 0.0f,          monoLossPost = 0.0f;      // dB lost summing to mono
+        bool  stereoSource = false;        // false => mono track, curves meaningless
+    };
+    static constexpr float kStereoFloorDb = -40.0f;   // display floor for width
+    // Capture layout: 0 = derived analysis signal, 1 = raw L, 2 = raw R.
+    static constexpr int   kCaptureChannels = 3;
+    static constexpr int   kCapL = 1, kCapR = 2;
+
+    void getStereo (StereoResult& out) const;
+    void resetStereo ();
+    // Editor gates this on tab visibility — it costs four extra FFTs per frame.
+    void setStereoActive (bool b) { m_stereoActive.store (b); }
+    // Test seam: drive the engine directly, no IPC or editor required.
+    void injectStereoBlock (const float* preL, const float* preR,
+                            const float* postL, const float* postR, int n);
+
+    //==========================================================================
     // Linear measurement — transfer function of the plugin(s) under analysis,
     // estimated as H1 = Sxy / Sxx (cross-spectrum of Pre→Post). Drives the
     // magnitude / phase / group-delay display on the Linear tab.
@@ -233,6 +270,45 @@ private:
     std::array<float, kNumSpecBins>      m_postSpectrum {};
     std::array<float, kNumSpecBins>      m_preSpectrum  {};
     mutable juce::CriticalSection        m_specLock;
+
+    //==========================================================================
+    // Stereo engine — L/R frames → averaged power + cross terms (see StereoResult).
+    // Reuses m_fft/m_window (same 2048 frame as the spectrum) so the Stereo tab's
+    // X axis and update rate match the Spectrum tab. Gated by m_stereoActive.
+    std::atomic<bool>                    m_stereoActive { false };
+    // False when the track is mono (L == R by construction) — the view says so
+    // rather than drawing a floored width curve and a flat +1 correlation.
+    std::atomic<bool>                    m_stereoSource { false };
+
+    // Pre and Post arrive in separate blocks of differing length, so each pair
+    // needs its own frame position (mirrors m_pre/m_postAccumPos above).
+    std::array<float, kFftSize>          m_stPreL {},  m_stPreR {};
+    std::array<float, kFftSize>          m_stPostL {}, m_stPostR {};
+    int                                  m_stPrePos = 0, m_stPostPos = 0;
+    // Two work buffers: L and R of one signal must be transformed and held
+    // together to form the cross term.
+    std::array<float, 2 * kFftSize>      m_stWorkA {}, m_stWorkB {};
+
+    struct StereoAccum
+    {
+        std::array<double, kNumSpecBins> sll {}, srr {}, slrRe {};
+        int frames = 0;
+    };
+    StereoAccum                          m_stPreAcc, m_stPostAcc;
+
+    // Broadband (time-domain) sums for the correlation / mono-loss readouts.
+    struct StereoBroadband { double ll = 0.0, rr = 0.0, lr = 0.0; };
+    StereoBroadband                      m_stBbPre, m_stBbPost;
+    mutable juce::CriticalSection        m_stereoLock;
+
+    // Transforms one L/R pair into the accumulator (called when a frame fills).
+    void accumulateStereoFrame (const std::array<float, kFftSize>& l,
+                                const std::array<float, kFftSize>& r,
+                                StereoAccum& acc);
+    void pushStereoSamples (const float* l, const float* r, int n,
+                            std::array<float, kFftSize>& accumL,
+                            std::array<float, kFftSize>& accumR,
+                            int& pos, StereoAccum& acc, StereoBroadband& bb);
 
     //==========================================================================
     // Linear measurement engine — time-aligned Pre/Post frames → cross-spectrum.
