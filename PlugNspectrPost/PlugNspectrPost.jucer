@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<JUCERPROJECT id="y7pDzm" name="PlugNspectrPost" projectType="audioplug" version="1.0.2" useAppConfig="0"
+<JUCERPROJECT id="y7pDzm" name="PlugNspectrPost" projectType="audioplug" version="1.0.3" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" companyName="Biltroy Audio"
               companyCopyright="2026" pluginFormats="buildVST3" pluginManufacturerCode="Bilt"
               pluginCode="BNSQ" pluginVST3Category="Analyzer" pluginVSTCategory="kPlugCategAnalysis">
