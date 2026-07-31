@@ -2040,12 +2040,15 @@ float StereoView::freqToX (double hz, juce::Rectangle<float> plot) const
 }
 
 // One stacked lane: log-frequency X, linear value Y, Pre dim under Post bright.
-void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const char* title,
+void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const LaneSpec& spec,
                            const std::array<float, kBins>& pre,
-                           const std::array<float, kBins>& post,
-                           float vMin, float vMax, const juce::String& unit,
-                           int steps, bool fillDelta) const
+                           const std::array<float, kBins>& post) const
 {
+    const float vMin = spec.vMin, vMax = spec.vMax;
+    const juce::String unit (spec.unit);
+    const int  steps     = spec.steps;
+    const bool fillDelta = spec.fillDelta;
+
     constexpr float kML = 42.0f, kMR = 10.0f, kMT = 16.0f, kMB = 16.0f;
     const juce::Rectangle<float> plot { area.getX() + kML, area.getY() + kMT,
                                         area.getWidth() - kML - kMR,
@@ -2054,8 +2057,26 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
 
     g.setFont (PnsTheme::fontLabel());
     g.setColour (PnsTheme::kTextSecondary);
-    g.drawText (title, (int) area.getX(), (int) area.getY(),
+    g.drawText (spec.title, (int) area.getX(), (int) area.getY(),
                 (int) area.getWidth(), 13, juce::Justification::centred);
+
+    // Pre/Post key. The readout panel colour-codes the two, but the graphs
+    // themselves never said which trace was which.
+    if (spec.legend)
+    {
+        const int ly = (int) area.getY();
+        int lx = (int) plot.getRight() - 92;
+        auto key = [&] (juce::Colour c, const char* label, int w)
+        {
+            g.setColour (c);
+            g.fillRect (lx, ly + 6, 11, 2);
+            g.setColour (PnsTheme::kTextSecondary);
+            g.drawText (label, lx + 15, ly, w, 13, juce::Justification::centredLeft);
+            lx += 15 + w + 6;
+        };
+        key (PnsTheme::kColorPre.withAlpha (0.85f), "Pre",  22);
+        key (PnsTheme::kColorPost,                  "Post", 28);
+    }
 
     g.setColour (PnsTheme::kBgPanel);
     g.fillRect (plot);
@@ -2070,6 +2091,20 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
         return (plot.getBottom() - kInset) - t * (plot.getHeight() - 2.0f * kInset);
     };
 
+    // The half of the scale that means "look at this" — side-dominant for width,
+    // anti-phase for correlation. Drawn as a tinted region rather than left as a
+    // gridline crossing, so the risk is something you see instead of compute.
+    const bool hasZero = (vMin < 0.0f && 0.0f < vMax);
+    if (hasZero)
+    {
+        const float y0 = valToY (0.0f);
+        const auto zone = spec.cautionAbove
+            ? juce::Rectangle<float> (plot.getX(), plot.getY(), plot.getWidth(), y0 - plot.getY())
+            : juce::Rectangle<float> (plot.getX(), y0, plot.getWidth(), plot.getBottom() - y0);
+        g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.06f));
+        g.fillRect (zone);
+    }
+
     // Horizontal gridlines + labels; `steps` chosen per lane so values are round.
     for (int i = 0; i <= steps; ++i)
     {
@@ -2082,6 +2117,31 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
                     (int) area.getX(), juce::roundToInt (gy) - 6, (int) kML - 5, 12,
                     juce::Justification::centredRight);
     }
+    // Zero is the threshold that changes the meaning on both lanes, so it must not
+    // look like every other gridline.
+    if (hasZero)
+    {
+        g.setColour (PnsTheme::kBorderActive);
+        g.drawHorizontalLine (juce::roundToInt (valToY (0.0f)), plot.getX(), plot.getRight());
+    }
+
+    // Plain-language anchors, so the scale does not need the manual to decode.
+    g.setFont (PnsTheme::fontLabel());
+    g.setColour (PnsTheme::kTextSecondary.withAlpha (0.55f));
+    g.drawText (spec.hiTag, (int) plot.getX() + 6, (int) plot.getY() + 2,
+                140, 12, juce::Justification::centredLeft);
+    g.drawText (spec.loTag, (int) plot.getX() + 6, (int) plot.getBottom() - 14,
+                140, 12, juce::Justification::centredLeft);
+    if (spec.cautionTag != nullptr && hasZero)
+    {
+        const float y0 = valToY (0.0f);
+        g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.50f));
+        constexpr int kTagW = 170;   // wide enough for the longest tag, unclipped
+        g.drawText (spec.cautionTag, (int) plot.getRight() - (kTagW + 6),
+                    spec.cautionAbove ? (int) plot.getY() + 2 : (int) y0 + 3,
+                    kTagW, 12, juce::Justification::centredRight);
+    }
+
     // Frequency gridlines.
     for (double f : { 50.0, 100.0, 500.0, 1000.0, 5000.0, 10000.0 })
     {
@@ -2314,12 +2374,25 @@ void StereoView::paint (juce::Graphics& g)
 
     // -40..+10 dB in 5 steps and -1..+1 in 4 give round axis labels.
     const float laneH = (left.getHeight() - kGap) * 0.5f;
-    drawLane (g, left.removeFromTop (laneH), "WIDTH  (Side / Mid)",
-              m_dWidthPre, m_dWidthPost,
-              PlugNspectrPostProcessor::kStereoFloorDb, 10.0f, " dB", 5, true);
+    static constexpr LaneSpec kWidthLane {
+        "WIDTH  (Side / Mid)",
+        PlugNspectrPostProcessor::kStereoFloorDb, 10.0f, " dB", 5, true,
+        // "SIDE" not "WIDE": the axis is the Side/Mid ratio, so the top of the
+        // scale is side-dominant. "WIDE" also read as desirable while sitting
+        // inside the amber caution zone, which argued against the shading.
+        // No caution tag — the top label covers it, and the width curve rises
+        // through the corner where one would sit.
+        "MONO", "SIDE", true, nullptr, true
+    };
+    static constexpr LaneSpec kCorrLane {
+        "CORRELATION",
+        -1.0f, 1.0f, "", 4, false,
+        "ANTI-PHASE", "IN PHASE", false, "CANCELS IN MONO", false
+    };
+
+    drawLane (g, left.removeFromTop (laneH), kWidthLane, m_dWidthPre, m_dWidthPost);
     left.removeFromTop (kGap);
-    drawLane (g, left, "CORRELATION",
-              m_dCorrPre, m_dCorrPost, -1.0f, 1.0f, "", 4, false);
+    drawLane (g, left, kCorrLane, m_dCorrPre, m_dCorrPost);
 
     // Goniometer gets a square slot so it doesn't float in a tall column.
     auto gonio = right.removeFromTop (juce::jmin (right.getWidth() + 16.0f,

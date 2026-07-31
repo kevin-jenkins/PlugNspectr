@@ -363,11 +363,24 @@ private:
     void smoothOctave (const std::array<float, kBins>& in, std::array<float, kBins>& out);
 
     float freqToX (double hz, juce::Rectangle<float> plot) const;
-    void  drawLane (juce::Graphics& g, juce::Rectangle<float> area, const char* title,
+    // Everything that differs between the two lanes, so drawLane stays one
+    // function and the call sites read as a description of each lane.
+    struct LaneSpec
+    {
+        const char* title;
+        float       vMin, vMax;
+        const char* unit;
+        int         steps;         // gridline intervals (chosen so labels are round)
+        bool        fillDelta;     // amber Pre->Post difference fill
+        const char* loTag;         // plain-language label at the bottom of the scale
+        const char* hiTag;         // ...and at the top
+        bool        cautionAbove;  // shade the notable half: above 0 (width) or below it (corr)
+        const char* cautionTag;    // what that shaded region means
+        bool        legend;        // draw the Pre/Post key (once, on the upper lane)
+    };
+    void  drawLane (juce::Graphics& g, juce::Rectangle<float> area, const LaneSpec& spec,
                     const std::array<float, kBins>& pre,
-                    const std::array<float, kBins>& post,
-                    float vMin, float vMax, const juce::String& unit,
-                    int steps, bool fillDelta) const;
+                    const std::array<float, kBins>& post) const;
     void  drawGonio    (juce::Graphics& g, juce::Rectangle<float> area) const;
     void  drawReadouts (juce::Graphics& g, juce::Rectangle<float> area) const;
 
