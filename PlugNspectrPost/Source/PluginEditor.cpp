@@ -3823,7 +3823,7 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     addAndMakeVisible (m_infoBtn);
 
     m_about.setLogo (m_pnsLogo);
-    m_about.setSystemInfo ("1.0.2",
+    m_about.setSystemInfo ("1.0.3",
                            juce::AudioProcessor::getWrapperTypeDescription (audioProcessor.wrapperType),
                            juce::SystemStats::getOperatingSystemName());
     addChildComponent (m_about);   // hidden until the info icon is clicked
