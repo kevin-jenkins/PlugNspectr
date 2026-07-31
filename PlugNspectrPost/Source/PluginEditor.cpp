@@ -1942,9 +1942,45 @@ void StereoView::reset()
     repaint();
 }
 
+// Average a per-bin curve over a fractional-octave window, skipping bins with no
+// energy. Prefix sums keep it O(bins) rather than O(bins x window) — at 10 kHz
+// the window is over a hundred bins wide, so the naive form would be ~60k
+// operations per curve per frame, x4 curves at 30 fps.
+void StereoView::smoothOctave (const std::array<float, kBins>& in,
+                               std::array<float, kBins>& out)
+{
+    m_cumV[0] = 0.0;
+    m_cumN[0] = 0.0;
+    for (int k = 0; k < kBins; ++k)
+    {
+        const bool v = m_st.valid[(size_t) k];
+        m_cumV[(size_t) k + 1] = m_cumV[(size_t) k] + (v ? (double) in[(size_t) k] : 0.0);
+        m_cumN[(size_t) k + 1] = m_cumN[(size_t) k] + (v ? 1.0 : 0.0);
+    }
+
+    // Window is a constant *ratio* of the centre frequency, so it is narrow in
+    // the lows (few bins per octave) and wide in the highs — which is exactly
+    // where the noise is.
+    const double halfRatio = std::pow (2.0, kSmoothOctaves * 0.5);
+    for (int k = 0; k < kBins; ++k)
+    {
+        const int lo = juce::jlimit (0, kBins, (int) std::floor (k / halfRatio));
+        const int hi = juce::jlimit (0, kBins, (int) std::ceil  (k * halfRatio) + 1);
+        const double n = m_cumN[(size_t) hi] - m_cumN[(size_t) lo];
+        out[(size_t) k] = (n > 0.0)
+                        ? (float) ((m_cumV[(size_t) hi] - m_cumV[(size_t) lo]) / n)
+                        : in[(size_t) k];
+    }
+}
+
 void StereoView::update()
 {
     m_proc.getStereo (m_st);
+
+    smoothOctave (m_st.widthPre,  m_dWidthPre);
+    smoothOctave (m_st.widthPost, m_dWidthPost);
+    smoothOctave (m_st.corrPre,   m_dCorrPre);
+    smoothOctave (m_st.corrPost,  m_dCorrPost);
 
     // Goniometer trail — pull raw L/R (capture channels 1/2) and rotate 45° so a
     // mono signal draws a vertical line.
@@ -1979,8 +2015,18 @@ void StereoView::update()
             // Smoothed auto-gain so quiet material still fills the square.
             if (peak > 1.0e-4f)
             {
-                const float target = juce::jlimit (0.5f, 12.0f, 0.9f / peak);
-                m_gonioScale += (target - m_gonioScale) * 0.05f;
+                // Meter ballistics: hold a peak envelope that captures a
+                // transient instantly and decays slowly (~3 s), then track it.
+                // Scaling off the raw per-chunk peak made the scale oscillate —
+                // the trace overflowed the square on an onset and then collapsed
+                // to a dot moments later, because the instantaneous peak swings
+                // wildly between chunks. A decaying envelope is smooth, so the
+                // scale can follow it quickly without jitter and recovers on its
+                // own instead of staying stuck small.
+                m_gonioPeak = juce::jmax (peak, m_gonioPeak * 0.995f);
+                const float target = juce::jlimit (0.5f, 12.0f,
+                                                   0.9f / juce::jmax (m_gonioPeak, 1.0e-4f));
+                m_gonioScale += (target - m_gonioScale) * 0.20f;
             }
         }
     }
@@ -1994,12 +2040,15 @@ float StereoView::freqToX (double hz, juce::Rectangle<float> plot) const
 }
 
 // One stacked lane: log-frequency X, linear value Y, Pre dim under Post bright.
-void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const char* title,
+void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const LaneSpec& spec,
                            const std::array<float, kBins>& pre,
-                           const std::array<float, kBins>& post,
-                           float vMin, float vMax, const juce::String& unit,
-                           int steps, bool fillDelta) const
+                           const std::array<float, kBins>& post) const
 {
+    const float vMin = spec.vMin, vMax = spec.vMax;
+    const juce::String unit (spec.unit);
+    const int  steps     = spec.steps;
+    const bool fillDelta = spec.fillDelta;
+
     constexpr float kML = 42.0f, kMR = 10.0f, kMT = 16.0f, kMB = 16.0f;
     const juce::Rectangle<float> plot { area.getX() + kML, area.getY() + kMT,
                                         area.getWidth() - kML - kMR,
@@ -2008,8 +2057,26 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
 
     g.setFont (PnsTheme::fontLabel());
     g.setColour (PnsTheme::kTextSecondary);
-    g.drawText (title, (int) area.getX(), (int) area.getY(),
+    g.drawText (spec.title, (int) area.getX(), (int) area.getY(),
                 (int) area.getWidth(), 13, juce::Justification::centred);
+
+    // Pre/Post key. The readout panel colour-codes the two, but the graphs
+    // themselves never said which trace was which.
+    if (spec.legend)
+    {
+        const int ly = (int) area.getY();
+        int lx = (int) plot.getRight() - 92;
+        auto key = [&] (juce::Colour c, const char* label, int w)
+        {
+            g.setColour (c);
+            g.fillRect (lx, ly + 6, 11, 2);
+            g.setColour (PnsTheme::kTextSecondary);
+            g.drawText (label, lx + 15, ly, w, 13, juce::Justification::centredLeft);
+            lx += 15 + w + 6;
+        };
+        key (PnsTheme::kColorPre.withAlpha (0.85f), "Pre",  22);
+        key (PnsTheme::kColorPost,                  "Post", 28);
+    }
 
     g.setColour (PnsTheme::kBgPanel);
     g.fillRect (plot);
@@ -2024,6 +2091,20 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
         return (plot.getBottom() - kInset) - t * (plot.getHeight() - 2.0f * kInset);
     };
 
+    // The half of the scale that means "look at this" — side-dominant for width,
+    // anti-phase for correlation. Drawn as a tinted region rather than left as a
+    // gridline crossing, so the risk is something you see instead of compute.
+    const bool hasZero = (vMin < 0.0f && 0.0f < vMax);
+    if (hasZero)
+    {
+        const float y0 = valToY (0.0f);
+        const auto zone = spec.cautionAbove
+            ? juce::Rectangle<float> (plot.getX(), plot.getY(), plot.getWidth(), y0 - plot.getY())
+            : juce::Rectangle<float> (plot.getX(), y0, plot.getWidth(), plot.getBottom() - y0);
+        g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.06f));
+        g.fillRect (zone);
+    }
+
     // Horizontal gridlines + labels; `steps` chosen per lane so values are round.
     for (int i = 0; i <= steps; ++i)
     {
@@ -2036,6 +2117,31 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
                     (int) area.getX(), juce::roundToInt (gy) - 6, (int) kML - 5, 12,
                     juce::Justification::centredRight);
     }
+    // Zero is the threshold that changes the meaning on both lanes, so it must not
+    // look like every other gridline.
+    if (hasZero)
+    {
+        g.setColour (PnsTheme::kBorderActive);
+        g.drawHorizontalLine (juce::roundToInt (valToY (0.0f)), plot.getX(), plot.getRight());
+    }
+
+    // Plain-language anchors, so the scale does not need the manual to decode.
+    g.setFont (PnsTheme::fontLabel());
+    g.setColour (PnsTheme::kTextSecondary.withAlpha (0.55f));
+    g.drawText (spec.hiTag, (int) plot.getX() + 6, (int) plot.getY() + 2,
+                140, 12, juce::Justification::centredLeft);
+    g.drawText (spec.loTag, (int) plot.getX() + 6, (int) plot.getBottom() - 14,
+                140, 12, juce::Justification::centredLeft);
+    if (spec.cautionTag != nullptr && hasZero)
+    {
+        const float y0 = valToY (0.0f);
+        g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.50f));
+        constexpr int kTagW = 170;   // wide enough for the longest tag, unclipped
+        g.drawText (spec.cautionTag, (int) plot.getRight() - (kTagW + 6),
+                    spec.cautionAbove ? (int) plot.getY() + 2 : (int) y0 + 3,
+                    kTagW, 12, juce::Justification::centredRight);
+    }
+
     // Frequency gridlines.
     for (double f : { 50.0, 100.0, 500.0, 1000.0, 5000.0, 10000.0 })
     {
@@ -2099,11 +2205,11 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
 
     if (ptsPre.size() > 1)
     {
-        g.setColour (PnsTheme::kColorPre.withAlpha (0.55f));
+        g.setColour (PnsTheme::kColorPre.withAlpha (PnsTheme::kColorPreAlpha));
         g.strokePath (pPre, juce::PathStrokeType (1.0f));
     }
     if (haveBoth)
-        PnsTheme::drawGlowLine (g, pPost, PnsTheme::kAccentPrimary, 1.5f);
+        PnsTheme::drawGlowLine (g, pPost, PnsTheme::kColorPost, 1.5f);
 
     // Cursor readout — frequency → value for both signals.
     if (haveBoth && m_cursorX >= 0.0f)
@@ -2120,7 +2226,7 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
             rows.add ("Post " + juce::String (post[(size_t) k], 2) + unit);
             rows.add ("Pre  " + juce::String (pre [(size_t) k], 2) + unit);
             drawCursorChip (g, plot, cx, valToY (post[(size_t) k]),
-                            PnsTheme::kAccentPrimary, rows, m_cursorLocked);
+                            PnsTheme::kColorPost, rows, m_cursorLocked);
         }
     }
 
@@ -2161,29 +2267,51 @@ void StereoView::drawGonio (juce::Graphics& g, juce::Rectangle<float> area) cons
     juce::Graphics::ScopedSaveState clip (g);
     g.reduceClipRegion (sq.toNearestInt());
 
-    // Per-dot integer fillRect. Two things matter here:
-    //  - It must stay per-dot, not one accumulated Path filled once, because
-    //    overlapping dots building up alpha is what makes dense regions read as
-    //    bright. That density *is* the information on a goniometer — flattening
-    //    it to uniform opacity loses the mono line entirely.
-    //  - Integer rects hit JUCE's axis-aligned span fill, so there is no path
-    //    construction or AA edge table per dot, unlike the fillEllipse this
-    //    replaced (3000 dots x 2 trails at 30 fps was ~180k rasterised paths/s).
+    // Continuous Lissajous trace rather than a scatter of dots: the shape of the
+    // trajectory is what tells Pre and Post apart, and two line traces read far
+    // more clearly overlaid than two interleaved point clouds.
+    //
+    // This MUST walk the ring in time order, not array order. Once the buffer has
+    // filled, the oldest sample sits at m_gonioPos — iterating 0..fill would join
+    // the newest point to the oldest and draw a bogus segment straight across the
+    // plot at the wrap. (Harmless for dots, which is why the old code got away
+    // with it.) One path stroked once is also far cheaper than per-sample fills.
     auto plotTrail = [&] (const std::array<float, kGonioPoints>& xs,
                           const std::array<float, kGonioPoints>& ys,
-                          juce::Colour c, int dotPx)
+                          juce::Colour c, float thickness)
     {
-        g.setColour (c);
-        for (int i = 0; i < m_gonioFill; ++i)
+        const int count = m_gonioFill;
+        if (count < 2) return;
+        const int start = (count == kGonioPoints) ? m_gonioPos : 0;   // oldest sample
+
+        juce::Path p;
+        for (int k = 0; k < count; ++k)
         {
-            const float px = cx + juce::jlimit (-1.0f, 1.0f, xs[(size_t) i] * m_gonioScale) * half;
-            const float py = cy - juce::jlimit (-1.0f, 1.0f, ys[(size_t) i] * m_gonioScale) * half;
-            g.fillRect (juce::roundToInt (px), juce::roundToInt (py), dotPx, dotPx);
+            const int i = (start + k) % kGonioPoints;
+            // Clamp generously, NOT to the square's edge. At +/-1 an overshooting
+            // sample lands exactly on the border, so consecutive ones draw a
+            // segment along it and the trace appears to smear off the graph.
+            // Overshoot instead and let the clip region cut it, so a loud
+            // transient leaves the square cleanly.
+            const float px = cx + juce::jlimit (-3.0f, 3.0f, xs[(size_t) i] * m_gonioScale) * half;
+            const float py = cy - juce::jlimit (-3.0f, 3.0f, ys[(size_t) i] * m_gonioScale) * half;
+            if (k == 0) p.startNewSubPath (px, py);
+            else        p.lineTo (px, py);
         }
+        g.setColour (c);
+        g.strokePath (p, juce::PathStrokeType (thickness, juce::PathStrokeType::curved,
+                                               juce::PathStrokeType::rounded));
     };
 
-    plotTrail (m_gxPre,  m_gyPre,  PnsTheme::kColorPre.withAlpha (0.22f), 2);
-    plotTrail (m_gxPost, m_gyPost, PnsTheme::kAccentPrimary.withAlpha (0.30f), 2);
+    // Post underneath, Pre ON TOP. Everywhere else in the plugin Pre is the
+    // receding background, but here that fails: Pre is usually the narrower
+    // signal, so its trace sits geometrically *inside* Post's and gets buried —
+    // a mono Pre is a thin vertical line hidden within a widened Post blob. No
+    // amount of alpha fixes occlusion. Drawing the reference over the result
+    // keeps it readable while Post still reads as the dominant shape, since it
+    // is the wider and heavier stroke.
+    plotTrail (m_gxPost, m_gyPost, PnsTheme::kColorPost.withAlpha (0.80f), 1.3f);
+    plotTrail (m_gxPre,  m_gyPre,  PnsTheme::kColorPre .withAlpha (0.85f), 1.0f);
 
     g.setColour (PnsTheme::kBorderSubtle);
     g.drawRect (sq, 1.0f);
@@ -2246,12 +2374,25 @@ void StereoView::paint (juce::Graphics& g)
 
     // -40..+10 dB in 5 steps and -1..+1 in 4 give round axis labels.
     const float laneH = (left.getHeight() - kGap) * 0.5f;
-    drawLane (g, left.removeFromTop (laneH), "WIDTH  (Side / Mid)",
-              m_st.widthPre, m_st.widthPost,
-              PlugNspectrPostProcessor::kStereoFloorDb, 10.0f, " dB", 5, true);
+    static constexpr LaneSpec kWidthLane {
+        "WIDTH  (Side / Mid)",
+        PlugNspectrPostProcessor::kStereoFloorDb, 10.0f, " dB", 5, true,
+        // "SIDE" not "WIDE": the axis is the Side/Mid ratio, so the top of the
+        // scale is side-dominant. "WIDE" also read as desirable while sitting
+        // inside the amber caution zone, which argued against the shading.
+        // No caution tag — the top label covers it, and the width curve rises
+        // through the corner where one would sit.
+        "MONO", "SIDE", true, nullptr, true
+    };
+    static constexpr LaneSpec kCorrLane {
+        "CORRELATION",
+        -1.0f, 1.0f, "", 4, false,
+        "ANTI-PHASE", "IN PHASE", false, "CANCELS IN MONO", false
+    };
+
+    drawLane (g, left.removeFromTop (laneH), kWidthLane, m_dWidthPre, m_dWidthPost);
     left.removeFromTop (kGap);
-    drawLane (g, left, "CORRELATION",
-              m_st.corrPre, m_st.corrPost, -1.0f, 1.0f, "", 4, false);
+    drawLane (g, left, kCorrLane, m_dCorrPre, m_dCorrPost);
 
     // Goniometer gets a square slot so it doesn't float in a tall column.
     auto gonio = right.removeFromTop (juce::jmin (right.getWidth() + 16.0f,

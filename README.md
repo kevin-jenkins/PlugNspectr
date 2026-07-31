@@ -269,11 +269,39 @@ What the plugin does to the **stereo image** — for wideners, imagers, M/S EQs,
 
 Read together, they separate honest widening from a level trick.
 
-**WIDTH (Side / Mid, dB):** per-frequency side-to-mid ratio, Pre (dim) vs Post (bright), with an amber fill showing the change. `−40 dB` = effectively mono, `0 dB` = equal mid and side energy. Tells you *where* the plugin widens — usually only above a corner frequency.
+#### How to read the two lanes
 
-**CORRELATION (−1…+1):** per-frequency correlation between L and R. `+1` = mono/in-phase, `0` = fully decorrelated, **negative = anti-phase**, which is what collapses when summed to mono.
+Both share the **same X axis as an EQ** — frequency, 20 Hz to 20 kHz — so you read them like a frequency response: *what happens at each frequency*. **Pre is lavender, Post is teal, and the amber band between them is what the plugin did.**
 
-**Goniometer:** the classic 45°-rotated X/Y display — **mono draws a vertical line**, hard-panned content sits on the diagonals. Post in bright teal over a dim Pre trail.
+**WIDTH — how much stereo there is.** The Y axis is side energy relative to mid, in dB:
+
+| Reading | Meaning |
+|---|---|
+| **−40 dB** (floor) | no side at all — **mono** at that frequency |
+| **−20 dB** | side is a tenth of mid — narrow |
+| **−6 dB** | side is half of mid — moderately wide |
+| **0 dB** | side equals mid — very wide |
+| **above 0 dB** | **more side than mid** — side-dominant, where trouble starts |
+
+Bass sitting at the floor is normal and desirable. Most mixes live around −15 to −6 dB through the mids.
+
+**CORRELATION — whether that stereo is safe.** The same scale as the correlation meter you already know, plotted per frequency instead of as one number:
+
+| Reading | Meaning |
+|---|---|
+| **+1** | identical channels — mono, perfectly in phase |
+| **+0.5 … +0.9** | normal healthy stereo |
+| **0** | fully decorrelated — genuinely wide, still mono-safe |
+| **negative** | **anti-phase** — L and R fight each other |
+| **−1** | perfect cancellation in mono |
+
+> **The one rule:** above 0 is mono-safe; below 0 that band partially cancels when summed to mono.
+
+The two lanes are mathematically linked — both derive from the same measurement — but each makes a different thing obvious. Width answers *"how much stereo?"*; correlation answers *"is it real stereo, or a phase trick?"*
+
+**Worked example.** A bus processor showing width at the floor and correlation at `+1` below 100 Hz, then width leaping to `0…+8 dB` with correlation crashing to `−0.5` above it, has widened your highs **by pushing them anti-phase rather than decorrelating them** — that content partially cancels in mono. Note the broadband **Mono** readout may still look harmless (say `−0.6 dB`), because it is energy-weighted and a correlated low end dominates it. Broadband says "safe", per-band says "anti-phase above 100 Hz" — both true, and exactly why the per-band view earns its place.
+
+**Goniometer:** the classic 45°-rotated X/Y display — **mono draws a vertical line**, hard-panned content sits on the diagonals, and a symmetric stereo signal is vertically balanced (a lean suggests an L/R level imbalance). Post in teal with the Pre trace drawn over it, so the narrower reference stays visible instead of being buried inside the wider one.
 
 **Readouts:** broadband **Width**, **Correlation**, and **Mono** (level lost when summed to mono — `0 dB` is mono-safe) for Pre and Post. Correlation turns amber when it goes negative and Mono when the loss exceeds 3 dB.
 
