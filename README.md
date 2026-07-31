@@ -258,6 +258,8 @@ A zero-crossing-triggered oscilloscope of both signals — useful for phase shif
 
 ### Stereo Tab
 
+<img src="docs/screenshots/stereo.png" width="820" alt="Stereo tab — per-band width and correlation with goniometer" />
+
 What the plugin does to the **stereo image** — for wideners, imagers, M/S EQs, stereo bus compressors and reverbs.
 
 **Why two plots.** Width alone can't tell you what a widener actually did, because two very different things look the same on a width meter:
