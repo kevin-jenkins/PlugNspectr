@@ -322,7 +322,7 @@ int main (int argc, char* argv[])
     // transport is "playing", then stop it and confirm the stimulus auto-disarms.
     if (argc > 1 && juce::String (argv[1]) == "transport-test")
     {
-        editor->setSize (1000, 640);
+        editor->setSize (1280, 800);
         editor->selectTabForTest (4);
         editor->armMeasureForTest();                                      // transport defaults to playing
         juce::MessageManager::getInstance()->runDispatchLoopUntil (60);   // settle (no edge yet)
@@ -346,7 +346,7 @@ int main (int argc, char* argv[])
     const bool thdRender      = (argc > 1 && juce::String (argv[1]) == "thd-render");
 
     using Tabs = PlugNspectrPostEditor;
-    editor->setSize (1000, 640);
+    editor->setSize (1280, 800);
     editor->selectTabForTest (stereoRender   ? Tabs::TabStereo
                             : spectrumRender ? Tabs::TabSpectrum
                             : linearRender   ? Tabs::TabLinear
@@ -360,6 +360,7 @@ int main (int argc, char* argv[])
     if (envelopeRender) editor->setEnvelopeCursorForTest (560);  // ~mid attack
     if (thdRender)      editor->setThdCursorForTest (560);       // ~1 kHz
     if (argc > 1 && juce::String (argv[1]) == "about-render") editor->showAboutForTest();
+    if (argc > 1 && juce::String (argv[1]) == "options-render") editor->openDynamicsOptionsForTest();
 
     juce::PNGImageFormat png;
     double phase = 0.0;

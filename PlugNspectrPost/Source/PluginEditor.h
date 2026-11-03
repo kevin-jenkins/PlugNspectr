@@ -71,6 +71,181 @@ public:
 };
 
 //==============================================================================
+// ViewOptions — a live view's settings, folded behind one pill at the view's
+// top right ("Smoothing: Medium · Avg: on"). Clicking it opens a panel of
+// labelled rows of choices, each with a one-line plain explanation, plus an
+// optional "Start over" action. Keeps the graph clear of small buttons while
+// the current settings stay readable at a glance.
+//==============================================================================
+class ViewOptions : public juce::Component
+{
+public:
+    ViewOptions()
+    {
+        m_pill.onClick = [this] { setOpen (! m_open); };
+        addAndMakeVisible (m_pill);
+        m_resetBtn.setButtonText ("Start over");
+        m_resetBtn.onClick = [this] { if (m_onReset) m_onReset(); setOpen (false); };
+        addChildComponent (m_resetBtn);
+    }
+
+    // Adds a row; onPick runs with the chosen index. Returns the row index.
+    int addRow (const juce::String& title, const juce::String& hint, const juce::StringArray& choices,
+                int selected, std::function<void (int)> onPick)
+    {
+        auto& row = m_rows.emplace_back();
+        row.title = title; row.hint = hint; row.choices = choices; row.selected = selected;
+        row.onPick = std::move (onPick);
+        const int rowIdx = (int) m_rows.size() - 1;
+        for (int i = 0; i < choices.size(); ++i)
+        {
+            auto* b = m_segs.add (new juce::TextButton (choices[i]));
+            b->setClickingTogglesState (false);
+            b->onClick = [this, rowIdx, i] { pick (rowIdx, i); };
+            addChildComponent (b);
+            row.buttons.push_back (b);
+        }
+        refresh();
+        return rowIdx;
+    }
+    void setResetAction (const juce::String& hint, std::function<void()> fn)
+    {
+        m_resetHint = hint; m_onReset = std::move (fn);
+    }
+
+    // Size the component itself: the pill when closed, pill + panel when open.
+    // `anchorRight` / `anchorTop` are in the parent's coordinates.
+    void place (int anchorRight, int anchorTop)
+    {
+        m_anchorRight = anchorRight; m_anchorTop = anchorTop;
+        const int pw = pillWidth();
+        const int w  = m_open ? juce::jmax (pw, kPanelW) : pw;
+        int h = kPillH;
+        if (m_open)
+        {
+            h += 8 + kPanelPad;
+            for (size_t i = 0; i < m_rows.size(); ++i) h += kRowH;
+            if (m_onReset) h += 46;
+            h += kPanelPad - 10;
+        }
+        setBounds (anchorRight - w, anchorTop, w, h);
+    }
+
+    void resized() override
+    {
+        const int w = getWidth();
+        m_pill.setBounds (w - pillWidth(), 0, pillWidth(), kPillH);
+        int y = kPillH + 8 + kPanelPad;
+        for (auto& row : m_rows)
+        {
+            const int segY = y + 18, n = (int) row.buttons.size();
+            const int segW = (w - 2 * kPanelPad) / juce::jmax (1, n);
+            for (int i = 0; i < n; ++i)
+            {
+                row.buttons[(size_t) i]->setBounds (kPanelPad + i * segW, segY, segW, 26);
+                row.buttons[(size_t) i]->setVisible (m_open);
+            }
+            y += kRowH;
+        }
+        m_resetBtn.setBounds (kPanelPad, y + 4, w - 2 * kPanelPad, 26);
+        m_resetBtn.setVisible (m_open && m_onReset != nullptr);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        if (! m_open) return;
+        const auto panel = getLocalBounds().withTrimmedTop (kPillH + 8).toFloat();
+        g.setColour (juce::Colours::black.withAlpha (0.45f));
+        g.fillRoundedRectangle (panel.translated (0.0f, 4.0f), 12.0f);
+        g.setColour (PnsTheme::kBgPanel.withAlpha (0.97f));
+        g.fillRoundedRectangle (panel, 12.0f);
+        g.setColour (PnsTheme::kBorderActive);
+        g.drawRoundedRectangle (panel.reduced (0.5f), 12.0f, 1.0f);
+
+        int y = kPillH + 8 + kPanelPad;
+        for (auto& row : m_rows)
+        {
+            g.setFont (PnsTheme::fontSized (10.5f, true));
+            g.setColour (PnsTheme::kTextSecondary);
+            g.drawText (row.title.toUpperCase(), kPanelPad, y, getWidth() - 2 * kPanelPad, 14,
+                        juce::Justification::centredLeft);
+            g.setFont (PnsTheme::fontLabel());
+            g.setColour (PnsTheme::kGridLabel);
+            g.drawText (row.hint, kPanelPad, y + 48, getWidth() - 2 * kPanelPad, 14,
+                        juce::Justification::centredLeft);
+            y += kRowH;
+        }
+        if (m_onReset)
+        {
+            g.setFont (PnsTheme::fontLabel());
+            g.setColour (PnsTheme::kGridLabel);
+            g.drawText (m_resetHint, kPanelPad, y + 32, getWidth() - 2 * kPanelPad, 14,
+                        juce::Justification::centredLeft);
+        }
+    }
+
+    bool hitTest (int x, int y) override   // only the pill and the open panel take clicks
+    {
+        return m_open || m_pill.getBounds().contains (x, y);
+    }
+
+    void setOpen (bool o)
+    {
+        m_open = o;
+        place (m_anchorRight, m_anchorTop);
+        resized();
+        repaint();
+    }
+
+private:
+    struct Row
+    {
+        juce::String title, hint;
+        juce::StringArray choices;
+        int selected = 0;
+        std::function<void (int)> onPick;
+        std::vector<juce::TextButton*> buttons;
+    };
+
+    static constexpr int kPillH = 26, kPanelW = 290, kPanelPad = 14, kRowH = 70;
+
+    void pick (int rowIdx, int i)
+    {
+        auto& row = m_rows[(size_t) rowIdx];
+        row.selected = i;
+        if (row.onPick) row.onPick (i);
+        refresh();
+    }
+    void refresh()
+    {
+        juce::StringArray parts;
+        for (auto& row : m_rows)
+        {
+            parts.add (row.title + ": " + row.choices[row.selected]);
+            for (size_t i = 0; i < row.buttons.size(); ++i)
+                row.buttons[i]->setToggleState ((int) i == row.selected, juce::dontSendNotification);
+        }
+        m_pill.setButtonText ((parts.isEmpty() ? juce::String ("Options")
+                                                 : parts.joinIntoString (juce::String::fromUTF8 ("  \xc2\xb7  "))));
+        if (getParentComponent() != nullptr) { place (m_anchorRight, m_anchorTop); resized(); }
+    }
+    int pillWidth() const
+    {
+        juce::GlyphArrangement ga;
+        ga.addLineOfText (PnsTheme::fontLabel(), m_pill.getButtonText(), 0.0f, 0.0f);
+        return (int) std::ceil (ga.getBoundingBox (0, -1, true).getWidth()) + 34;
+    }
+
+    juce::TextButton m_pill, m_resetBtn;
+    juce::OwnedArray<juce::TextButton> m_segs;
+    std::vector<Row> m_rows;
+    juce::String m_resetHint;
+    std::function<void()> m_onReset;
+    bool m_open = false;
+    int  m_anchorRight = 0, m_anchorTop = 0;
+};
+
+//==============================================================================
 // Spectrum analyzer view
 //==============================================================================
 class SpectrumView : public juce::Component
@@ -113,10 +288,11 @@ private:
 
     bool m_showAvg = true;
 
-    // Controls
+    // Controls (driven from m_options; kept as the single place the state changes)
     juce::ComboBox   m_smoothBox;
     juce::TextButton m_avgBtn { "Avg" };
     ResetButton      m_reset;
+    ViewOptions      m_options;
 
     // Interactive hairline
     float m_mouseX     = -1.0f;   // x in component coords, -1 = not in plot
@@ -174,6 +350,7 @@ public:
     void update  ();
     PnsTheme::Summary summary() const;   // one-line plain-language verdict for the banner
     void reset   ();   // clear all accumulated readings and history (keeps the zoom)
+    void openOptionsForTest() { m_options.setOpen (true); }
 
 private:
     //──────────────────────────────────────────────────────────────────────────
@@ -222,6 +399,7 @@ private:
     juce::TextButton m_zoom6s  { "6s"  };
     juce::TextButton m_zoom12s { "12s" };
     ResetButton      m_reset;
+    ViewOptions      m_options;
 
     // GR readout — instantaneous + 30s rolling average + peak hold
     float  m_instantGr        = 0.0f;
@@ -304,6 +482,7 @@ private:
     juce::TextButton m_btn10ms  { "10ms"  };
     juce::TextButton m_btn50ms  { "50ms"  };
     juce::TextButton m_btn100ms { "100ms" };
+    ViewOptions      m_options;
 
     float ringGet (const std::array<float, kRingLen>& buf, uint64_t idx) const;
 
@@ -391,6 +570,7 @@ private:
     PlugNspectrPostProcessor& m_proc;
     PlugNspectrPostProcessor::StereoResult m_st;
     ResetButton m_reset;
+    ViewOptions m_options;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (StereoView)
 };
@@ -759,7 +939,82 @@ private:
 };
 
 //==============================================================================
-// Main editor — dark tab bar + eight views
+// DockTab — one tab in the bottom dock: a line icon over a short label, on a
+// rounded highlight when selected. Icons are drawn on a 24-unit grid so they
+// scale with the button.
+//==============================================================================
+class DockTab : public juce::Button
+{
+public:
+    enum Icon { Tone, Dynamics, Waveform, Stereo, Harmonics, EqCurve, Compression, AttackRelease, Distortion };
+
+    DockTab (const juce::String& label, Icon icon) : juce::Button (label), m_icon (icon) {}
+
+    void setActive (bool a) { if (m_active != a) { m_active = a; repaint(); } }
+
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        const auto b = getLocalBounds().toFloat().reduced (2.0f, 4.0f);
+        if (m_active || over || down)
+        {
+            g.setColour (m_active ? PnsTheme::kBgWidget : PnsTheme::kBgWidget.withAlpha (0.5f));
+            g.fillRoundedRectangle (b, 10.0f);
+        }
+        const auto col = m_active ? PnsTheme::kTextPrimary
+                       : over     ? PnsTheme::kTextPrimary.withAlpha (0.85f)
+                                  : PnsTheme::kTextSecondary;
+
+        constexpr float iconSz = 22.0f;
+        const auto ib = juce::Rectangle<float> (iconSz, iconSz)
+                            .withCentre ({ b.getCentreX(), b.getY() + 8.0f + iconSz * 0.5f });
+        g.setColour (m_active ? PnsTheme::kAccentPrimary : col);
+        g.strokePath (iconPath().createPathWithRoundedCorners (1.0f),
+                      juce::PathStrokeType (1.7f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded),
+                      juce::AffineTransform::scale (iconSz / 24.0f).translated (ib.getX(), ib.getY()));
+
+        g.setColour (col);
+        g.setFont (PnsTheme::fontLabel());
+        g.drawText (getButtonText(), b.withTrimmedTop (iconSz + 12.0f).withHeight (16.0f),
+                    juce::Justification::centred, false);
+    }
+
+private:
+    juce::Path iconPath() const
+    {
+        juce::Path p;
+        auto poly = [&p] (std::initializer_list<float> xy)
+        {
+            auto it = xy.begin();
+            p.startNewSubPath (it[0], it[1]);
+            for (size_t i = 2; i + 1 < xy.size(); i += 2) p.lineTo (it[i], it[i + 1]);
+        };
+        switch (m_icon)
+        {
+            case Tone:          poly ({ 3,17, 7,11, 11,14, 15,6, 19,11, 21,9 }); break;
+            case Dynamics:      poly ({ 3,12, 6,12, 8,6, 11,18, 14,9, 16,12, 21,12 }); break;
+            case Waveform:      p.startNewSubPath (3, 12);
+                                p.cubicTo (5, 4, 8, 4, 10, 12);
+                                p.cubicTo (12, 20, 15, 20, 17, 12);
+                                p.cubicTo (18, 8, 20, 8, 21, 10); break;
+            case Stereo:        p.addEllipse (4, 7, 10, 10); p.addEllipse (10, 7, 10, 10); break;
+            case Harmonics:     poly ({ 5,20, 5,6 }); poly ({ 10,20, 10,12 }); poly ({ 15,20, 15,9 }); poly ({ 20,20, 20,15 }); break;
+            case EqCurve:       p.startNewSubPath (3, 15);
+                                p.cubicTo (8, 15, 8, 8, 12, 8);
+                                p.cubicTo (16, 8, 16, 15, 21, 15); break;
+            case Compression:   poly ({ 4,20, 12,12, 20,9 }); poly ({ 4,20, 20,4 }); break;
+            case AttackRelease: poly ({ 3,18, 7,18, 9,6, 15,6, 19,18, 21,18 }); break;
+            case Distortion:    poly ({ 3,17, 21,17 }); p.startNewSubPath (3, 17); p.quadraticTo (15, 16, 21, 5); break;
+        }
+        return p;
+    }
+
+    Icon m_icon;
+    bool m_active = false;
+};
+
+//==============================================================================
+// Main editor — headline block on top, the active view in the middle, and the
+// tab dock (LISTEN / TEST) with the tone controls along the bottom.
 //==============================================================================
 class PlugNspectrPostEditor : public juce::AudioProcessorEditor,
                               private juce::Timer
@@ -775,7 +1030,7 @@ public:
         TabHarmonics, TabLinear, TabTransfer, TabEnvelope, TabThd,
         TabCount
     };
-    static constexpr int kFirstMeasTab = TabHarmonics;   // first tab on the amber tray
+    static constexpr int kFirstMeasTab = TabHarmonics;   // first tab in the dock's TEST group
 
     explicit PlugNspectrPostEditor (PlugNspectrPostProcessor& p);
     ~PlugNspectrPostEditor() override;
@@ -795,6 +1050,7 @@ public:
     void freezeTransferForTest()          { m_transferView.freezeForTest(); }
     void freezeThdForTest()               { m_thdView.freezeForTest(); }
     void showAboutForTest()               { m_about.setVisible (true); m_about.toFront (true); }
+    void openDynamicsOptionsForTest()     { m_dynView.openOptionsForTest(); }
 
 private:
     void timerCallback      () override;
@@ -803,19 +1059,11 @@ private:
 
     PlugNspectrPostProcessor& audioProcessor;
 
-    juce::TextButton m_tabSpectrum     { "Spectrum"        };
-    juce::TextButton m_tabDynamics     { "Dynamics"        };
-    juce::TextButton m_tabOscilloscope { "Oscilloscope"    };
-    juce::TextButton m_tabStereo       { "Stereo"          };
-    juce::TextButton m_tabHarmonics    { "Harmonics"       };
-    juce::TextButton m_tabLinear       { "Freq Response"   };
-    juce::TextButton m_tabTransfer     { "Compression"     };
-    juce::TextButton m_tabEnvelope     { "Attack / Release"};
-    juce::TextButton m_tabThd          { "Distortion"      };
-
-    // Test-signal tabs (kFirstMeasTab..TabCount-1) sit on a recessed amber tray;
-    // the live tabs sit plain to the left. Tray bounds computed in resized().
-    juce::Rectangle<int> m_trayBounds;
+    // Dock tabs, indexed by Tab. LISTEN tabs first, then TEST (kFirstMeasTab..).
+    juce::OwnedArray<DockTab> m_tabs;
+    int              m_dockDividerX = 0;        // between the LISTEN and TEST groups
+    int              m_logoX        = 0;        // header logo, left of the L+R / Side selector
+    juce::Rectangle<int> m_freqText, m_levelText;   // tone readouts beside their knobs
     int              m_activeTab   = 0;
     int              m_tickCounter = 0;
 

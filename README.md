@@ -25,17 +25,17 @@
   - [Measurement Safety](#measurement-safety)
   - [Cursor Readouts & Curve Freeze](#cursor-readouts--curve-freeze)
 - [Live Analysis Tabs](#live-analysis-tabs)
-  - [Spectrum](#spectrum-tab)
+  - [Tone](#tone-tab)
   - [Dynamics](#dynamics-tab)
-  - [Oscilloscope](#oscilloscope-tab)
+  - [Waveform](#waveform-tab)
   - [Stereo](#stereo-tab)
 - [Measurement Tabs](#measurement-tabs)
   - [Harmonics](#harmonics-tab)
-  - [Freq Response](#freq-response-tab)
+  - [EQ Curve](#eq-curve-tab)
   - [Compression](#compression-tab)
   - [Attack / Release](#attack--release-tab)
   - [Distortion](#distortion-tab)
-- [Bottom Bar Controls](#bottom-bar-controls)
+- [Test Tone Controls](#test-tone-controls)
 - [Tips and Best Practices](#tips-and-best-practices)
 - [Building from Source](#building-from-source)
 - [Architecture](#architecture)
@@ -58,7 +58,7 @@ Both communicate via lock-free named shared memory (Windows file mapping / POSIX
 
 Two complementary kinds of analysis:
 
-- **Live analysis** — driven by your actual program material as it plays (Spectrum, Dynamics, Oscilloscope).
+- **Live analysis** — driven by your actual program material as it plays (Tone, Dynamics, Waveform, Stereo).
 - **Measurement** — Post commands Pre to inject a controlled stimulus (sine, noise, level ramp/step, swept tone) and measures the plugin's exact response: frequency/phase, compression transfer, attack/release, and distortion. Because the stimulus runs through the *real* chain in your DAW, you measure the plugin exactly as it's configured in your session.
 
 ---
@@ -160,14 +160,19 @@ A plugin can't insert its companion automatically — the DAW controls the inser
 
 ## The UI at a Glance
 
-PlugNspectr Post has **nine tabs**, grouped by how they get their signal:
+The window opens at **1280 × 800** and resizes freely (down to 960 × 600). It has three parts:
 
-- **Live analysis** (program material): **Spectrum · Dynamics · Oscilloscope · Stereo**
-- **Measurement** (inject a test signal): **Harmonics · Freq Response · Compression · Attack / Release · Distortion**
+- **The headline (top).** Every tab states the question it answers, then what it found, in plain words, with the one number that answers it shown large at the right. For example, on Compression: *TEST · How hard does it squash loud sounds?* → **Starts compressing near −20 dB** · *ratio about 4.0:1* → **RATIO 4.0 :1**. On Stereo: **Wider by 4.2 dB** · *safe in mono*. The headline turns **amber** when it's something worth acting on (clipping, mono cancellation).
+- **The graph (middle).** The tab's view, taking most of the window.
+- **The dock (bottom).** All **nine tabs** as icons, grouped by how they get their signal:
+  - **LISTEN** (your program material): **Tone · Dynamics · Waveform · Stereo**
+  - **TEST** (injects a test signal): **Harmonics · EQ Curve · Compression · Attack / Release · Distortion**
 
-The measurement tabs sit on a recessed **amber tray** labelled **TEST** to set them apart — they're the ones that temporarily replace your audio with a test signal.
+  The test-tone controls sit at the dock's right end ([Test Tone Controls](#test-tone-controls)). Hover a tab for its question as a tooltip.
 
-**Summary banner.** Under the tab bar, every tab states the question it answers and what it found, in plain words — for example *"How hard it compresses — Starts compressing near −20 dB, ratio about 4:1"*, *"What it does to the stereo image — Wider by 4.2 dB, safe in mono"*, or *"Its EQ curve — Cuts up to 13 dB near 16 kHz"*. The sentence turns **amber** when it's something worth acting on (clipping, mono cancellation). Hover a tab for the same question as a tooltip.
+**Colours.** *Into your plugin* (Pre) is always **grey** — it's the reference. *Out of your plugin* (Post) is always **cyan** — it's what you're judging, so it's the one colour that stands out. **Amber** means a test signal is replacing your audio.
+
+**Settings pill.** The live tabs keep their settings behind one pill at the graph's top right, which shows the current settings at a glance (*History: 12 s*, *Smoothing: Medium · Long-term average: On*). Click it for the choices, each with a one-line explanation, and **Start over** to clear the readings.
 
 Graph titles follow the same rule: the plain name first, the engineering term after it — **OUTPUT LEVEL vs INPUT LEVEL · transfer curve**, **MONO SAFETY · correlation**, **STEREO FIELD · goniometer**.
 
@@ -175,7 +180,7 @@ The top-right **ⓘ** icon opens an **About** box (version, plugin format, OS, a
 
 ### Analysis Channel
 
-The header has a two-way **Analyze `L+R · Side`** selector that picks which signal *all* analysis runs on:
+The top-right **`L+R · Side`** selector that picks which signal *all* analysis runs on:
 
 | Mode | Signal | What it is |
 |---|---|---|
@@ -188,33 +193,33 @@ This is **analysis-only** — your audio always passes through untouched in full
 
 The measurement tabs replace your audio with a test signal — dangerous on a master bus. PlugNspectr makes this impossible to miss:
 
-- An **amber border** frames the whole window and the summary banner below the tab bar turns **amber** ("Test signal playing — your audio is replaced…") whenever any stimulus is active.
+- An **amber border** frames the whole window and the question line above the headline turns **amber** ("TEST SIGNAL PLAYING · your audio is replaced…") whenever any stimulus is active.
 - The **Measure** / **Test Tone** buttons turn solid amber while armed.
 - The stimulus **auto-stops** when you **leave the tab** or **stop DAW playback** — so a tone can't keep blasting after you stop the transport.
 
-Throughout, the color language is consistent: **teal = your current selection**, **amber = test signal touching your audio**.
+Throughout, the colour language is consistent: **grey = into your plugin**, **cyan = out of your plugin and your current selection**, **amber = test signal touching your audio**.
 
 ### Cursor Readouts & Curve Freeze
 
 - **Cursor readout:** hover any measurement plot for a hairline, a dot on the curve, and a value chip reading the exact value at that point (frequency + magnitude/phase/group-delay, input→output level, time→gain-reduction, or frequency→THD%). **Click to lock** it; click again or move off to release.
-- **Freeze (A/B):** the Freq Response, Compression, and Distortion tabs have a **Freeze** button that snapshots the current curve as a dimmed reference overlaid under the live measurement — drop-in plugin A, freeze, swap to plugin B, and compare directly.
+- **Freeze (A/B):** the EQ Curve, Compression, and Distortion tabs have a **Freeze** button that snapshots the current curve as a dimmed reference overlaid under the live measurement — drop-in plugin A, freeze, swap to plugin B, and compare directly.
 
 ---
 
 ## Live Analysis Tabs
 
-### Spectrum Tab
+### Tone Tab
 
 <img src="docs/screenshots/spectrum.png" width="820" alt="Spectrum tab" />
 
 Real-time FFT frequency analysis showing how the plugin is shaping your audio's frequency content.
 
 **What you see:**
-- **Pre signal** (lavender, dimmed) — the unprocessed spectrum
-- **Post signal** (bright teal, glowing) — the processed spectrum
+- **Pre signal** (grey, dimmed) — the unprocessed spectrum
+- **Post signal** (cyan) — the processed spectrum
 - **Pre / Post Averages** — 10-second rolling averages, with an amber fill between them showing the cumulative EQ difference
 
-**Controls (top right):** a **Reset** icon (circular arrow), smoothing speed (**Fast / Medium / Slow**), and an **Avg** toggle for the average lines. **Reset** clears the rolling averages and the fluctuation markers so the averaged Pre↔Post comparison reflects only post-tweak audio — the "start over after a plugin change" companion to the same control on the Dynamics tab.
+**Settings pill (top right):** smoothing speed (**Fast / Medium / Slow**), the **long-term average** lines on or off, and **Start over**, which clears the rolling averages and the fluctuation markers so the averaged Pre↔Post comparison reflects only post-tweak audio — the "start over after a plugin change" companion to the same control on the Dynamics tab.
 
 **Interactive inspection:** hover for a hairline + tooltip (frequency, Pre dB, Post dB); click to lock, click again to unlock.
 
@@ -230,7 +235,7 @@ Real-time FFT frequency analysis showing how the plugin is shaping your audio's 
 
 Reveals how the plugin is affecting dynamic range and level in real time.
 
-**Waveform comparison (top):** Pre (soft sand, background) vs Post (bright teal, foreground) overlaid; where Post is smaller than Pre, compression/limiting is occurring, highlighted by the teal fill. Time window: **6s** or **12s** (default).
+**Waveform comparison (top):** Pre (grey, background) vs Post (cyan, foreground) overlaid; where Post is smaller than Pre, compression/limiting is occurring, highlighted by the cyan fill. History (settings pill): **6 s** or **12 s** (default).
 
 **Reset (circular-arrow icon, top right):** clears all readings and history — waveform, Avg cut, the 30 s rolling average, GR history, and the In/Out levels — so measurement starts over after you tweak the plugin chain. The auto-zoom is kept so the view doesn't jump.
 
@@ -238,24 +243,24 @@ Reveals how the plugin is affecting dynamic range and level in real time.
 | Readout | Description |
 |---|---|
 | **Avg cut** | Average gain reduction over the last 30 s (amber) |
-| **Now** | Instantaneous gain reduction — holds last non-zero value (teal) |
+| **Now** | Instantaneous gain reduction — holds last non-zero value (cyan) |
 | **Loudness — In / Out** | RMS input / output level (dB) |
-| **Loudness — Change** | Net level difference (orange = attenuation, teal = gain, grey = unity) |
+| **Loudness — Change** | Net level difference (coral = attenuation, cyan = gain, grey = unity) |
 
 > **Double-click** the readout panel (Avg cut / Now) for the same full reset as the **Reset** button.
 
-**Gain Reduction (bottom):** a scrolling GR history with an orange gradient fill and a peak-hold line. Y = 0 to −24 dB; X = last 3 seconds. Flat at 0 = dynamically transparent; deep consistent dips = heavy compression; brief dips = peak limiting.
+**Gain Reduction (bottom):** a scrolling GR history with a coral gradient fill and a peak-hold line. Y = 0 to −24 dB; X = last 3 seconds. Flat at 0 = dynamically transparent; deep consistent dips = heavy compression; brief dips = peak limiting.
 
 ---
 
-### Oscilloscope Tab
+### Waveform Tab
 
 <img src="docs/screenshots/oscilloscope.png" width="820" alt="Oscilloscope tab" />
 
 A zero-crossing-triggered oscilloscope of both signals — useful for phase shifts, transient shaping, clipping, and saturation character.
 
-- **Pre** (lavender, receding) vs **Post** (bright teal) overlaid; triggering locks to a rising zero-crossing in the Post signal (auto-trigger style, non-swimming).
-- Time windows: **10ms** (individual cycles / transients), **50ms** (default, attack/release), **100ms** (slower events).
+- **Pre** (grey, receding) vs **Post** (cyan) overlaid; triggering locks to a rising zero-crossing in the Post signal (auto-trigger style, non-swimming).
+- Zoom (settings pill): **10 ms** (individual cycles / transients), **50 ms** (default, attack/release), **100 ms** (slower events).
 - Look for: lines overlaid = transparent; smaller Post = gain reduction; shifted Post = latency/phase; different shape = harmonic coloration; flat tops = clipping.
 
 ---
@@ -277,7 +282,7 @@ Read together, they separate honest widening from a level trick.
 
 #### How to read the two lanes
 
-Both share the **same X axis as an EQ** — frequency, 20 Hz to 20 kHz — so you read them like a frequency response: *what happens at each frequency*. **Pre is lavender, Post is teal, and the amber band between them is what the plugin did.**
+Both share the **same X axis as an EQ** — frequency, 20 Hz to 20 kHz — so you read them like a frequency response: *what happens at each frequency*. **Pre is grey, Post is cyan, and the faint cyan band between them is what the plugin did.**
 
 **WIDTH — how much stereo there is.** The Y axis is side energy relative to mid, in dB:
 
@@ -307,17 +312,17 @@ The two lanes are mathematically linked — both derive from the same measuremen
 
 **Worked example.** A bus processor showing width at the floor and correlation at `+1` below 100 Hz, then width leaping to `0…+8 dB` with correlation crashing to `−0.5` above it, has widened your highs **by pushing them anti-phase rather than decorrelating them** — that content partially cancels in mono. Note the broadband **In mono** readout may still look harmless (say `−0.6 dB`), because it is energy-weighted and a correlated low end dominates it. Broadband says "safe", per-band says "anti-phase above 100 Hz" — both true, and exactly why the per-band view earns its place.
 
-**Goniometer:** the classic 45°-rotated X/Y display — **mono draws a vertical line**, hard-panned content sits on the diagonals, and a symmetric stereo signal is vertically balanced (a lean suggests an L/R level imbalance). Post in teal with the Pre trace drawn over it, so the narrower reference stays visible instead of being buried inside the wider one.
+**Goniometer:** the classic 45°-rotated X/Y display — **mono draws a vertical line**, hard-panned content sits on the diagonals, and a symmetric stereo signal is vertically balanced (a lean suggests an L/R level imbalance). Post in cyan with the Pre trace drawn over it, so the narrower reference stays visible instead of being buried inside the wider one.
 
 **Readouts:** broadband **Width**, **Phase** (correlation: `+1` in phase, `−1` anti-phase), and **In mono** (level lost when summed to mono — `0 dB` is mono-safe) for Pre and Post. Phase turns amber when it goes negative and In mono when the loss exceeds 3 dB.
 
-> This tab reads your **program material**, so it needs stereo audio playing — the `L+R / Side` selector dims and the footer tone controls are hidden here, since the tab uses both channels and the internal test tone is mono. On a mono track it says so instead of drawing a meaningless curve.
+> This tab reads your **program material**, so it needs stereo audio playing — the `L+R / Side` selector dims and the dock's tone controls are hidden here, since the tab uses both channels and the internal test tone is mono. On a mono track it says so instead of drawing a meaningless curve.
 
 ---
 
 ## Measurement Tabs
 
-> All measurement tabs inject a test signal through the plugin under analysis. The amber border/banner and auto-stop ([Measurement Safety](#measurement-safety)) are active whenever they're running.
+> All measurement tabs inject a test signal through the plugin under analysis. The amber border and question line, and auto-stop ([Measurement Safety](#measurement-safety)) are active whenever they're running.
 
 ### Harmonics Tab
 
@@ -325,16 +330,16 @@ The two lanes are mathematically linked — both derive from the same measuremen
 
 Harmonic-distortion analysis using a pure sine test tone. Identifies the character and intensity of even and odd harmonics H2–H8.
 
-- **FREQ** (footer) sets the tone frequency; **LEVEL** (footer) sets its level; **Test Tone** arms it.
+- **TONE** (dock) sets the tone frequency; **LEVEL** (dock) sets its level; **Test Tone** arms it.
 - **Pre** spectrum shows the clean fundamental; **Post** shows the plugin's output — any added frequencies are harmonics. Vertical markers sit at H1–H8 with colored diamonds at each peak.
 - **Readouts:** THD Pre %, THD Post %, and individual H2–H8 levels (Pre/Post). Values below −60 dB show as `---`.
 - **Even harmonics** (H2/H4/H6/H8) → warm, tube/tape character; **odd** (H3/H5/H7) → harsher, transistor/digital character. THD Post near 0% = clean; 1–5% = subtle coloration; >10% = significant saturation.
 
 ---
 
-### Freq Response Tab
+### EQ Curve Tab
 
-<img src="docs/screenshots/freq-response.png" width="820" alt="Freq Response tab — magnitude, phase, group delay" />
+<img src="docs/screenshots/freq-response.png" width="820" alt="EQ Curve tab — magnitude, phase, group delay" />
 
 The full **linear transfer function** of the plugin, measured with a white-noise stimulus (cross-spectrum H1 = Pre→Post). Three stacked plots:
 
@@ -373,21 +378,17 @@ The measured **time response** — gain reduction vs time — captured with a le
 
 ---
 
-## Bottom Bar Controls
+## Test Tone Controls
 
-The footer hosts the test-tone controls and global level trim:
+The right end of the dock holds the test-tone controls:
 
 | Control | Function |
 |---|---|
-| **FREQ** | Test-tone frequency (100 Hz – 8000 Hz, default 1000 Hz) |
+| **TONE** | Test-tone frequency (100 Hz – 8000 Hz, default 1000 Hz) |
 | **LEVEL** | Test-tone level (dBFS) |
 | **Test Tone** | Arms / disarms the sine test tone (turns amber while active) |
-| **IN trim** | −24…+24 dB — scales the Pre signal for analysis only (does not affect audio) |
-| **OUT trim** | −24…+24 dB — scales the actual Post audio output |
 
-> **Double-click** a trim slider to reset to 0.0 dB. Trims display grey at 0 dB and teal when active.
-
-> **FREQ / LEVEL / Test Tone** only apply where they're used — they're active on the live tabs and **Harmonics** (with **LEVEL** also on **Distortion**), and are hidden on the other measurement tabs, which are driven entirely by their **Measure** button (the footer says so instead).
+> **TONE / LEVEL / Test Tone** only appear where they're used: on the live tabs and **Harmonics** (with **LEVEL** also on **Distortion**). The other test tabs are driven entirely by their **Measure** button.
 
 ---
 
@@ -400,13 +401,13 @@ The footer hosts the test-tone controls and global level trim:
 - Save the Pre/Post pair as an **FX Chain Preset** to add both inserts at once.
 
 ### Live tabs
-- **Spectrum:** use **Slow** smoothing for subtle EQ coloration; let audio run 10+ seconds before reading the averages and variance markers.
+- **Tone:** use **Slow** smoothing for subtle EQ coloration; let audio run 10+ seconds before reading the averages and variance markers.
 - **Dynamics:** the **30-second Avg cut** is the most musically meaningful compression reading; use **12s** for compressors and **6s** for limiters; the loudness **Change** readout flags non-unity gain.
-- **Oscilloscope:** **10ms** for individual transients, **50ms** for compressor attack/release, **100ms** for longer passages.
+- **Waveform:** **10 ms** for individual transients, **50ms** for compressor attack/release, **100ms** for longer passages.
 
 ### Measurement tabs
-- **Freq Response** is the most accurate way to see a plugin's exact EQ and phase — far more precise than live spectrum averaging.
-- Use **Freeze** to A/B two plugins (or two settings) on Freq Response, Compression, and Distortion.
+- **EQ Curve** is the most accurate way to see a plugin's exact EQ and phase — far more precise than live spectrum averaging.
+- Use **Freeze** to A/B two plugins (or two settings) on EQ Curve, Compression, and Distortion.
 - **Harmonics:** start with the default 1 kHz tone for comparable readings; lower the frequency to inspect higher harmonics on plugins that generate many overtones.
 
 ---
@@ -500,7 +501,7 @@ A tracked **pre-push hook** runs the suites before every push; enable it once pe
                                           │  Live: Spectrum,       │
                                           │        Dynamics, Scope │
                                           │  Measure: Harmonics,   │
-                                          │   Freq Response,       │
+                                          │   EQ Curve,       │
                                           │   Compression,         │
                                           │   Attack/Release,      │
                                           │   Distortion           │
@@ -516,10 +517,10 @@ A tracked **pre-push hook** runs the suites before every push; enable it once pe
 - Static compression transfer curve
 - Measured attack / release envelope
 - THD-vs-frequency distortion sweep
-- Curve **Freeze** (A/B) on Freq Response, Compression, Distortion
+- Curve **Freeze** (A/B) on EQ Curve, Compression, Distortion
 - **L+R / Side** channel analysis (whole signal + stereo difference)
 - **Stereo tab** — per-band width + correlation (Pre vs Post), goniometer, mono-compatibility
-- Measurement-safety system (amber border/banner, armed buttons, auto-stop on tab change or transport stop)
+- Measurement-safety system (amber border and question line, armed buttons, auto-stop on tab change or transport stop)
 - Cursor readouts on all measurement plots
 - About box (info icon → version / format / OS / manual)
 - Resizable window

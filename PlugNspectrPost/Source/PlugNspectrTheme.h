@@ -1,6 +1,6 @@
 /*
   ==============================================================================
-    PlugNspectrTheme.h  —  "Deep Space" design tokens + custom LookAndFeel
+    PlugNspectrTheme.h  —  "Ice" design tokens + custom LookAndFeel
   ==============================================================================
 */
 
@@ -11,31 +11,34 @@ namespace PnsTheme
 {
     //──────────────────────────────────────────────────────────────────────────
     // Backgrounds
-    static const juce::Colour kBgDark   { 15,  15,  15  };   // #0F0F0F
-    static const juce::Colour kBgPanel  { 26,  26,  26  };   // #1A1A1A
-    static const juce::Colour kBgWidget { 36,  36,  36  };   // #242424
+    // Near-black with a cool cast; the graph is the surface, so it is darkest.
+    static const juce::Colour kBgDark   {  8,   9,  11  };   // #08090B
+    static const juce::Colour kBgPanel  { 14,  16,  20  };   // #0E1014  dock, cards
+    static const juce::Colour kBgWidget { 26,  30,  37  };   // #1A1E25  buttons, chips
 
     //──────────────────────────────────────────────────────────────────────────
     // Borders
-    static const juce::Colour kBorderSubtle { 42, 42, 42 };  // #2A2A2A
-    static const juce::Colour kBorderActive { 61, 61, 61 };  // #3D3D3D
+    static const juce::Colour kBorderSubtle { 32, 36, 44 };  // #20242C
+    static const juce::Colour kBorderActive { 58, 64, 76 };  // #3A404C
 
     //──────────────────────────────────────────────────────────────────────────
     // Text
-    static const juce::Colour kTextPrimary   { 224, 219, 208 };  // warm off-white
-    static const juce::Colour kTextSecondary { 107, 101,  96 };  // muted warm grey
-    static const juce::Colour kTextAccent    {   0, 229, 204 };  // bright teal
+    static const juce::Colour kTextPrimary   { 236, 239, 243 };  // cool off-white
+    static const juce::Colour kTextSecondary { 138, 145, 156 };  // cool grey, readable
+    static const juce::Colour kTextAccent    {  76, 201, 240 };  // ice cyan
 
     //──────────────────────────────────────────────────────────────────────────
     // Signal colours
-    static const juce::Colour kColorPre      { 123, 111, 204 };  // lavender
-    static const juce::Colour kColorPost     {   0, 229, 204 };  // bright teal
-    static const juce::Colour kColorPreAvg   { 155, 143, 232 };  // lighter lavender
-    static const juce::Colour kColorPostAvg  { 255, 179,   0 };  // vibrant amber
-    static const juce::Colour kColorGainRed  { 255, 107,   0 };  // bright orange
+    // Pre is the reference, so it recedes (grey); Post is what you are judging,
+    // so it is the one saturated colour on screen and doubles as the accent.
+    static const juce::Colour kColorPre      { 125, 134, 150 };  // slate grey
+    static const juce::Colour kColorPost     {  76, 201, 240 };  // ice cyan
+    static const juce::Colour kColorPreAvg   { 170, 178, 192 };  // light slate
+    static const juce::Colour kColorPostAvg  { 245, 176,  65 };  // amber — test signal / warnings
+    static const juce::Colour kColorGainRed  { 255, 138,  91 };  // coral — gain reduction
 
     // Per-signal opacity constants
-    static constexpr float kColorPreAlpha  = 0.45f;
+    static constexpr float kColorPreAlpha  = 0.60f;
     static constexpr float kColorPostAlpha = 0.95f;
 
     //──────────────────────────────────────────────────────────────────────────
@@ -45,55 +48,59 @@ namespace PnsTheme
 
     //──────────────────────────────────────────────────────────────────────────
     // Accents (derived from post teal for LookAndFeel)
-    static const juce::Colour kAccentPrimary   {   0, 229, 204 };  // bright teal
-    static const juce::Colour kAccentSecondary {   0, 180, 160 };  // mid teal
-    static const juce::Colour kAccentDim       {   0,  70,  60 };  // dark teal
-    static const juce::Colour kBtnActiveBg     {   0,  40,  36 };  // very dark teal
+    static const juce::Colour kAccentPrimary   {  76, 201, 240 };  // ice cyan
+    static const juce::Colour kAccentSecondary {  52, 150, 184 };  // mid cyan
+    static const juce::Colour kAccentDim       {  20,  62,  80 };  // dark cyan
+    static const juce::Colour kBtnActiveBg     {  14,  40,  54 };  // very dark cyan
 
     //──────────────────────────────────────────────────────────────────────────
     // Grid & reference lines
-    static const juce::Colour kGridLine  {  30,  30,  30 };   // #1E1E1E very subtle
-    static const juce::Colour kGridLabel {  74,  69,  64 };   // #4A4540 muted warm
-    static const juce::Colour kZeroLine  {  46,  46,  46 };   // #2E2E2E
+    static const juce::Colour kGridLine  {  24,  28,  34 };   // #181C22 subtle
+    static const juce::Colour kGridLabel {  92, 100, 112 };   // #5C6470 readable
+    static const juce::Colour kZeroLine  {  44,  50,  60 };   // #2C323C
     static const juce::Colour kClipLine  { 204,  51,  51 };   // #CC3333 soft red
 
     //──────────────────────────────────────────────────────────────────────────
     // Spacing  (px)
-    static constexpr int kHeaderHeight    = 36;
-    static constexpr int kTabBarHeight    = 32;
-    static constexpr int kBannerHeight    = 26;   // summary strip under the tab bar
+    static constexpr int kHeroHeight      = 112;  // question + headline + big number
+    static constexpr int kDockHeight      = 74;   // tab dock + tone controls along the bottom
     static constexpr int kPaddingSmall    = 6;
     static constexpr int kPaddingMid      = 12;
     static constexpr int kPaddingLarge    = 20;
-    static constexpr int kCornerRadius    = 4;
-    static constexpr int kButtonHeight    = 22;
+    static constexpr int kCornerRadius    = 6;
+    static constexpr int kButtonHeight    = 24;
 
     //──────────────────────────────────────────────────────────────────────────
     // Fonts
     static inline juce::Font fontPrimary()
     {
-        return juce::Font (juce::FontOptions().withName (juce::Font::getDefaultSansSerifFontName()).withHeight (12.0f));
+        return juce::Font (juce::FontOptions().withName (juce::Font::getDefaultSansSerifFontName()).withHeight (13.0f));
     }
     static inline juce::Font fontLabel()
     {
-        return juce::Font (juce::FontOptions().withName (juce::Font::getDefaultSansSerifFontName()).withHeight (10.0f));
+        return juce::Font (juce::FontOptions().withName (juce::Font::getDefaultSansSerifFontName()).withHeight (11.0f));
     }
     static inline juce::Font fontTitle()
     {
-        return juce::Font (juce::FontOptions().withName (juce::Font::getDefaultSansSerifFontName()).withHeight (11.0f).withStyle ("Bold"));
+        return juce::Font (juce::FontOptions().withName (juce::Font::getDefaultSansSerifFontName()).withHeight (12.0f).withStyle ("Bold"));
     }
     static inline juce::Font fontReadout()
     {
-        return juce::Font (juce::FontOptions().withName (juce::Font::getDefaultSansSerifFontName()).withHeight (13.0f));
+        return juce::Font (juce::FontOptions().withName (juce::Font::getDefaultSansSerifFontName()).withHeight (14.0f));
+    }
+    static inline juce::Font fontSized (float h, bool bold = false)
+    {
+        auto o = juce::FontOptions().withName (juce::Font::getDefaultSansSerifFontName()).withHeight (h);
+        return juce::Font (bold ? o.withStyle ("Bold") : o);
     }
 
     //──────────────────────────────────────────────────────────────────────────
     // Frosted panel
     static inline void drawFrostedPanel (juce::Graphics& g, juce::Rectangle<float> bounds)
     {
-        g.setColour (juce::Colour (15, 15, 15).withAlpha (0.82f));
+        g.setColour (kBgPanel.withAlpha (0.86f));
         g.fillRoundedRectangle (bounds, (float) kCornerRadius);
-        g.setColour (juce::Colour (42, 42, 42).withAlpha (0.9f));
+        g.setColour (kBorderSubtle.withAlpha (0.9f));
         g.drawRoundedRectangle (bounds, (float) kCornerRadius, 1.0f);
     }
 
@@ -142,10 +149,9 @@ namespace PnsTheme
     static inline void drawGlowLine (juce::Graphics& g, const juce::Path& path,
                                      juce::Colour colour, float lineThickness = 1.5f)
     {
-        g.setColour (colour.withAlpha (0.12f));
-        g.strokePath (path, juce::PathStrokeType (lineThickness + 5.0f));
-        g.setColour (colour.withAlpha (0.28f));
-        g.strokePath (path, juce::PathStrokeType (lineThickness + 2.5f));
+        // Soft halo only — a crisp line reads as more precise than a neon one.
+        g.setColour (colour.withAlpha (0.10f));
+        g.strokePath (path, juce::PathStrokeType (lineThickness + 4.0f));
         g.setColour (colour.withAlpha (0.95f));
         g.strokePath (path, juce::PathStrokeType (lineThickness));
     }
@@ -154,10 +160,19 @@ namespace PnsTheme
     // Plain-language layer. Every tab answers one question in the banner under
     // the tab bar ("How hard it compresses") and states what it found in a
     // sentence; warn turns the sentence amber for things worth acting on.
+    // heroValue is the one number that answers the question ("4.2" dB of cut),
+    // drawn large at the top right; empty means nothing to show yet.
     struct Summary
     {
         juce::String text;
         bool         warn = false;
+        juce::String heroLabel, heroValue, heroUnit;
+
+        bool operator!= (const Summary& o) const
+        {
+            return text != o.text || warn != o.warn || heroValue != o.heroValue
+                || heroLabel != o.heroLabel || heroUnit != o.heroUnit;
+        }
     };
 
     // Panel title: the plain name first, the engineering term after it, dimmer —
