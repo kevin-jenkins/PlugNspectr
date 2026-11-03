@@ -3,7 +3,11 @@
 
     Builds are NOT run here. Build both plugins Release|x64 first, then:
 
+        powershell -File packaging/build-release.ps1
         powershell -File packaging/make-release.ps1 -Version 1.0.2
+
+    Refuses to package if either bundle's moduleinfo.json or file version
+    differs from -Version.
 
     Produces <OutDir>/PlugNspectr-<Version>-Windows-x64.zip containing both
     VST3 bundles plus INSTALL.txt, rendered from packaging/INSTALL.txt.
@@ -35,8 +39,22 @@ New-Item -ItemType Directory -Force $staging | Out-Null
 foreach ($p in @('PlugNspectrPre', 'PlugNspectrPost')) {
     $bundle = Join-Path $repoRoot "$p\Builds\VisualStudio2026\x64\Release\VST3\$p.vst3"
     if (-not (Test-Path $bundle)) {
-        throw "Missing $p.vst3 - build $p as Release|x64 first. Looked in: $bundle"
+        throw "Missing $p.vst3 - build $p as Release|x64 first (packaging/build-release.ps1). Looked in: $bundle"
     }
+
+    # Refuse to ship a bundle that reports a different version than the one
+    # being released: hosts read moduleinfo.json, Windows reads the binary's
+    # file version. Both drifted unnoticed to 1.0.0 in every release up to 1.0.3.
+    $info = Join-Path $bundle 'Contents\Resources\moduleinfo.json'
+    if (-not (Test-Path $info)) {
+        throw "$p.vst3 has no moduleinfo.json - build with packaging/build-release.ps1 (64-bit MSBuild)"
+    }
+    $infoVer = ((Get-Content $info -Raw) | Select-String '"Version":\s*"([^"]+)"').Matches[0].Groups[1].Value
+    $binVer  = (Get-Item (Join-Path $bundle "Contents\x86_64-win\$p.vst3")).VersionInfo.FileVersion
+    if ($infoVer -ne $Version -or $binVer -ne $Version) {
+        throw "$p reports moduleinfo $infoVer / file version $binVer, not $Version - bump the version and rebuild"
+    }
+
     Copy-Item $bundle (Join-Path $staging "$p.vst3") -Recurse
 }
 
