@@ -51,18 +51,17 @@ void TransferView::freezeForTest() { doFreeze(); repaint(); }
 
 void TransferView::mouseMove (const juce::MouseEvent& e)
 {
-    if (m_cursorLocked) return;
-    m_cursorX = transferPlot (*this).contains (e.position) ? e.position.x : -1.0f;
-    repaint();
+    if (m_cursor.move (e.position, transferPlot (*this).contains (e.position))) repaint();
 }
+
 void TransferView::mouseExit (const juce::MouseEvent&)
 {
-    if (! m_cursorLocked) { m_cursorX = -1.0f; repaint(); }
+    if (m_cursor.exit()) repaint();
 }
+
 void TransferView::mouseDown (const juce::MouseEvent& e)
 {
-    if (transferPlot (*this).contains (e.position))
-    { m_cursorX = e.position.x; m_cursorLocked = ! m_cursorLocked; repaint(); }
+    if (m_cursor.down (e.position, transferPlot (*this).contains (e.position))) repaint();
 }
 
 void TransferView::resized()
@@ -154,9 +153,9 @@ void TransferView::paint (juce::Graphics& g)
         PnsTheme::drawGlowLine (g, path, PnsTheme::kColorPost, 1.5f);
 
     // Cursor readout — input level → output level / gain reduction.
-    if (nValid > 1 && m_cursorX >= 0.0f)
+    if (nValid > 1 && m_cursor.x >= 0.0f)
     {
-        const float cx = juce::jlimit (px, px + pw, m_cursorX);
+        const float cx = juce::jlimit (px, px + pw, m_cursor.x);
         const float inDb = lo + (cx - px) / pw * (hi - lo);
         const int b = juce::jlimit (0, kBins - 1,
                                     (int) std::lround ((inDb - PlugNspectrPostProcessor::kDynMinDb)
@@ -168,7 +167,7 @@ void TransferView::paint (juce::Graphics& g)
             rows.add (juce::String (inDb, 1) + " dB in");
             rows.add (juce::String (outDb, 1) + " dB out");
             rows.add ("GR " + juce::String (inDb - outDb, 1) + " dB");
-            drawCursorChip (g, { px, py, pw, ph }, cx, Y (outDb), PnsTheme::kColorPost, rows, m_cursorLocked);
+            drawCursorChip (g, { px, py, pw, ph }, cx, Y (outDb), PnsTheme::kColorPost, rows, m_cursor.locked);
         }
     }
 

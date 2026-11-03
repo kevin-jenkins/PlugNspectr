@@ -46,28 +46,27 @@ float OscilloscopeView::ringGet (const std::array<float, kRingLen>& buf,
 }
 
 //──────────────────────────────────────────────────────────────────────────────
+// Every sample goes into the ring, so the 10/50/100 ms windows mean what they
+// say regardless of the host buffer size.
+void OscilloscopeView::consumeCapture (const CaptureChunk& cap)
+{
+    const int n = cap.n;
+    if (n <= 0) return;
+    const float* prePtr  = cap.pre .getReadPointer (0);
+    const float* postPtr = cap.post.getReadPointer (0);
+
+    for (int i = 0; i < n; ++i)
+    {
+        m_ringPre [m_ringWrite] = prePtr  ? prePtr [i] : 0.0f;
+        m_ringPost[m_ringWrite] = postPtr ? postPtr[i] : 0.0f;
+        m_ringWrite = (m_ringWrite + 1) % kRingLen;
+        if (m_ringAvail < kRingLen) ++m_ringAvail;
+    }
+    m_totalWritten += (uint64_t) n;
+}
+
 void OscilloscopeView::update()
 {
-    // ── Accumulate samples from processor into ring buffer ────────────────
-    {
-        // Drain the ring: every sample, so the 10/50/100 ms windows mean what they
-        // say regardless of the host buffer size.
-        const int n = m_proc.readCaptureSince (m_capReadPos, m_capPre, m_capPost);
-        if (n > 0)
-        {
-            const float* prePtr  = m_capPre .getReadPointer (0);
-            const float* postPtr = m_capPost.getReadPointer (0);
-
-            for (int i = 0; i < n; ++i)
-            {
-                m_ringPre [m_ringWrite] = prePtr  ? prePtr [i] : 0.0f;
-                m_ringPost[m_ringWrite] = postPtr ? postPtr[i] : 0.0f;
-                m_ringWrite = (m_ringWrite + 1) % kRingLen;
-                if (m_ringAvail < kRingLen) ++m_ringAvail;
-            }
-            m_totalWritten += (uint64_t) n;
-        }
-    }
 
     // ── Trigger search ────────────────────────────────────────────────────
     const double sr = m_proc.getSampleRate();

@@ -5,6 +5,7 @@
 #include "../PluginProcessor.h"
 #include "../PnsAnalysis.h"
 #include "ViewOptions.h"
+#include "ViewCommon.h"
 
 //==============================================================================
 // Transfer view — measured dynamics transfer curve (output level vs input level)
@@ -21,7 +22,7 @@ public:
     bool isMeasureActive() const { return m_measureActive; }
     std::function<void()> onMeasureChanged;
     void freezeForTest();
-    void setCursorForTest (int x) { m_cursorX = (float) x; m_cursorLocked = true; }
+    void setCursorForTest (int x) { m_cursor.lockAt (x); }
     bool disarm() { if (! m_measureActive) return false;
                     m_measureActive = false;
                     m_measureBtn.setToggleState (false, juce::dontSendNotification);
@@ -34,8 +35,7 @@ public:
 private:
     static constexpr int kBins = PlugNspectrPostProcessor::kDynBins;
     void doFreeze();
-    float m_cursorX = -1.0f;
-    bool  m_cursorLocked = false;
+    HoverCursor m_cursor;
 
     PlugNspectrPostProcessor& m_proc;
     PlugNspectrPostProcessor::DynResult m_dyn;

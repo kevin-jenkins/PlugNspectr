@@ -46,18 +46,17 @@ void EnvelopeView::update()
 
 void EnvelopeView::mouseMove (const juce::MouseEvent& e)
 {
-    if (m_cursorLocked) return;
-    m_cursorX = envPlot (*this).contains (e.position) ? e.position.x : -1.0f;
-    repaint();
+    if (m_cursor.move (e.position, envPlot (*this).contains (e.position))) repaint();
 }
+
 void EnvelopeView::mouseExit (const juce::MouseEvent&)
 {
-    if (! m_cursorLocked) { m_cursorX = -1.0f; repaint(); }
+    if (m_cursor.exit()) repaint();
 }
+
 void EnvelopeView::mouseDown (const juce::MouseEvent& e)
 {
-    if (envPlot (*this).contains (e.position))
-    { m_cursorX = e.position.x; m_cursorLocked = ! m_cursorLocked; repaint(); }
+    if (m_cursor.down (e.position, envPlot (*this).contains (e.position))) repaint();
 }
 
 void EnvelopeView::paint (juce::Graphics& g)
@@ -126,9 +125,9 @@ void EnvelopeView::paint (juce::Graphics& g)
         PnsTheme::drawGlowLine (g, path, PnsTheme::kColorPost, 1.5f);
 
     // Cursor readout — time → gain reduction.
-    if (nValid > 1 && m_cursorX >= 0.0f)
+    if (nValid > 1 && m_cursor.x >= 0.0f)
     {
-        const float cx = juce::jlimit (px, px + pw, m_cursorX);
+        const float cx = juce::jlimit (px, px + pw, m_cursor.x);
         const float ms = (cx - px) / pw * 1000.0f;
         const int b = juce::jlimit (0, kBins - 1, (int) (ms / 1000.0f * kBins));
         if (m_env.valid[(size_t) b])
@@ -138,7 +137,7 @@ void EnvelopeView::paint (juce::Graphics& g)
             rows.add (juce::String (juce::roundToInt (ms)) + " ms");
             rows.add ("GR " + juce::String (gr, 2) + " dB");
             drawCursorChip (g, { px, py, pw, ph }, cx, Y (juce::jlimit (0.0f, m_grHi, gr)),
-                            PnsTheme::kColorPost, rows, m_cursorLocked);
+                            PnsTheme::kColorPost, rows, m_cursor.locked);
         }
     }
 

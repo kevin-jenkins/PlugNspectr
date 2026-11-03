@@ -62,18 +62,17 @@ void ThdSweepView::update()
 
 void ThdSweepView::mouseMove (const juce::MouseEvent& e)
 {
-    if (m_cursorLocked) return;
-    m_cursorX = thdPlot (*this).contains (e.position) ? e.position.x : -1.0f;
-    repaint();
+    if (m_cursor.move (e.position, thdPlot (*this).contains (e.position))) repaint();
 }
+
 void ThdSweepView::mouseExit (const juce::MouseEvent&)
 {
-    if (! m_cursorLocked) { m_cursorX = -1.0f; repaint(); }
+    if (m_cursor.exit()) repaint();
 }
+
 void ThdSweepView::mouseDown (const juce::MouseEvent& e)
 {
-    if (thdPlot (*this).contains (e.position))
-    { m_cursorX = e.position.x; m_cursorLocked = ! m_cursorLocked; repaint(); }
+    if (m_cursor.down (e.position, thdPlot (*this).contains (e.position))) repaint();
 }
 
 void ThdSweepView::paint (juce::Graphics& g)
@@ -190,9 +189,9 @@ void ThdSweepView::paint (juce::Graphics& g)
     }
 
     // Cursor readout — frequency → THD %.
-    if (nValid > 1 && m_cursorX >= 0.0f)
+    if (nValid > 1 && m_cursor.x >= 0.0f)
     {
-        const float cx = juce::jlimit (px, px + pw, m_cursorX);
+        const float cx = juce::jlimit (px, px + pw, m_cursor.x);
         const double t = (double) (cx - px) / pw;
         const double f = (double) lo * std::pow ((double) hi / lo, t);
         const int b = juce::jlimit (0, kBins - 1, (int) std::lround (t * (kBins - 1)));
@@ -204,7 +203,7 @@ void ThdSweepView::paint (juce::Graphics& g)
             juce::StringArray rows;
             rows.add (fStr);
             rows.add ("THD " + juce::String (pct, pct < 1.0f ? 2 : 1) + " %");
-            drawCursorChip (g, { px, py, pw, ph }, cx, Y (pct), PnsTheme::kColorPost, rows, m_cursorLocked);
+            drawCursorChip (g, { px, py, pw, ph }, cx, Y (pct), PnsTheme::kColorPost, rows, m_cursor.locked);
         }
     }
 

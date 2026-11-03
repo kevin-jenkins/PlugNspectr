@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <set>
+#include <cstring>
 
 //==============================================================================
 // StereoView
@@ -60,6 +61,32 @@ void StereoView::smoothOctave (const std::array<float, kBins>& in,
     }
 }
 
+void StereoView::consumeCapture (const CaptureChunk& cap)
+{
+    if (cap.n <= 0) return;
+    // Keep at most a ring's worth (the processor's ring is the limit anyway).
+    constexpr int kMaxPending = PlugNspectrPostProcessor::kCaptureRingLen;
+    const int n = juce::jmin (cap.n, kMaxPending);
+    if (m_pendingN + n > kMaxPending)
+    {
+        const int drop = m_pendingN + n - kMaxPending;   // oldest first
+        for (int ch = 0; ch < 4; ++ch)
+            std::memmove (m_pending.getWritePointer (ch), m_pending.getReadPointer (ch) + drop,
+                          (size_t) (m_pendingN - drop) * sizeof (float));
+        m_pendingN -= drop;
+    }
+    if (m_pending.getNumSamples() < m_pendingN + n)
+        m_pending.setSize (4, juce::jmax (m_pendingN + n, m_pending.getNumSamples() * 2), true, false, true);
+
+    using P = PlugNspectrPostProcessor;
+    const int src = cap.n - n;
+    m_pending.copyFrom (0, m_pendingN, cap.post, P::kCapL, src, n);
+    m_pending.copyFrom (1, m_pendingN, cap.post, P::kCapR, src, n);
+    m_pending.copyFrom (2, m_pendingN, cap.pre,  P::kCapL, src, n);
+    m_pending.copyFrom (3, m_pendingN, cap.pre,  P::kCapR, src, n);
+    m_pendingN += n;
+}
+
 void StereoView::update()
 {
     m_proc.getStereo (m_st);
@@ -72,13 +99,14 @@ void StereoView::update()
     // Goniometer trail — pull raw L/R (capture channels 1/2) and rotate 45° so a
     // mono signal draws a vertical line.
     {
-        const int n = m_proc.readCaptureSince (m_capReadPos, m_capPre, m_capPost);
+        const int n = m_pendingN;
+        m_pendingN = 0;
         if (n > 0)
         {
-            const float* pl = m_capPost.getReadPointer (PlugNspectrPostProcessor::kCapL);
-            const float* pr = m_capPost.getReadPointer (PlugNspectrPostProcessor::kCapR);
-            const float* ql = m_capPre .getReadPointer (PlugNspectrPostProcessor::kCapL);
-            const float* qr = m_capPre .getReadPointer (PlugNspectrPostProcessor::kCapR);
+            const float* pl = m_pending.getReadPointer (0);
+            const float* pr = m_pending.getReadPointer (1);
+            const float* ql = m_pending.getReadPointer (2);
+            const float* qr = m_pending.getReadPointer (3);
 
             constexpr float kR = 0.70710678f;   // 1/√2
             float peak = 0.0f;
@@ -299,9 +327,9 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
         PnsTheme::drawGlowLine (g, pPost, PnsTheme::kColorPost, 1.5f);
 
     // Cursor readout — frequency → value for both signals.
-    if (haveBoth && m_cursorX >= 0.0f)
+    if (haveBoth && m_cursor.x >= 0.0f)
     {
-        const float cx = juce::jlimit (plot.getX(), plot.getRight(), m_cursorX);
+        const float cx = juce::jlimit (plot.getX(), plot.getRight(), m_cursor.x);
         const double t = (double) (cx - plot.getX()) / plot.getWidth();
         const double f = (double) kLoHz * std::pow ((double) kHiHz / kLoHz, t);
         const int k = juce::jlimit (1, kBins - 1, (int) std::lround (f / binW));
@@ -313,7 +341,7 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
             rows.add ("Post " + juce::String (post[(size_t) k], 2) + unit);
             rows.add ("Pre  " + juce::String (pre [(size_t) k], 2) + unit);
             drawCursorChip (g, plot, cx, valToY (post[(size_t) k]),
-                            PnsTheme::kColorPost, rows, m_cursorLocked);
+                            PnsTheme::kColorPost, rows, m_cursor.locked);
         }
     }
 
@@ -497,19 +525,17 @@ void StereoView::paint (juce::Graphics& g)
 
 void StereoView::mouseMove (const juce::MouseEvent& e)
 {
-    if (! m_cursorLocked) { m_cursorX = (float) e.x; repaint(); }
+    if (m_cursor.move (e.position, true)) repaint();
 }
 
 void StereoView::mouseExit (const juce::MouseEvent&)
 {
-    if (! m_cursorLocked) { m_cursorX = -1.0f; repaint(); }
+    if (m_cursor.exit()) repaint();
 }
 
 void StereoView::mouseDown (const juce::MouseEvent& e)
 {
-    m_cursorLocked = ! m_cursorLocked;
-    m_cursorX = (float) e.x;
-    repaint();
+    if (m_cursor.down (e.position, true)) repaint();
 }
 
 PnsTheme::Summary StereoView::summary() const

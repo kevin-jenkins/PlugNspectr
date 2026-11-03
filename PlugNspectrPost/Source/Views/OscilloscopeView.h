@@ -5,6 +5,7 @@
 #include "../PluginProcessor.h"
 #include "../PnsAnalysis.h"
 #include "ViewOptions.h"
+#include "ViewCommon.h"
 
 //==============================================================================
 // Oscilloscope view — triggered zero-crossing time-domain display
@@ -19,6 +20,7 @@ public:
     // Post-vs-Pre latency (measured by the Dynamics view): Pre is drawn this
     // many samples earlier so both traces show the same moment of audio.
     void setLagSamples (int lag) { m_lag = juce::jlimit (0, kRingLen - kMaxCapture - 1, lag); }
+    void consumeCapture (const CaptureChunk& cap);   // every tick; update() may run less often
     void setToneActive (bool on) { m_toneOn = on; }   // steers the headline's advice
     PnsTheme::Summary summary() const;   // one-line plain-language verdict for the banner
 
@@ -35,8 +37,6 @@ private:
     int      m_ringAvail  = 0;
     uint64_t m_totalWritten = 0;
     uint64_t m_searchFrom   = 0;
-    uint64_t m_capReadPos = 0;
-    juce::AudioBuffer<float> m_capPre, m_capPost;
 
     // Display buffer — written by update(), read by paint()
     std::array<float, kMaxCapture> m_displayPre  {};

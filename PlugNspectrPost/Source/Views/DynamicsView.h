@@ -5,6 +5,7 @@
 #include "../PluginProcessor.h"
 #include "../PnsAnalysis.h"
 #include "ViewOptions.h"
+#include "ViewCommon.h"
 
 //==============================================================================
 // Dynamics view — waveform comparison (top) + GR scrolling meter (bottom)
@@ -17,7 +18,7 @@ public:
     explicit DynamicsView (PlugNspectrPostProcessor& p);
     void paint   (juce::Graphics& g) override;
     void resized ()                   override;
-    void update  ();
+    void update  (const CaptureChunk& cap);
     PnsTheme::Summary summary() const;   // one-line plain-language verdict for the banner
     void reset   ();   // clear all accumulated readings and history (keeps the zoom)
     void resetReadings();   // clear the cut readings only (average, peak hold, now); keeps the waveform
@@ -128,9 +129,6 @@ private:
 
     //──────────────────────────────────────────────────────────────────────────
     PlugNspectrPostProcessor& m_proc;
-    // Capture-ring drain cursor + scratch chunk (see readCaptureSince).
-    uint64_t                  m_capReadPos = 0;
-    juce::AudioBuffer<float>  m_capPre, m_capPost;
     bool                      m_preConnected     = false;
 
     void mouseDoubleClick (const juce::MouseEvent&) override;
