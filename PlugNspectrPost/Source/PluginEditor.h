@@ -14,61 +14,8 @@
 #include <JuceHeader.h>
 #include "PlugNspectrTheme.h"
 #include "PluginProcessor.h"
+#include "PnsAnalysis.h"
 // (logo is embedded in PnsLogoData.h — no Projucer BinaryData dependency)
-
-//==============================================================================
-// ResetButton — a circular-arrow "reset" glyph (arc + arrowhead) with the same
-// button chrome as the toolbar toggles. Used on the live tabs (Spectrum,
-// Dynamics) to clear accumulated readings/history and start over.
-//==============================================================================
-class ResetButton : public juce::Button
-{
-public:
-    ResetButton() : juce::Button ("Reset") {}
-    void paintButton (juce::Graphics& g, bool over, bool down) override
-    {
-        // ── Button chrome — identical to the toggle buttons (theme's
-        //    drawButtonBackground): rounded fill + a border that lifts on hover.
-        const auto pill = getLocalBounds().toFloat().reduced (0.5f);
-        const float rad = (float) PnsTheme::kCornerRadius;
-        g.setColour (down ? PnsTheme::kBtnActiveBg : PnsTheme::kBgWidget);
-        g.fillRoundedRectangle (pill, rad);
-        g.setColour (down ? PnsTheme::kAccentPrimary
-                   : over ? PnsTheme::kBorderActive
-                          : PnsTheme::kBorderSubtle);
-        g.drawRoundedRectangle (pill, rad, 1.0f);
-
-        // ── Circular-arrow glyph, inset so it breathes inside the pill.
-        const auto  b  = getLocalBounds().toFloat();
-        const float d  = juce::jmin (b.getWidth(), b.getHeight()) - 10.0f;
-        const float cx = b.getCentreX(), cy = b.getCentreY();
-        const float r  = d * 0.42f;
-        const float th = juce::jmax (1.4f, d * 0.15f);
-
-        g.setColour ((over || down) ? PnsTheme::kAccentPrimary : PnsTheme::kTextSecondary);
-
-        // ~300° arc, clockwise, with a gap at the top for the arrowhead.
-        const float a0 = 0.75f;                                            // start (upper right)
-        const float a1 = juce::MathConstants<float>::twoPi - 0.15f;        // sweep almost full
-        juce::Path arc;
-        arc.addCentredArc (cx, cy, r, r, 0.0f, a0, a1, true);
-        g.strokePath (arc, juce::PathStrokeType (th, juce::PathStrokeType::curved,
-                                                 juce::PathStrokeType::rounded));
-
-        // Arrowhead at the start end, pointing along the counter-clockwise tangent
-        // (up toward the gap) so it reads as a closing circular arrow.
-        const float ax = cx + r * std::sin (a0);
-        const float ay = cy - r * std::cos (a0);
-        const float dirx = -std::cos (a0), diry = -std::sin (a0);          // ccw tangent
-        const float perpx = -diry, perpy = dirx;
-        const float hh = juce::jmax (4.5f, d * 0.44f), w = hh * 0.62f;
-        juce::Path tri;
-        tri.addTriangle (ax + dirx * hh * 0.5f,            ay + diry * hh * 0.5f,
-                         ax - dirx * hh * 0.5f + perpx * w, ay - diry * hh * 0.5f + perpy * w,
-                         ax - dirx * hh * 0.5f - perpx * w, ay - diry * hh * 0.5f - perpy * w);
-        g.fillPath (tri);
-    }
-};
 
 //==============================================================================
 // ViewOptions — a live view's settings, folded behind one pill at the view's
@@ -155,7 +102,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         if (! m_open) return;
-        const auto panel = getLocalBounds().withTrimmedTop (kPillH + 8).toFloat();
+        const auto panel = panelBounds().toFloat();
         g.setColour (juce::Colours::black.withAlpha (0.45f));
         g.fillRoundedRectangle (panel.translated (0.0f, 4.0f), 12.0f);
         g.setColour (PnsTheme::kBgPanel.withAlpha (0.97f));
@@ -185,14 +132,29 @@ public:
         }
     }
 
-    bool hitTest (int x, int y) override   // only the pill and the open panel take clicks
+    ~ViewOptions() override { juce::Desktop::getInstance().removeGlobalMouseListener (this); }
+
+    // Only the pill and the panel itself take clicks — not the strip beside a
+    // narrow pill or the gap above the panel, which belong to the graph.
+    bool hitTest (int x, int y) override
     {
-        return m_open || m_pill.getBounds().contains (x, y);
+        return m_pill.getBounds().contains (x, y) || (m_open && panelBounds().contains (x, y));
+    }
+
+    // While open this is a global mouse listener: a press anywhere outside the
+    // pill and panel closes it, like a menu.
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (! m_open || e.eventComponent == this || isParentOf (e.eventComponent)) return;
+        setOpen (false);
     }
 
     void setOpen (bool o)
     {
+        if (o == m_open) return;
         m_open = o;
+        if (o) juce::Desktop::getInstance().addGlobalMouseListener (this);
+        else   juce::Desktop::getInstance().removeGlobalMouseListener (this);
         place (m_anchorRight, m_anchorTop);
         resized();
         repaint();
@@ -209,6 +171,8 @@ private:
     };
 
     static constexpr int kPillH = 26, kPanelW = 290, kPanelPad = 14, kRowH = 70;
+
+    juce::Rectangle<int> panelBounds() const { return getLocalBounds().withTrimmedTop (kPillH + 8); }
 
     void pick (int rowIdx, int i)
     {
@@ -289,11 +253,7 @@ private:
 
     bool m_showAvg = true;
 
-    // Controls (driven from m_options; kept as the single place the state changes)
-    juce::ComboBox   m_smoothBox;
-    juce::TextButton m_avgBtn { "Avg" };
-    ResetButton      m_reset;
-    ViewOptions      m_options;
+    ViewOptions      m_options;   // smoothing, long-term average, start over
 
     // Interactive hairline
     float m_mouseX     = -1.0f;   // x in component coords, -1 = not in plot
@@ -353,7 +313,8 @@ public:
     void reset   ();   // clear all accumulated readings and history (keeps the zoom)
     void resetReadings();   // clear the cut readings only (average, peak hold, now); keeps the waveform
     void openOptionsForTest() { m_options.setOpen (true); }
-    int  lagSamples() const   { return m_lagSamples; }   // Post-vs-Pre latency, shared with the scope
+    // Post-vs-Pre latency, measured once by the editor's LagTracker.
+    void setLagSamples (int lag) { m_lagSamples = juce::jlimit (0, kSampleBufLen / 2, lag); }
 
 private:
     //──────────────────────────────────────────────────────────────────────────
@@ -368,10 +329,9 @@ private:
     int                              m_samplesStored  = 0;
     juce::int64                      m_totalSamplesWritten = 0;  // monotonic; anchors absolute-aligned bins
 
-    // How far Post lags Pre, in samples — the latency of everything between
-    // them, which the host keeps even when those plugins are bypassed. Measured
-    // from the audio (envelope cross-correlation) and used to line Pre up with
-    // Post before comparing levels; without it every transient reads as a cut.
+    // How far Post lags Pre, in samples (set by the editor's LagTracker). Pre
+    // is read back by this much before comparing levels; without it every
+    // transient reads as a cut.
     // Auto-restart: when the cut changes for good (a plugin switched off or
     // on, a big setting change), the 30 s average and peak hold would take a
     // minute or more to forget the old state. A fast average (~0.5 s) that
@@ -380,10 +340,8 @@ private:
     double m_shiftSinceMs    = 0.0;   // when the fast/slow disagreement began; 0 = agreeing
     double m_restartNoteEnd  = 0.0;   // show "readings restarted" until this time
 
-    int m_lagSamples   = 0;
-    int m_lagCountdown = 0;   // ticks until the next lag estimate
-    void estimateLag (double sampleRate);
-    float alignedGrDb (double sampleRate) const;   // cut over the newest window, dB (≤ 0), or +1 if silent
+    int m_lagSamples = 0;
+    std::vector<float> m_alignPre, m_alignPost;   // delay-aligned copy of the newest audio
 
     // Zoom: visible window in seconds (6 / 12)
     int m_zoomSeconds = 12;
@@ -416,10 +374,7 @@ private:
     int   m_waveColsValid  = 0;        // number of columns with valid data (0 = none yet)
     float m_waveScrollFrac = 0.0f;     // 0..1 fill of the rightmost (newest) bin — sub-column scroll offset
 
-    juce::TextButton m_zoom6s  { "6s"  };
-    juce::TextButton m_zoom12s { "12s" };
-    ResetButton      m_reset;
-    ViewOptions      m_options;
+    ViewOptions      m_options;   // history length, start over
 
     // GR readout — instantaneous + 30s rolling average + peak hold
     float  m_instantGr        = 0.0f;
@@ -521,18 +476,11 @@ private:
     // difference is left to see. Off shows the real levels.
     bool  m_matchLevels = true;
 
-    // Per-snapshot shape statistics (set when a snapshot is taken), behind the
-    // headline's verdict. Crest = peak / RMS in dB: lower = rounder, flatter
-    // peaks. "Flat" = share of samples within 0.1% of the peak: ~0 for a sine or
-    // soft saturation, 20%+ once a hard clip holds the wave at the ceiling.
-    float m_pkPre = 0.0f, m_pkPost = 0.0f, m_rmsPre = 0.0f, m_rmsPost = 0.0f;
-    float m_crestPre = 0.0f, m_crestPost = 0.0f, m_flatPre = 0.0f, m_flatPost = 0.0f;
-    void  measureSnapshot();
+    // Shape of the current snapshot, behind the headline's verdict (PnsAnalysis.h).
+    pns::analysis::Shape m_shapePre, m_shapePost;
+    void setWindowMs (int ms);
 
-    juce::TextButton m_btn10ms  { "10ms"  };
-    juce::TextButton m_btn50ms  { "50ms"  };
-    juce::TextButton m_btn100ms { "100ms" };
-    ViewOptions      m_options;
+    ViewOptions      m_options;   // zoom, level matching, update rate
 
     float ringGet (const std::array<float, kRingLen>& buf, uint64_t idx) const;
 
@@ -619,8 +567,7 @@ private:
 
     PlugNspectrPostProcessor& m_proc;
     PlugNspectrPostProcessor::StereoResult m_st;
-    ResetButton m_reset;
-    ViewOptions m_options;
+    ViewOptions m_options;   // start over
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (StereoView)
 };
@@ -638,12 +585,12 @@ public:
     void update  ();
     PnsTheme::Summary summary() const;   // one-line plain-language verdict for the banner
 
-    // Called by the editor footer when the user changes the tone controls
+    // Called by the editor when the user changes the dock's tone controls
     void setToneFreq   (double freq);
     void setToneActive (bool active);
 
 private:
-    // ── Test-tone state (set by editor footer) ─────────────────────────────
+    // ── Test-tone state (set by the editor's dock) ─────────────────────────────
     bool   m_toneActive     = false;
     bool   m_harmonicsPaused = false;   // true after tone deactivated — freezes last frame
     double m_toneFreq       = 1000.0;
@@ -989,6 +936,67 @@ private:
 };
 
 //==============================================================================
+// LagTracker — how far Post lags Pre: the latency of everything between the two
+// plugins, which a host keeps even when those plugins are bypassed. Owned by the
+// editor and measured once from the audio, so every view that compares Pre with
+// Post (Dynamics, Waveform) lines them up the same way, whichever tab is open.
+//==============================================================================
+class LagTracker
+{
+public:
+    explicit LagTracker (PlugNspectrPostProcessor& p) : m_proc (p) {}
+
+    // Drain the capture and, every ~0.5 s of audio, re-estimate. Keeps the last
+    // confident answer when the audio gives none (silence, a steady tone).
+    void update()
+    {
+        const double sr = m_proc.getSampleRate();
+        if (sr <= 0.0) return;
+        const int need = pns::analysis::requiredLagSamples (sr);
+        if (sr != m_sr)
+        {
+            m_sr = sr;
+            m_pre.assign ((size_t) need, 0.0f);
+            m_post.assign ((size_t) need, 0.0f);
+            m_filled = m_sinceEstimate = 0;
+        }
+
+        const int n = m_proc.readCaptureSince (m_capReadPos, m_capPre, m_capPost);
+        if (n <= 0) return;
+
+        // Newest-last history: slide left, append the newest k samples.
+        const int k = juce::jmin (n, need);
+        auto append = [&] (std::vector<float>& hist, const juce::AudioBuffer<float>& cap)
+        {
+            std::copy (hist.begin() + k, hist.end(), hist.begin());
+            const float* src = cap.getReadPointer (0) + (n - k);
+            std::copy (src, src + k, hist.end() - k);
+        };
+        append (m_pre,  m_capPre);
+        append (m_post, m_capPost);
+        m_filled = juce::jmin (need, m_filled + n);
+
+        m_sinceEstimate += n;
+        if (m_filled >= need && m_sinceEstimate >= (int) (sr * 0.5))
+        {
+            m_sinceEstimate = 0;
+            const int lag = pns::analysis::estimateLag (m_pre.data(), m_post.data(), need, sr);
+            if (lag >= 0) m_lag = lag;
+        }
+    }
+
+    int lagSamples() const { return m_lag; }
+
+private:
+    PlugNspectrPostProcessor& m_proc;
+    uint64_t                  m_capReadPos = 0;
+    juce::AudioBuffer<float>  m_capPre, m_capPost;
+    std::vector<float>        m_pre, m_post;
+    double m_sr = 0.0;
+    int    m_filled = 0, m_sinceEstimate = 0, m_lag = 0;
+};
+
+//==============================================================================
 // DockTab — one tab in the bottom dock: a line icon over a short label, on a
 // rounded highlight when selected. Icons are drawn on a 24-unit grid so they
 // scale with the button.
@@ -1122,14 +1130,14 @@ private:
     float m_overlayTarget = 0.0f;   // desired alpha (animated toward each tick)
     float m_pulsePhase    = 0.0f;   // 0–2π, for the pulsing search dot
 
-    // ── Global footer — test tone controls ────────────────────────────────
+    // ── Dock — test tone controls ────────────────────────────────
     bool          m_toneActive = false;
     double        m_toneFreq   = 1000.0;
     double        m_toneLevel  = -6.0;   // test-tone level, dBFS
 
-    juce::Slider     m_footerFreqSlider;
-    juce::Slider     m_footerLevelSlider;
-    juce::TextButton m_footerToneBtn { "Test Tone" };
+    juce::Slider     m_toneFreqSlider;
+    juce::Slider     m_toneLevelSlider;
+    juce::TextButton m_toneBtn { "Test Tone" };
 
     // Header channel selector — L+R (combined) / Side (L-R)/2, all analysis.
     juce::TextButton m_chLR { "L+R" }, m_chSide { "Side" };
@@ -1150,11 +1158,12 @@ private:
     static const char* tabQuestion (int tab);
     PnsTheme::Summary  currentSummary() const;
     PnsTheme::Summary  m_summary;
-    static bool footerFreqOn  (int tab);
-    static bool footerLevelOn (int tab);
+    static bool toneFreqOn  (int tab);
+    static bool toneLevelOn (int tab);
 
     PnsLookAndFeel    m_laf;
     juce::Image       m_pnsLogo;
+    LagTracker        m_lagTracker;   // Post-vs-Pre latency, shared by Dynamics + Waveform
     SpectrumView      m_specView;
     DynamicsView      m_dynView;
     OscilloscopeView  m_oscView;

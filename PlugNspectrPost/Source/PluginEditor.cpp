@@ -15,46 +15,13 @@
 //==============================================================================
 SpectrumView::SpectrumView (PlugNspectrPostProcessor& p) : m_proc (p)
 {
-    // Smoothing combo — styled by PnsLookAndFeel
-    m_smoothBox.addItem ("Fast",   1);
-    m_smoothBox.addItem ("Medium", 2);
-    m_smoothBox.addItem ("Slow",   3);
-    m_smoothBox.setSelectedId (2, juce::dontSendNotification);
-    m_smoothBox.onChange = [this]
-    {
-        switch (m_smoothBox.getSelectedId())
-        {
-            case 1:  setSmoothPreset (SmoothPreset::Fast);   break;
-            case 3:  setSmoothPreset (SmoothPreset::Slow);   break;
-            default: setSmoothPreset (SmoothPreset::Medium); break;
-        }
-    };
-    addAndMakeVisible (m_smoothBox);
-
-    // Avg toggle — styled by PnsLookAndFeel
-    m_avgBtn.setToggleable (true);
-    m_avgBtn.setToggleState (true, juce::dontSendNotification);
-    m_avgBtn.onClick = [this]
-    {
-        m_showAvg = !m_showAvg;
-        m_avgBtn.setToggleState (m_showAvg, juce::dontSendNotification);
-    };
-    addAndMakeVisible (m_avgBtn);
-
-    m_reset.setTooltip ("Clear the rolling averages and fluctuation markers and "
-                        "start over (after tweaking the plugin chain)");
-    m_reset.onClick = [this] { reset(); };
-    addAndMakeVisible (m_reset);
-
-    // Settings live behind one pill; the controls above stay the source of truth.
-    for (auto* c : std::initializer_list<juce::Component*> { &m_smoothBox, &m_avgBtn, &m_reset })
-        c->setVisible (false);
     m_options.addRow ("Smoothing", "How quickly the curves follow the music.",
-                      { "Fast", "Medium", "Slow" }, m_smoothBox.getSelectedId() - 1,
-                      [this] (int i) { m_smoothBox.setSelectedId (i + 1); });
+                      { "Fast", "Medium", "Slow" }, 1,
+                      [this] (int i) { setSmoothPreset (i == 0 ? SmoothPreset::Fast
+                                                      : i == 1 ? SmoothPreset::Medium : SmoothPreset::Slow); });
     m_options.addRow ("Long-term average", "A steady line of the overall tone.",
                       { "Off", "On" }, m_showAvg ? 1 : 0,
-                      [this] (int i) { if ((i == 1) != m_showAvg) m_avgBtn.onClick(); });
+                      [this] (int i) { m_showAvg = (i == 1); repaint(); });
     m_options.setResetAction ("Clears the averages and markers.", [this] { reset(); });
     addAndMakeVisible (m_options);
 
@@ -132,17 +99,6 @@ void SpectrumView::mouseDown (const juce::MouseEvent& e)
 void SpectrumView::resized()
 {
     m_options.place (getWidth() - PnsTheme::kPaddingMid, PnsTheme::kPaddingSmall);
-    const int W = getWidth();
-    constexpr int bh      = PnsTheme::kButtonHeight;
-    constexpr int marginR = PnsTheme::kPaddingMid;
-    constexpr int marginT = PnsTheme::kPaddingSmall;
-    constexpr int gap     = 4;
-    constexpr int avgW    = 38;
-    constexpr int comboW  = 72;
-    m_avgBtn   .setBounds (W - marginR - avgW,                  marginT, avgW,  bh);
-    m_smoothBox.setBounds (W - marginR - avgW - gap - comboW,   marginT, comboW, bh);
-    constexpr int rw = 28;   // reset icon button
-    m_reset    .setBounds (m_smoothBox.getX() - 10 - rw,        marginT, rw, bh);
 }
 
 void SpectrumView::setSmoothPreset (SmoothPreset p)
@@ -951,38 +907,9 @@ void SpectrumView::paint (juce::Graphics& g)
 //==============================================================================
 DynamicsView::DynamicsView (PlugNspectrPostProcessor& p) : m_proc (p)
 {
-    auto styleZoom = [&] (juce::TextButton& btn, bool active)
-    {
-        btn.setToggleable (true);
-        btn.setToggleState (active, juce::dontSendNotification);
-    };
-
-    styleZoom (m_zoom6s,  false);
-    styleZoom (m_zoom12s, true);   // default: 12s
-
-    auto setZoom = [this] (int seconds)
-    {
-        m_zoomSeconds = seconds;
-        m_zoom6s .setToggleState (seconds ==  6, juce::dontSendNotification);
-        m_zoom12s.setToggleState (seconds == 12, juce::dontSendNotification);
-    };
-
-    m_zoom6s .onClick = [this, setZoom] { setZoom ( 6); };
-    m_zoom12s.onClick = [this, setZoom] { setZoom (12); };
-
-    addAndMakeVisible (m_zoom6s);
-    addAndMakeVisible (m_zoom12s);
-
-    m_reset.setTooltip ("Clear all readings and history and start over "
-                        "(after tweaking the plugin chain)");
-    m_reset.onClick = [this] { reset(); };
-    addAndMakeVisible (m_reset);
-
-    for (auto* c : std::initializer_list<juce::Component*> { &m_zoom6s, &m_zoom12s, &m_reset })
-        c->setVisible (false);
     m_options.addRow ("History", "How many seconds of audio the graphs show.",
                       { "6 s", "12 s" }, m_zoomSeconds == 6 ? 0 : 1,
-                      [this] (int i) { (i == 0 ? m_zoom6s : m_zoom12s).onClick(); });
+                      [this] (int i) { m_zoomSeconds = (i == 0 ? 6 : 12); repaint(); });
     m_options.setResetAction ("Clears every reading and the history.", [this] { reset(); });
     addAndMakeVisible (m_options);
 
@@ -992,15 +919,6 @@ DynamicsView::DynamicsView (PlugNspectrPostProcessor& p) : m_proc (p)
 void DynamicsView::resized()
 {
     m_options.place (getWidth() - PnsTheme::kPaddingMid, PnsTheme::kPaddingSmall);
-    const int W  = getWidth();
-    constexpr int bw      = 28;
-    constexpr int bh      = PnsTheme::kButtonHeight;
-    constexpr int gap     = 2;
-    constexpr int marginR = PnsTheme::kPaddingSmall;
-    constexpr int marginT = PnsTheme::kPaddingSmall;
-    m_zoom12s.setBounds (W - marginR - bw,           marginT, bw, bh);
-    m_zoom6s .setBounds (W - marginR - bw * 2 - gap, marginT, bw, bh);
-    m_reset  .setBounds (m_zoom6s.getX() - 10 - bw,  marginT, bw, bh);   // icon button, matches toggles
 }
 
 void DynamicsView::update()
@@ -1171,15 +1089,29 @@ void DynamicsView::update()
     if (capN > 0)
     {
         const double sr = m_proc.getSampleRate();
-        if (--m_lagCountdown <= 0)
+
+        // Gain reduction over everything drained this update (at least one
+        // ~30 ms window), Pre read back by the measured lag so both hold the
+        // same audio. Mean feeds the averages; the deepest window feeds "cut
+        // now", the lane and the peak hold, so a brief grab isn't missed.
+        const int W   = juce::jmax (64, juce::roundToInt (juce::jmax (1.0, sr) * 0.03));
+        const int len = juce::jmin (juce::jmax (capN, W), kSampleBufLen - m_lagSamples - 1);
+        pns::analysis::GainReduction measured;
+        if (len > 0 && (juce::int64) m_samplesStored >= (juce::int64) len + m_lagSamples)
         {
-            estimateLag (sr);
-            m_lagCountdown = 30;   // every 30 updates that carry audio: ~0.5 s at 60 Hz, longer at big buffers
+            m_alignPre .resize ((size_t) len);
+            m_alignPost.resize ((size_t) len);
+            const juce::int64 start = m_totalSamplesWritten - len;
+            for (int i = 0; i < len; ++i)
+            {
+                m_alignPost[(size_t) i] = m_postSamples[(size_t) ((start + i) % kSampleBufLen)];
+                m_alignPre [(size_t) i] = m_preSamples [(size_t) ((start + i - m_lagSamples) % kSampleBufLen)];
+            }
+            measured = pns::analysis::gainReduction (m_alignPre.data(), m_alignPost.data(), len, W);
         }
-        // +1 = too quiet to judge (gated out of the average); otherwise ≤ 0 dB.
-        const float aligned   = alignedGrDb (sr);
-        const bool  audible   = aligned <= 0.0f;
-        const float currentGr = audible ? aligned : 0.0f;
+        const bool  audible   = measured.audible;
+        const float currentGr = measured.meanDb;
+        const float deepestGr = measured.minDb;
 
         const auto rms = m_proc.getRms();
         m_preConnected = rms.preValid;
@@ -1187,8 +1119,8 @@ void DynamicsView::update()
         if (rms.preValid)
         {
             // Instantaneous hold: keep last non-zero reading
-            if (currentGr < -0.1f)
-                m_instantGr = currentGr;
+            if (deepestGr < -0.1f)
+                m_instantGr = deepestGr;
 
             // 30 s rolling average over the time audio was playing — moments
             // with no cut count as 0. (Averaging only the non-zero moments made
@@ -1245,127 +1177,16 @@ void DynamicsView::update()
         }
 
         m_gr[m_grPos] = rms.preValid
-            ? juce::jlimit (-24.0f, 0.0f, currentGr)
+            ? juce::jlimit (-24.0f, 0.0f, deepestGr)
             : 0.0f;
         m_grPos = (m_grPos + 1) % kGrLen;
 
         // Peak hold: track most-negative GR, decay at 0.998 per frame (~3s hold)
-        if (rms.preValid && currentGr < m_grPeakHold)
-            m_grPeakHold = currentGr;
+        if (rms.preValid && deepestGr < m_grPeakHold)
+            m_grPeakHold = deepestGr;
         else
             m_grPeakHold = juce::jmin (0.0f, m_grPeakHold * 0.998f);
     }
-}
-
-//──────────────────────────────────────────────────────────────────────────────
-// Post-vs-Pre lag. Both signals are reduced to 1 ms peak envelopes over the last
-// 1.5 s, and Post is slid against Pre over 0..250 ms; the best Pearson match
-// wins if it is convincing (r > 0.7), then a raw-sample pass refines it to the
-// sample. Envelopes for the coarse search so it works on any program material
-// and survives EQ/saturation changing the waveform.
-void DynamicsView::estimateLag (double sr)
-{
-    if (sr <= 0.0) return;
-    const int B = juce::jmax (1, juce::roundToInt (sr / 1000.0));     // samples per bin
-    constexpr int N = 1500, kMaxLag = 250;                              // bins (ms)
-    const juce::int64 total = m_totalSamplesWritten;
-    if ((juce::int64) m_samplesStored < (juce::int64) (N + kMaxLag + 1) * B) return;
-
-    std::vector<float> pre ((size_t) (N + kMaxLag)), post ((size_t) N);
-    auto env = [&] (const std::array<float, kSampleBufLen>& buf, juce::int64 start, int bins, std::vector<float>& out)
-    {
-        int idx = (int) ((start % kSampleBufLen + kSampleBufLen) % kSampleBufLen);
-        for (int b = 0; b < bins; ++b)
-        {
-            float pk = 0.0f;
-            for (int i = 0; i < B; ++i)
-            {
-                pk = juce::jmax (pk, std::abs (buf[(size_t) idx]));
-                if (++idx == kSampleBufLen) idx = 0;
-            }
-            out[(size_t) b] = pk;
-        }
-    };
-    const juce::int64 postStart = total - (juce::int64) N * B;
-    env (m_postSamples, postStart, N, post);
-    env (m_preSamples,  postStart - (juce::int64) kMaxLag * B, N + kMaxLag, pre);
-
-    auto meanSd = [] (const float* x, int n, float& mean, float& sd)
-    {
-        double s = 0.0, s2 = 0.0;
-        for (int i = 0; i < n; ++i) { s += x[i]; s2 += (double) x[i] * x[i]; }
-        mean = (float) (s / n);
-        sd   = (float) std::sqrt (juce::jmax (0.0, s2 / n - (s / n) * (s / n)));
-    };
-    float pm, ps;
-    meanSd (post.data(), N, pm, ps);
-    if (ps < 1.0e-4f) return;   // too steady / quiet to locate anything
-
-    float bestR = 0.0f; int bestLag = -1;
-    for (int L = 0; L <= kMaxLag; ++L)
-    {
-        const float* x = pre.data() + (kMaxLag - L);   // Pre, L ms earlier than Post
-        float xm, xs;
-        meanSd (x, N, xm, xs);
-        if (xs < 1.0e-4f) continue;
-        double c = 0.0;
-        for (int i = 0; i < N; ++i) c += (double) (x[i] - xm) * (post[(size_t) i] - pm);
-        const float rr = (float) (c / N) / (xs * ps);
-        if (rr > bestR) { bestR = rr; bestLag = L; }
-    }
-    if (bestLag < 0 || bestR <= 0.7f) return;
-
-    // Refine to the sample: raw cross-correlation over the newest ~85 ms, within
-    // one envelope bin either side of the coarse estimate.
-    constexpr int kFine = 4096;
-    const int coarse = bestLag * B;
-    double bestC = -1.0e30; int best = coarse;
-    for (int lag = juce::jmax (0, coarse - B); lag <= coarse + B; ++lag)
-    {
-        if ((juce::int64) m_samplesStored < (juce::int64) (kFine + lag + 1)) break;
-        int qi = (int) (((total - kFine) % kSampleBufLen + kSampleBufLen) % kSampleBufLen);
-        int pi = (int) (((total - kFine - lag) % kSampleBufLen + kSampleBufLen) % kSampleBufLen);
-        double c = 0.0;
-        for (int i = 0; i < kFine; ++i)
-        {
-            c += (double) m_preSamples[(size_t) pi] * m_postSamples[(size_t) qi];
-            if (++pi == kSampleBufLen) pi = 0;
-            if (++qi == kSampleBufLen) qi = 0;
-        }
-        if (std::abs (c) > bestC) { bestC = std::abs (c); best = lag; }   // a polarity flip still lines up
-    }
-    m_lagSamples = best;
-}
-
-// Gain reduction over the newest ~30 ms, Pre delayed by the measured lag so the
-// two windows hold the same audio. RMS over a window (not a per-chunk peak) so
-// a sub-millisecond residual skew can't turn a transient into a fake dip.
-// Returns +1 when Pre is below the -60 dBFS gate; else min (0, post - pre) dB,
-// with a 0.2 dB dead band so float noise on identical signals reads as 0.
-float DynamicsView::alignedGrDb (double sr) const
-{
-    if (sr <= 0.0) return 1.0f;
-    const int W = juce::jmax (64, juce::roundToInt (sr * 0.03));
-    const juce::int64 total = m_totalSamplesWritten;
-    if ((juce::int64) m_samplesStored < (juce::int64) (W + m_lagSamples + 1)) return 1.0f;
-
-    auto rmsOf = [&] (const std::array<float, kSampleBufLen>& buf, juce::int64 start)
-    {
-        int idx = (int) ((start % kSampleBufLen + kSampleBufLen) % kSampleBufLen);
-        double e = 0.0;
-        for (int i = 0; i < W; ++i)
-        {
-            e += (double) buf[(size_t) idx] * buf[(size_t) idx];
-            if (++idx == kSampleBufLen) idx = 0;
-        }
-        return (float) std::sqrt (e / W);
-    };
-    const float postRms = rmsOf (m_postSamples, total - W);
-    const float preRms  = rmsOf (m_preSamples,  total - W - m_lagSamples);
-    if (preRms < 1.0e-3f) return 1.0f;
-
-    const float gr = 20.0f * std::log10 (juce::jmax (postRms, 1.0e-6f) / preRms);
-    return gr > -0.2f ? 0.0f : gr;
 }
 
 void DynamicsView::mouseDoubleClick (const juce::MouseEvent& e)
@@ -1766,39 +1587,9 @@ void DynamicsView::paint (juce::Graphics& g)
 //==============================================================================
 OscilloscopeView::OscilloscopeView (PlugNspectrPostProcessor& p) : m_proc (p)
 {
-    auto styleBtn = [&] (juce::TextButton& btn, bool active)
-    {
-        btn.setToggleable (true);
-        btn.setToggleState (active, juce::dontSendNotification);
-    };
-
-    styleBtn (m_btn10ms,  false);
-    styleBtn (m_btn50ms,  true);   // default: 50ms
-    styleBtn (m_btn100ms, false);
-
-    auto setWindow = [this] (int ms)
-    {
-        m_windowMs    = ms;
-        m_hasDisplay  = false;
-        m_searchFrom  = m_totalWritten;
-        m_btn10ms .setToggleState (ms ==  10, juce::dontSendNotification);
-        m_btn50ms .setToggleState (ms ==  50, juce::dontSendNotification);
-        m_btn100ms.setToggleState (ms == 100, juce::dontSendNotification);
-    };
-
-    m_btn10ms .onClick = [this, setWindow] { setWindow ( 10); };
-    m_btn50ms .onClick = [this, setWindow] { setWindow ( 50); };
-    m_btn100ms.onClick = [this, setWindow] { setWindow (100); };
-
-    addAndMakeVisible (m_btn10ms);
-    addAndMakeVisible (m_btn50ms);
-    addAndMakeVisible (m_btn100ms);
-
-    for (auto* c : std::initializer_list<juce::Component*> { &m_btn10ms, &m_btn50ms, &m_btn100ms })
-        c->setVisible (false);
     m_options.addRow ("Zoom", "How much time fits across the screen.",
                       { "10 ms", "50 ms", "100 ms" }, m_windowMs == 10 ? 0 : (m_windowMs == 50 ? 1 : 2),
-                      [this] (int i) { (i == 0 ? m_btn10ms : i == 1 ? m_btn50ms : m_btn100ms).onClick(); });
+                      [this] (int i) { setWindowMs (i == 0 ? 10 : i == 1 ? 50 : 100); });
     m_options.addRow ("Levels", "Matched scales Post to Pre's loudness, so only shape differences show.",
                       { "Matched", "As played" }, 0,
                       [this] (int i) { m_matchLevels = (i == 0); repaint(); });
@@ -1812,44 +1603,14 @@ OscilloscopeView::OscilloscopeView (PlugNspectrPostProcessor& p) : m_proc (p)
 void OscilloscopeView::resized()
 {
     m_options.place (getWidth() - PnsTheme::kPaddingMid, PnsTheme::kPaddingSmall);
-    const int W  = getWidth();
-    constexpr int bw      = 36;
-    constexpr int bh      = PnsTheme::kButtonHeight;
-    constexpr int gap     = 2;
-    constexpr int marginR = PnsTheme::kPaddingSmall;
-    constexpr int marginT = PnsTheme::kPaddingSmall;
-    m_btn100ms.setBounds (W - marginR - bw,               marginT, bw, bh);
-    m_btn50ms .setBounds (W - marginR - bw * 2 - gap,     marginT, bw, bh);
-    m_btn10ms .setBounds (W - marginR - bw * 3 - gap * 2, marginT, bw, bh);
 }
 
 //──────────────────────────────────────────────────────────────────────────────
-void OscilloscopeView::measureSnapshot()
+void OscilloscopeView::setWindowMs (int ms)
 {
-    const int n = m_displayCount;
-    if (n < 2) return;
-    double ePre = 0.0, ePost = 0.0;
-    float  pkPre = 0.0f, pkPost = 0.0f;
-    for (int i = 0; i < n; ++i)
-    {
-        const float a = m_displayPre[(size_t) i], b = m_displayPost[(size_t) i];
-        ePre  += (double) a * a;  ePost += (double) b * b;
-        pkPre  = juce::jmax (pkPre,  std::abs (a));
-        pkPost = juce::jmax (pkPost, std::abs (b));
-    }
-    int flatPre = 0, flatPost = 0;
-    for (int i = 0; i < n; ++i)
-    {
-        if (std::abs (m_displayPre [(size_t) i]) >= 0.999f * pkPre)  ++flatPre;
-        if (std::abs (m_displayPost[(size_t) i]) >= 0.999f * pkPost) ++flatPost;
-    }
-    m_pkPre  = pkPre;   m_pkPost  = pkPost;
-    m_rmsPre = (float) std::sqrt (ePre / n);  m_rmsPost = (float) std::sqrt (ePost / n);
-    auto crest = [] (float pk, float rms) { return rms > 1.0e-6f ? 20.0f * std::log10 (pk / rms) : 0.0f; };
-    m_crestPre  = crest (pkPre,  m_rmsPre);
-    m_crestPost = crest (pkPost, m_rmsPost);
-    m_flatPre   = (float) flatPre  / (float) n;
-    m_flatPost  = (float) flatPost / (float) n;
+    m_windowMs   = ms;
+    m_hasDisplay = false;            // a new window needs a fresh snapshot
+    m_searchFrom = m_totalWritten;
 }
 
 float OscilloscopeView::ringGet (const std::array<float, kRingLen>& buf,
@@ -1927,7 +1688,8 @@ void OscilloscopeView::update()
             m_hasDisplay   = true;
             m_searchFrom   = i + (uint64_t) captureTarget;
             m_lastCaptureMs = nowMs;
-            measureSnapshot();
+            m_shapePre  = pns::analysis::measureShape (m_displayPre .data(), m_displayCount);
+            m_shapePost = pns::analysis::measureShape (m_displayPost.data(), m_displayCount);
             break;
         }
     }
@@ -1944,11 +1706,11 @@ void OscilloscopeView::paint (juce::Graphics& g)
 
     // Post's display gain: matched to Pre's loudness (RMS), or 1 = as played.
     // Bounded to ±24 dB so a near-silent output isn't blown up into noise.
-    const float postGain = (m_matchLevels && m_rmsPost > 1.0e-6f && m_rmsPre > 1.0e-6f)
-                         ? juce::jlimit (1.0f / 16.0f, 16.0f, m_rmsPre / m_rmsPost) : 1.0f;
+    const float postGain = (m_matchLevels && m_shapePost.rms > 1.0e-6f && m_shapePre.rms > 1.0e-6f)
+                         ? juce::jlimit (1.0f / 16.0f, 16.0f, m_shapePre.rms / m_shapePost.rms) : 1.0f;
     // Vertical range: the smallest of 1 / 0.5 / 0.25 / 0.125 that fits both
     // traces, so quiet material still fills the height.
-    const float tallest = juce::jmax (m_pkPre, m_pkPost * postGain);
+    const float tallest = juce::jmax (m_shapePre.peak, m_shapePost.peak * postGain);
     float range = 1.0f;
     while (range > 0.125f && tallest > 0.0f && tallest < range * 0.45f) range *= 0.5f;
 
@@ -2065,11 +1827,6 @@ static void drawCursorChip (juce::Graphics& g, juce::Rectangle<float> plot, floa
 
 StereoView::StereoView (PlugNspectrPostProcessor& p) : m_proc (p)
 {
-    m_reset.setTooltip ("Clear the stereo averages and the goniometer trail and "
-                        "start over (after tweaking the plugin chain)");
-    m_reset.onClick = [this] { reset(); };
-    addAndMakeVisible (m_reset);
-    m_reset.setVisible (false);
     m_options.setResetAction ("Clears the averages and the stereo-field trail.", [this] { reset(); });
     addAndMakeVisible (m_options);
     setInterceptsMouseClicks (true, false);
@@ -2078,8 +1835,6 @@ StereoView::StereoView (PlugNspectrPostProcessor& p) : m_proc (p)
 void StereoView::resized()
 {
     m_options.place (getWidth() - PnsTheme::kPaddingMid, PnsTheme::kPaddingSmall);
-    constexpr int bw = 28, marginR = PnsTheme::kPaddingSmall, marginT = PnsTheme::kPaddingSmall;
-    m_reset.setBounds (getWidth() - marginR - bw, marginT, bw, PnsTheme::kButtonHeight);
 }
 
 void StereoView::reset()
@@ -3845,6 +3600,7 @@ void ThdSweepView::paint (juce::Graphics& g)
 PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     : AudioProcessorEditor (&p),
       audioProcessor (p),
+      m_lagTracker (p),
       m_specView (p),
       m_dynView  (p),
       m_oscView  (p),
@@ -3892,47 +3648,47 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     m_envelopeView.onMeasureChanged = [this] { writeCmdBlock(); repaint(); };
     m_thdView.onMeasureChanged      = [this] { writeCmdBlock(); repaint(); };
 
-    // ── Global footer — frequency knob ────────────────────────────────────
-    m_footerFreqSlider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-    m_footerFreqSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-    m_footerFreqSlider.setRange (100.0, 8000.0, 1.0);
-    m_footerFreqSlider.setSkewFactorFromMidPoint (1000.0);
-    m_footerFreqSlider.setValue (1000.0, juce::dontSendNotification);
-    m_footerFreqSlider.onValueChange = [this]
+    // ── Dock — test-tone frequency knob ────────────────────────────────────
+    m_toneFreqSlider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    m_toneFreqSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    m_toneFreqSlider.setRange (100.0, 8000.0, 1.0);
+    m_toneFreqSlider.setSkewFactorFromMidPoint (1000.0);
+    m_toneFreqSlider.setValue (1000.0, juce::dontSendNotification);
+    m_toneFreqSlider.onValueChange = [this]
     {
-        m_toneFreq = m_footerFreqSlider.getValue();
+        m_toneFreq = m_toneFreqSlider.getValue();
         writeCmdBlock();
         m_harmView.setToneFreq (m_toneFreq);
-        repaint();   // update footer freq label
+        repaint();   // update the tone readout
     };
-    addAndMakeVisible (m_footerFreqSlider);
+    addAndMakeVisible (m_toneFreqSlider);
 
-    // ── Global footer — test tone level ───────────────────────────────────
-    m_footerLevelSlider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-    m_footerLevelSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-    m_footerLevelSlider.setRange (-48.0, 0.0, 0.5);
-    m_footerLevelSlider.setValue (m_toneLevel, juce::dontSendNotification);
-    m_footerLevelSlider.onValueChange = [this]
+    // ── Dock — test-tone level ───────────────────────────────────
+    m_toneLevelSlider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    m_toneLevelSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    m_toneLevelSlider.setRange (-48.0, 0.0, 0.5);
+    m_toneLevelSlider.setValue (m_toneLevel, juce::dontSendNotification);
+    m_toneLevelSlider.onValueChange = [this]
     {
-        m_toneLevel = m_footerLevelSlider.getValue();
+        m_toneLevel = m_toneLevelSlider.getValue();
         writeCmdBlock();
         repaint();
     };
-    addAndMakeVisible (m_footerLevelSlider);
+    addAndMakeVisible (m_toneLevelSlider);
 
-    // ── Global footer — test tone button ──────────────────────────────────
-    m_footerToneBtn.setToggleable (true);
-    m_footerToneBtn.getProperties().set ("armed", true);
-    m_footerToneBtn.setToggleState (false, juce::dontSendNotification);
-    m_footerToneBtn.onClick = [this]
+    // ── Dock — test-tone button ──────────────────────────────────
+    m_toneBtn.setToggleable (true);
+    m_toneBtn.getProperties().set ("armed", true);
+    m_toneBtn.setToggleState (false, juce::dontSendNotification);
+    m_toneBtn.onClick = [this]
     {
         m_toneActive = !m_toneActive;
-        m_footerToneBtn.setToggleState (m_toneActive, juce::dontSendNotification);
+        m_toneBtn.setToggleState (m_toneActive, juce::dontSendNotification);
         writeCmdBlock();
         m_harmView.setToneActive (m_toneActive);
         repaint();   // show/hide warning label
     };
-    addAndMakeVisible (m_footerToneBtn);
+    addAndMakeVisible (m_toneBtn);
 
     // ── Header — L+R / Side segmented channel selector (all analysis) ──────
     {
@@ -4020,7 +3776,7 @@ bool PlugNspectrPostEditor::disarmAllStimuli()
     if (m_toneActive)
     {
         m_toneActive = false;
-        m_footerToneBtn.setToggleState (false, juce::dontSendNotification);
+        m_toneBtn.setToggleState (false, juce::dontSendNotification);
         m_harmView.setToneActive (false);
         changed = true;
     }
@@ -4063,6 +3819,8 @@ void PlugNspectrPostEditor::timerCallback()
         m_pulsePhase -= juce::MathConstants<float>::twoPi;
 
     // ── Views ──────────────────────────────────────────────────────────────
+    m_lagTracker.update();
+    m_dynView.setLagSamples (m_lagTracker.lagSamples());
     m_dynView.update();
     if (m_activeTab == TabDynamics) m_dynView.repaint();
 
@@ -4071,7 +3829,7 @@ void PlugNspectrPostEditor::timerCallback()
         m_specView.update();
         if (m_activeTab == TabSpectrum) m_specView.repaint();
 
-        m_oscView.setLagSamples (m_dynView.lagSamples());
+        m_oscView.setLagSamples (m_lagTracker.lagSamples());
         m_oscView.setToneActive (m_toneActive);
         m_oscView.update();
         if (m_activeTab == TabOscilloscope) m_oscView.repaint();
@@ -4279,16 +4037,16 @@ PnsTheme::Summary PlugNspectrPostEditor::currentSummary() const
     }
 }
 
-// Footer relevance. FREQ + Test Tone belong to the single-tone tabs (live tabs
+// Tone-control relevance. FREQ + Test Tone belong to the single-tone tabs (live tabs
 // + Harmonics); LEVEL also drives the Distortion sweep. Stereo is excluded even
 // though it's live: every Pre generator is mono, so a tone reads as zero side.
-bool PlugNspectrPostEditor::footerFreqOn (int tab)
+bool PlugNspectrPostEditor::toneFreqOn (int tab)
 {
     return (tab <= TabOscilloscope || tab == TabHarmonics);
 }
-bool PlugNspectrPostEditor::footerLevelOn (int tab)
+bool PlugNspectrPostEditor::toneLevelOn (int tab)
 {
-    return footerFreqOn (tab) || tab == TabThd;
+    return toneFreqOn (tab) || tab == TabThd;
 }
 
 //==============================================================================
@@ -4309,9 +4067,9 @@ void PlugNspectrPostEditor::switchTab (int index)
     m_envelopeView.setVisible (index == TabEnvelope);
     m_thdView     .setVisible (index == TabThd);
 
-    // ── Footer relevance per tab (see footerFreqOn) ────────────────────────
-    const bool freqOn  = footerFreqOn (index);
-    const bool levelOn = footerLevelOn (index);
+    // ── Tone-control relevance per tab (see toneFreqOn) ────────────────────────
+    const bool freqOn  = toneFreqOn (index);
+    const bool levelOn = toneLevelOn (index);
     const bool toneOn  = freqOn;
 
     // Four extra FFTs — only run them while the Stereo tab is actually showing.
@@ -4328,14 +4086,14 @@ void PlugNspectrPostEditor::switchTab (int index)
     if (! toneOn && m_toneActive)
     {
         m_toneActive = false;
-        m_footerToneBtn.setToggleState (false, juce::dontSendNotification);
+        m_toneBtn.setToggleState (false, juce::dontSendNotification);
         m_harmView.setToneActive (false);
     }
 
     // Hide rather than grey out: a dimmed control still asks "should I touch this?"
-    m_footerFreqSlider .setVisible (freqOn);
-    m_footerLevelSlider.setVisible (levelOn);
-    m_footerToneBtn    .setVisible (toneOn);
+    m_toneFreqSlider .setVisible (freqOn);
+    m_toneLevelSlider.setVisible (levelOn);
+    m_toneBtn    .setVisible (toneOn);
     m_summary = currentSummary();
 
     writeCmdBlock();   // start/stop the measurement noise with the tab
@@ -4456,7 +4214,7 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
     g.fillRect (m_dockDividerX, dockY + 16, 1, PnsTheme::kDockHeight - 32);
 
     // Tone readouts beside their knobs (hidden with the knobs on tabs that
-    // don't use them — see footerFreqOn / footerLevelOn).
+    // don't use them — see toneFreqOn / toneLevelOn).
     auto readout = [&] (juce::Rectangle<int> r, const char* label, const juce::String& value)
     {
         g.setFont (PnsTheme::fontSized (10.0f, true));
@@ -4466,9 +4224,9 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
         g.setColour (m_toneActive ? PnsTheme::kTextAccent : PnsTheme::kTextPrimary);
         g.drawText (value, r, juce::Justification::topLeft);
     };
-    if (footerFreqOn (m_activeTab))
+    if (toneFreqOn (m_activeTab))
         readout (m_freqText, "TONE", PnsTheme::fmtHz (m_toneFreq));
-    if (footerLevelOn (m_activeTab))
+    if (toneLevelOn (m_activeTab))
         readout (m_levelText, "LEVEL", juce::String (m_toneLevel, 1) + " dB");
 }
 
@@ -4507,11 +4265,11 @@ void PlugNspectrPostEditor::resized()
     const int toneW = kKnob + 6 + kText + 10 + kKnob + 6 + kText + 14 + kToneBtnW;
     int x = W - 18 - toneW;
     const int knobY = dockY + (PnsTheme::kDockHeight - kKnob) / 2;
-    m_footerFreqSlider .setBounds (x, knobY, kKnob, kKnob);            x += kKnob + 6;
+    m_toneFreqSlider .setBounds (x, knobY, kKnob, kKnob);            x += kKnob + 6;
     m_freqText = { x, knobY - 2, kText, kKnob + 4 };                    x += kText + 10;
-    m_footerLevelSlider.setBounds (x, knobY, kKnob, kKnob);            x += kKnob + 6;
+    m_toneLevelSlider.setBounds (x, knobY, kKnob, kKnob);            x += kKnob + 6;
     m_levelText = { x, knobY - 2, kText, kKnob + 4 };                   x += kText + 14;
-    m_footerToneBtn    .setBounds (x, dockY + (PnsTheme::kDockHeight - 32) / 2, kToneBtnW, 32);
+    m_toneBtn    .setBounds (x, dockY + (PnsTheme::kDockHeight - 32) / 2, kToneBtnW, 32);
 
     constexpr int kCaptionW = 20, kDividerW = 17;
     const int tabsLeft = 14, tabsRight = W - 18 - toneW - 16;
@@ -4597,36 +4355,32 @@ PnsTheme::Summary OscilloscopeView::summary() const
     if (! m_hasDisplay)
         return { "Play some audio  -  or turn on Test Tone for the clearest picture" };
 
-    const juce::String outPk (juce::Decibels::gainToDecibels (m_pkPost, -90.0f), 1);
+    const juce::String outPk (juce::Decibels::gainToDecibels (m_shapePost.peak, -90.0f), 1);
     // With music, a snapshot is a few random milliseconds; a steady tone makes
     // any change to the shape unmistakable, so say so until the tone is on.
     const juce::String advice = m_toneOn ? juce::String()
         : juce::String ("  -  for a clear picture, turn on Test Tone (bottom right)");
 
-    if (m_pkPost >= 0.999f)
+    if (m_shapePost.peak >= 0.999f)
         return { "Hitting 0 dBFS  -  the tops are being cut off (clipping)" + advice, true,
                  "Output peak", outPk, "dBFS" };
 
-    const float crestDelta = m_crestPost - m_crestPre;     // dB; negative = flatter peaks
-    const float flatDelta  = m_flatPost  - m_flatPre;      // share of samples sitting at the peak
-    const float levelDb    = (m_rmsPre > 1.0e-6f && m_rmsPost > 1.0e-6f)
-                           ? 20.0f * std::log10 (m_rmsPost / m_rmsPre) : 0.0f;
-
+    using pns::analysis::ShapeChange;
+    const float levelDb = (m_shapePre.rms > 1.0e-6f && m_shapePost.rms > 1.0e-6f)
+                        ? 20.0f * std::log10 (m_shapePost.rms / m_shapePre.rms) : 0.0f;
     juce::String head;
-    // Tuned on a sine: a hard clip of even 1 dB holds 20%+ of the cycle at
-    // exactly the peak; tanh saturation only approaches it (~3% at moderate
-    // drive), so the share within 0.1% of the peak separates the two.
-    if (flatDelta > 0.15f)
-        head = "Flat tops  -  hard clipping squares off the peaks";
-    else if (crestDelta < -0.4f)
-        head = "Rounds off the peaks  -  soft clipping or saturation";
-    else if (crestDelta > 1.0f)
-        head = "Sharper peaks than the input  -  adds edges or transients";
-    else if (std::abs (levelDb) >= 0.5f)
-        head = "Shape unchanged  -  just " + juce::String (std::abs (levelDb), 1) + " dB "
-             + (levelDb < 0.0f ? "quieter" : "louder");
-    else
-        head = "Shape unchanged";
+    switch (pns::analysis::classifyShape (m_shapePre, m_shapePost))
+    {
+        case ShapeChange::HardClip: head = "Flat tops  -  hard clipping squares off the peaks"; break;
+        case ShapeChange::Rounded:  head = "Rounds off the peaks  -  soft clipping or saturation"; break;
+        case ShapeChange::Sharper:  head = "Sharper peaks than the input  -  adds edges or transients"; break;
+        case ShapeChange::Unchanged:
+            head = std::abs (levelDb) >= 0.5f
+                 ? "Shape unchanged  -  just " + juce::String (std::abs (levelDb), 1) + " dB "
+                   + (levelDb < 0.0f ? "quieter" : "louder")
+                 : juce::String ("Shape unchanged");
+            break;
+    }
 
     return { head + advice, false, "Output peak", outPk, "dBFS" };
 }
