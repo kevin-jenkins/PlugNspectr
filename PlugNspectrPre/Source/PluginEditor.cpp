@@ -37,7 +37,7 @@ void PlugNspectrPreEditor::timerCallback()
 //==============================================================================
 void PlugNspectrPreEditor::paint (juce::Graphics& g)
 {
-    constexpr int hH = PnsTheme::kHeaderHeight;  // 36px
+    constexpr int hH = 36;   // header bar (Pre has no tabs, so it keeps a plain header)
     const int W = getWidth(), H = getHeight();
 
     // ── Background ────────────────────────────────────────────────────────
@@ -144,17 +144,17 @@ void PlugNspectrPreEditor::paint (juce::Graphics& g)
         g.fillPath (head);
     };
 
-    drawBlock (chainX,                         bW1, PnsTheme::kColorPost,    "Pre");
+    drawBlock (chainX,                         bW1, PnsTheme::kColorPre,     "Pre");
     drawArrow (chainX + bW1);
     drawBlock (chainX + bW1 + arrW,            bW2, PnsTheme::kBorderActive, "Your Plugin");
     drawArrow (chainX + bW1 + arrW + bW2);
-    drawBlock (chainX + bW1 + arrW + bW2 + arrW, bW3, PnsTheme::kColorPostAvg, "Post");
+    drawBlock (chainX + bW1 + arrW + bW2 + arrW, bW3, PnsTheme::kColorPost,    "Post");
     cy += bH + 10.0f;
 
     // ── Connection status indicator ───────────────────────────────────────
     const juce::Colour dotCol = m_postConnected
-        ? juce::Colour (0, 200, 100)          // green
-        : PnsTheme::kColorPostAvg;             // amber
+        ? PnsTheme::kAccentPrimary            // connected — ice cyan
+        : PnsTheme::kWarn;                     // waiting for Post — amber
 
     constexpr float dotR = 4.0f;
     const float statusW = 140.0f;
