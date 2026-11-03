@@ -39,6 +39,11 @@ public:
     // Returns true if PlugNspectrPost has set a heartbeat within the last second.
     bool isPostConnected() const { return m_ipc.isPostAlive (1000u); }
 
+    // True while another Pre owns the shared segment. Only one pair is
+    // supported, so this instance passes audio through untouched and sends
+    // nothing until the other one stops.
+    bool isIdle() const { return m_idle.load(); }
+
     //==========================================================================
     const juce::String getName() const override { return JucePlugin_Name; }
 
@@ -65,6 +70,8 @@ private:
     pns::Transport     m_ipc;            // single cross-platform IPC segment
     pns::PNS_CmdBlock  m_cmd;            // latest command snapshot (read each block)
     bool               m_testCmd = false; // true -> use injected m_cmd, skip IPC read
+    const uint32_t     m_instanceId = (uint32_t) juce::Random::getSystemRandom().nextInt() | 1u;   // never 0
+    std::atomic<bool>  m_idle { false };
 
     // Sine test-tone generator state
     double m_tonePhase = 0.0;

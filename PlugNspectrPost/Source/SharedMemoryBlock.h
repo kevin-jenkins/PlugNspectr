@@ -48,7 +48,7 @@ inline constexpr int      kMaxChannels  = 2;
 // FL, offline renders) used to lose everything past 4096; Post analyses the
 // block in pieces, so only the payload needs room for it.
 inline constexpr int      kMaxSamples   = 32768;
-inline constexpr uint32_t kMagic        = 0x504E5333u;   // 'PNS3' — bump if layout changes
+inline constexpr uint32_t kMagic        = 0x504E5334u;   // 'PNS4' — bump if layout changes
 inline constexpr char     kSegmentName[] = "PlugNspectrIPC";   // bare; wrapper adds platform prefix
 
 // Command slot — written by Post (UI), read by Pre. Level-based: Pre reacts to
@@ -88,6 +88,8 @@ struct alignas (64) SharedHeader
     std::atomic<uint32_t> postHeartbeat;  // ms (Post writes each block)
     std::atomic<uint32_t> audioSeq;       // seqlock counter for `audio`
     std::atomic<uint32_t> cmdSeq;         // seqlock counter for `cmd`
+    std::atomic<uint32_t> preOwner;       // instance id of the Pre that may write (0 = none)
+    std::atomic<uint32_t> preConflict;    // ms a second Pre was last turned away
     AudioPayload          audio;
     PNS_CmdBlock          cmd;
 };
@@ -304,6 +306,45 @@ public:
             if (h->cmdSeq.load (std::memory_order_acquire) == s1) { out = tmp; return true; }
         }
         return false;
+    }
+
+    // ---- one Pre at a time ----
+    // Only one Pre/Post pair is supported. The first live Pre owns the segment;
+    // another Pre is turned away (and records the conflict for both editors to
+    // report) until the owner stops for `timeoutMs` or releases it. Call before
+    // writeBlock; the owner's heartbeat is what keeps the claim.
+    bool claimPre (uint32_t id, uint32_t timeoutMs)
+    {
+        if (! m_ok) return false;
+        auto* h = hdr();
+        uint32_t owner = h->preOwner.load (std::memory_order_acquire);
+        if (owner != id)
+        {
+            const bool free = (owner == 0u) || age (h->preHeartbeat) >= timeoutMs;
+            if (! free || ! h->preOwner.compare_exchange_strong (owner, id, std::memory_order_acq_rel))
+            {
+                h->preConflict.store (juce::jmax (1u, juce::Time::getMillisecondCounter()),
+                                      std::memory_order_relaxed);
+                return false;
+            }
+            preHeartbeat();   // hold the claim from the moment it is taken
+        }
+        return true;
+    }
+
+    // Gives up the claim at once (instead of after the timeout), if `id` holds it.
+    void releasePre (uint32_t id)
+    {
+        if (! m_ok) return;
+        uint32_t expected = id;
+        hdr()->preOwner.compare_exchange_strong (expected, 0u, std::memory_order_acq_rel);
+    }
+
+    // True if a second Pre was turned away within the last `windowMs`.
+    bool isPreConflict (uint32_t windowMs) const
+    {
+        return m_ok && hdr()->preConflict.load (std::memory_order_relaxed) != 0u
+                    && age (hdr()->preConflict) < windowMs;
     }
 
     // ---- heartbeats / liveness ----

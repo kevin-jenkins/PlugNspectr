@@ -24,6 +24,7 @@ PlugNspectrPreProcessor::PlugNspectrPreProcessor()
 
 PlugNspectrPreProcessor::~PlugNspectrPreProcessor()
 {
+    m_ipc.releasePre (m_instanceId);
     m_ipc.close();
 }
 
@@ -36,6 +37,7 @@ void PlugNspectrPreProcessor::prepareToPlay (double /*sampleRate*/, int /*sample
 
 void PlugNspectrPreProcessor::releaseResources()
 {
+    m_ipc.releasePre (m_instanceId);
     m_ipc.close();
 }
 
@@ -56,6 +58,16 @@ void PlugNspectrPreProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                             juce::MidiBuffer& /*midiMessages*/)
 {
     juce::ScopedNoDenormals noDenormals;
+
+    // One pair only: if another Pre owns the segment, pass the audio through
+    // untouched. Reading its commands here would play its test tone into this
+    // track too.
+    if (! m_testCmd)
+    {
+        const bool owner = m_ipc.claimPre (m_instanceId, 500u);
+        m_idle.store (m_ipc.isOpen() && ! owner);
+        if (! owner) return;
+    }
 
     // Snapshot the current command (torn-free via the seqlock); tests inject directly.
     if (! m_testCmd)
