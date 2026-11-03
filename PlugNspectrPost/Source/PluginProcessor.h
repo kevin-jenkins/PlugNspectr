@@ -165,7 +165,8 @@ public:
         std::array<float, kMeasBins> phase {};   // arg(H), wrapped radians
         std::array<float, kMeasBins> coh   {};   // coherence 0..1 (estimate trust)
         int    frames         = 0;               // averaged frames (0 = no data yet)
-        int    latencySamples = 0;               // measured bulk Pre→Post delay
+        int    latencySamples = 0;               // measured bulk Pre→Post delay, after alignment
+        int    alignSamples   = 0;               // delay already removed by alignment (setAlignLag)
         double sampleRate     = 0.0;
     };
     void getMeasurement (MeasResult& out) const;
@@ -225,6 +226,13 @@ public:
         if (m_testPreActive) return true;   // forced on by the offline render harness
         return m_ipc.isPreAlive (500u);
     }
+
+    // Plugin-chain delay (samples) measured by the editor's LagTracker. The
+    // measurement engines (EQ curve, Compression, Attack/Release) compare Post
+    // against Pre delayed by this much, so a latency-adding chain doesn't read
+    // as envelope spikes or a collapsed EQ curve.
+    void setAlignLag (int samples) { m_alignLag.store (juce::jlimit (0, kMaxAlignLag, samples)); }
+    int  getAlignLag () const      { return m_alignLag.load(); }
 
     // True while the host's blocks exceed what Pre can send (pns::kMaxSamples).
     bool isHostBlockTooLarge() const { return m_hostBlockTooLarge.load(); }
@@ -293,6 +301,15 @@ private:
     std::atomic<int>                       m_channelMode { 0 };
     std::array<float, kAnaBlock>           m_anaPre  {};
     std::array<float, kAnaBlock>           m_anaPost {};
+
+    // Pre delayed by m_alignLag, for the measurement engines. The ring runs
+    // on Post's clock (Pre is zero-filled when absent) so the delay holds.
+    static constexpr int kAlignRingLen = 1 << 16;   // 341 ms at 192 kHz
+    static constexpr int kMaxAlignLag  = kAlignRingLen - kAnaBlock - 1;
+    std::vector<float>                     m_alignRing = std::vector<float> ((size_t) kAlignRingLen, 0.0f);
+    uint64_t                               m_alignWrite = 0;
+    std::array<float, kAnaBlock>           m_anaPreAligned {};
+    std::atomic<int>                       m_alignLag { 0 };
 
     //==========================================================================
     // FFT

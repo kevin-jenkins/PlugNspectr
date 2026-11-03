@@ -2812,9 +2812,11 @@ void LinearView::update()
     // Latency compensation: a pure Pre→Post delay of L samples is a linear phase
     // ramp (−2π·k·L/N). De-rotate it so the graphs show the plugin's *intrinsic*
     // phase / group delay, with the bulk delay reported separately.
+    // The processor already removed alignSamples by delaying Pre, so L is
+    // only what is left; the plugin's delay is the sum.
     const int    L     = m_meas.latencySamples;
-    m_latSamples       = L;
-    m_latMs            = (float) (1000.0 * L / sr);
+    m_latSamples       = L + m_meas.alignSamples;
+    m_latMs            = (float) (1000.0 * m_latSamples / sr);
     auto wrap = [&] (double a) { while (a >  pi) a -= 2.0 * pi;
                                  while (a < -pi) a += 2.0 * pi; return a; };
 
@@ -3884,6 +3886,12 @@ void PlugNspectrPostEditor::timerCallback()
     // ── Views ──────────────────────────────────────────────────────────────
     m_lagTracker.update();
     m_dynView.setLagSamples (m_lagTracker.lagSamples(), m_lagTracker.settled());
+    audioProcessor.setAlignLag (m_lagTracker.locked() ? m_lagTracker.lagSamples() : 0);
+    if (const auto note = delayNote(); note != m_delayNote)
+    {
+        m_delayNote = note;
+        repaint (0, 0, getWidth(), PnsTheme::kHeroHeight);
+    }
     m_dynView.update();
     if (m_activeTab == TabDynamics) m_dynView.repaint();
 
@@ -4083,6 +4091,27 @@ const char* PlugNspectrPostEditor::tabQuestion (int tab)
     }
 }
 
+// Shown on the tabs that compare Pre and Post sample by sample, so you can
+// see the plugin chain's delay and trust (or doubt) the alignment. The EQ
+// curve reports its own measured delay in its readout instead.
+juce::String PlugNspectrPostEditor::delayNote() const
+{
+    const bool usesAlignment = m_activeTab == TabDynamics || m_activeTab == TabOscilloscope
+                            || m_activeTab == TabTransfer || m_activeTab == TabEnvelope;
+    const double sr = audioProcessor.getSampleRate();
+    if (! usesAlignment || ! audioProcessor.isPreActive() || sr <= 0.0) return {};
+
+    if (m_lagTracker.locked())
+    {
+        const int lag = m_lagTracker.lagSamples();
+        if (lag == 0) return {};
+        return "lined up for " + juce::String (lag) + " samples ("
+             + juce::String (1000.0 * lag / sr, 1) + " ms) of plugin delay";
+    }
+    return m_lagTracker.settled() ? "plugin delay not measurable on this sound, assuming none"
+                                  : "measuring plugin delay...";
+}
+
 PnsTheme::Summary PlugNspectrPostEditor::currentSummary() const
 {
     switch (m_activeTab)
@@ -4239,8 +4268,11 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
         // rest ("  -  output is 4 dB quieter") is the supporting line.
         const juce::String sep ("  -  ");
         const juce::String head   = m_summary.text.upToFirstOccurrenceOf (sep, false, false);
-        const juce::String detail = m_summary.text.fromFirstOccurrenceOf (sep, false, false)
-                                                  .replace (sep, juce::String::fromUTF8 ("  \xc2\xb7  "));
+        juce::String detail = m_summary.text.fromFirstOccurrenceOf (sep, false, false)
+                                            .replace (sep, juce::String::fromUTF8 ("  \xc2\xb7  "));
+        if (m_delayNote.isNotEmpty())
+            detail = detail.isEmpty() ? m_delayNote
+                                      : detail + juce::String::fromUTF8 ("  \xc2\xb7  ") + m_delayNote;
         g.setFont (PnsTheme::fontSized (26.0f, true));
         g.setColour (m_summary.warn ? PnsTheme::kWarn : PnsTheme::kTextPrimary);
         g.drawFittedText (head, kPadX, 40, textRight - kPadX, 34, juce::Justification::centredLeft, 1, 0.8f);
