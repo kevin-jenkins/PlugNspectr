@@ -430,8 +430,12 @@ private:
     juce::Rectangle<int> m_chipBounds;   // readout chips, laid out in drawWaveform
 
     // 30-second GR average buffer — 900 slots at 30fps
-    static constexpr int kAvgGrLen = 900;
+    // One entry per update that carried audio, with how many samples it
+    // covered, so the average spans 30 s of audio whatever the host's block
+    // size or the UI rate. 4096 entries covers 30 s down to ~7 ms blocks.
+    static constexpr int kAvgGrLen = 4096;
     std::array<float, kAvgGrLen> m_avgGrBuf {};
+    std::array<int,   kAvgGrLen> m_avgGrDur {};   // samples each entry covers
     int                          m_avgGrPos  = 0;
     int                          m_avgGrFill = 0;   // number of valid entries
 

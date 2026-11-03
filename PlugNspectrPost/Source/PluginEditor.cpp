@@ -1019,19 +1019,34 @@ void DynamicsView::update()
 
     // ── Waveform sample buffer ────────────────────────────────────────────
     {
-        const int n = juce::jmin (capN, kSampleBufLen);
-        if (n > 0)
+        // Every reader indexes the ring by ABSOLUTE sample (a % kSampleBufLen),
+        // so the writer must too. If the UI stalled long enough for audio to be
+        // lost, blank that stretch at its true position rather than packing the
+        // survivors in early — otherwise the write position and the absolute
+        // clock drift apart for good and every later read mixes eras.
+        if (capN > 0)
         {
+            const juce::int64 lost = juce::jmax ((juce::int64) 0, (juce::int64) capElapsed - capN);
+            for (juce::int64 g = 0, ng = juce::jmin (lost, (juce::int64) kSampleBufLen); g < ng; ++g)
+            {
+                const auto idx = (size_t) ((m_totalSamplesWritten + lost - ng + g) % kSampleBufLen);
+                m_preSamples[idx] = m_postSamples[idx] = 0.0f;
+            }
+            m_totalSamplesWritten += lost;
+
             const float* postData = m_capPost.getReadPointer (0);
             const float* preData  = m_capPre .getReadPointer (0);
-            for (int i = 0; i < n; ++i)
+            const int skip = juce::jmax (0, capN - kSampleBufLen);   // only the newest ring-full survives
+            for (int i = skip; i < capN; ++i)
             {
-                m_postSamples[m_sampleWritePos] = postData ? postData[i] : 0.0f;
-                m_preSamples [m_sampleWritePos] = preData  ? preData[i]  : 0.0f;
-                m_sampleWritePos = (m_sampleWritePos + 1) % kSampleBufLen;
+                const auto idx = (size_t) ((m_totalSamplesWritten + i) % kSampleBufLen);
+                m_postSamples[idx] = postData ? postData[i] : 0.0f;
+                m_preSamples [idx] = preData  ? preData[i]  : 0.0f;
             }
-            m_samplesStored = juce::jmin (m_samplesStored + n, kSampleBufLen);
-            m_totalSamplesWritten += (juce::int64) capElapsed;
+            m_totalSamplesWritten += capN;
+            m_sampleWritePos = (int) (m_totalSamplesWritten % kSampleBufLen);
+            m_samplesStored  = (int) juce::jmin ((juce::int64) kSampleBufLen,
+                                                 (juce::int64) m_samplesStored + lost + capN);
         }
     }
 
@@ -1159,7 +1174,7 @@ void DynamicsView::update()
         if (--m_lagCountdown <= 0)
         {
             estimateLag (sr);
-            m_lagCountdown = 30;   // ~0.5 s at 60 Hz
+            m_lagCountdown = 30;   // every 30 updates that carry audio: ~0.5 s at 60 Hz, longer at big buffers
         }
         // +1 = too quiet to judge (gated out of the average); otherwise ≤ 0 dB.
         const float aligned   = alignedGrDb (sr);
@@ -1179,26 +1194,39 @@ void DynamicsView::update()
             // with no cut count as 0. (Averaging only the non-zero moments made
             // a few stray dips read as a steady cut.) Silence stores +1, skipped.
             m_avgGrBuf[m_avgGrPos] = audible ? currentGr : 1.0f;
+            m_avgGrDur[m_avgGrPos] = capN;
             m_avgGrPos  = (m_avgGrPos + 1) % kAvgGrLen;
             m_avgGrFill = juce::jmin (m_avgGrFill + 1, kAvgGrLen);
 
-            float sum = 0.0f;
-            int   cnt = 0;
-            for (int i = 0; i < m_avgGrFill; ++i)
-                if (m_avgGrBuf[i] <= 0.0f) { sum += m_avgGrBuf[i]; ++cnt; }
-            m_avgGr = (cnt > 0) ? sum / (float) cnt : 0.0f;
+            // Newest first, weighted by the audio each entry covers, back to
+            // 30 s of audio (silence counts toward the 30 s but not the mean).
+            const double span = 30.0 * juce::jmax (1.0, sr);
+            double sum = 0.0, heard = 0.0, covered = 0.0;
+            for (int k = 0; k < m_avgGrFill && covered < span; ++k)
+            {
+                const int    i = (m_avgGrPos - 1 - k + kAvgGrLen) % kAvgGrLen;
+                const double d = (double) m_avgGrDur[(size_t) i];
+                covered += d;
+                if (m_avgGrBuf[(size_t) i] <= 0.0f) { sum += m_avgGrBuf[(size_t) i] * d; heard += d; }
+            }
+            m_avgGr = heard > 0.0 ? (float) (sum / heard) : 0.0f;
 
             // Auto-restart on a lasting change (see m_fastGr). Time-based, since
             // ticks with audio arrive at the host's block rate, not 60 Hz.
+            // The bar scales with the cut: a compressor riding 6 dB on average
+            // swings a few dB between phrases, which must not count as a change
+            // of plugin. 3 s of sustained disagreement, and at least 2 s of
+            // audio in the average first, so it never fires on a warm-up.
             if (audible)
             {
                 const double nowMs = juce::Time::getMillisecondCounterHiRes();
                 const float  k     = (float) juce::jlimit (0.0, 1.0, (double) capN / (0.5 * sr));
                 m_fastGr += k * (currentGr - m_fastGr);
-                if (cnt > 20 && std::abs (m_fastGr - m_avgGr) > 1.5f)
+                const float bar = juce::jmax (1.5f, 0.4f * std::abs (m_avgGr));
+                if (heard > 2.0 * sr && std::abs (m_fastGr - m_avgGr) > bar)
                 {
                     if (m_shiftSinceMs == 0.0) m_shiftSinceMs = nowMs;
-                    else if (nowMs - m_shiftSinceMs > 1500.0)
+                    else if (nowMs - m_shiftSinceMs > 3000.0)
                     {
                         resetReadings();
                         m_restartNoteEnd = nowMs + 4000.0;
@@ -1207,6 +1235,8 @@ void DynamicsView::update()
                 else
                     m_shiftSinceMs = 0.0;
             }
+            else
+                m_shiftSinceMs = 0.0;   // a pause breaks the run; it must be sustained while playing
 
             // Smooth RMS volume (0.9 decay)
             constexpr float kSmooth = 0.9f;
@@ -1302,7 +1332,7 @@ void DynamicsView::estimateLag (double sr)
             if (++pi == kSampleBufLen) pi = 0;
             if (++qi == kSampleBufLen) qi = 0;
         }
-        if (c > bestC) { bestC = c; best = lag; }
+        if (std::abs (c) > bestC) { bestC = std::abs (c); best = lag; }   // a polarity flip still lines up
     }
     m_lagSamples = best;
 }
@@ -1353,6 +1383,7 @@ void DynamicsView::resetReadings()
     m_avgGr      = 0.0f;
     m_grPeakHold = 0.0f;
     m_avgGrBuf.fill (0.0f);
+    m_avgGrDur.fill (0);
     m_avgGrPos   = 0;
     m_avgGrFill  = 0;
     m_gr.fill (0.0f);
@@ -1382,6 +1413,7 @@ void DynamicsView::reset()
     m_avgGr      = 0.0f;
     m_grPeakHold = 0.0f;
     m_avgGrBuf.fill (0.0f);
+    m_avgGrDur.fill (0);
     m_avgGrPos   = 0;
     m_avgGrFill  = 0;
     m_fastGr       = 0.0f;
@@ -1911,8 +1943,9 @@ void OscilloscopeView::paint (juce::Graphics& g)
     const float pw = W - kML - kMR, ph = H - kMT - kMB;
 
     // Post's display gain: matched to Pre's loudness (RMS), or 1 = as played.
+    // Bounded to ±24 dB so a near-silent output isn't blown up into noise.
     const float postGain = (m_matchLevels && m_rmsPost > 1.0e-6f && m_rmsPre > 1.0e-6f)
-                         ? m_rmsPre / m_rmsPost : 1.0f;
+                         ? juce::jlimit (1.0f / 16.0f, 16.0f, m_rmsPre / m_rmsPost) : 1.0f;
     // Vertical range: the smallest of 1 / 0.5 / 0.25 / 0.125 that fits both
     // traces, so quiet material still fills the height.
     const float tallest = juce::jmax (m_pkPre, m_pkPost * postGain);
@@ -4544,8 +4577,10 @@ PnsTheme::Summary DynamicsView::summary() const
         return { "Play some audio  -  this shows how much the plugin turns the level down." };
 
     juce::String s;
+    // GR is measured as "how much quieter Post is than Pre", so a compressor
+    // with matching make-up gain looks like no cut. Say what was measured.
     if (m_avgGr > -0.5f && m_grPeakHold > -1.0f)
-        s = "Not turning the level down";
+        s = "No drop in level measured  -  make-up gain can hide compression; the Compression test shows it";
     else
         s = "Turning down about " + juce::String (-m_avgGr, 1) + " dB on average, up to "
           + juce::String (-m_grPeakHold, 1) + " dB on peaks";
