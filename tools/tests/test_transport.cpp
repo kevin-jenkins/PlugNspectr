@@ -146,3 +146,37 @@ TEST_CASE ("Transport: a block larger than 4096 samples arrives whole")
     CHECK (out->numSamples == N);
     CHECK (out->preData[0][N - 1] == (float) (N - 1));
 }
+
+TEST_CASE ("Transport: only one Pre owns the segment; a second is turned away")
+{
+    auto mem = std::make_unique<pns::SharedHeader>();
+    pns::Transport tx;
+    tx.openForTest (mem.get());
+
+    constexpr uint32_t a = 11u, b = 22u;
+    CHECK_FALSE (tx.isPreConflict (1000));
+
+    REQUIRE (tx.claimPre (a, 500));      // free segment: A takes it
+    CHECK (tx.claimPre (a, 500));        // and keeps it
+    CHECK_FALSE (tx.claimPre (b, 500));  // B is turned away while A is live...
+    CHECK (tx.isPreConflict (1000));     // ...and the conflict is visible
+
+    tx.releasePre (b);                   // releasing a claim you don't hold does nothing
+    CHECK_FALSE (tx.claimPre (b, 500));
+
+    tx.releasePre (a);                   // A leaves: B takes over at once
+    CHECK (tx.claimPre (b, 500));
+    CHECK_FALSE (tx.claimPre (a, 500));
+}
+
+TEST_CASE ("Transport: a Pre that stops is replaced after the timeout")
+{
+    auto mem = std::make_unique<pns::SharedHeader>();
+    pns::Transport tx;
+    tx.openForTest (mem.get());
+
+    REQUIRE (tx.claimPre (11u, 500));
+    CHECK_FALSE (tx.claimPre (22u, 20));
+    juce::Thread::sleep (40);            // owner's heartbeat goes stale
+    CHECK (tx.claimPre (22u, 20));
+}

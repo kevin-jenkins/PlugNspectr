@@ -3849,7 +3849,23 @@ void PlugNspectrPostEditor::timerCallback()
     // ── Overlay animation ──────────────────────────────────────────────────
     // Check Pre active every 200ms (every 12 ticks at 60fps)
     if (m_tickCounter % 12 == 0)
+    {
         m_overlayTarget = audioProcessor.isPreActive() ? 0.0f : 1.0f;
+
+        // Setup problems that make every reading unreliable.
+        const juce::String warning =
+            audioProcessor.isSecondPreActive()
+                ? "Two PlugNspectr Pre plugins are active. Only the first one is used: remove the other."
+          : audioProcessor.isHostBlockTooLarge()
+                ? "The host buffer is over " + juce::String (pns::kMaxSamples)
+                  + " samples, so part of each block isn't analysed. Use a smaller buffer."
+                : juce::String();
+        if (warning != m_setupWarning)
+        {
+            m_setupWarning = warning;
+            repaint (0, 0, getWidth(), PnsTheme::kHeroHeight);
+        }
+    }
 
     // Smooth fade: slower fade-out (300ms) when Pre connects, faster fade-in
     const float diff      = m_overlayTarget - m_overlayAlpha;
@@ -4165,7 +4181,8 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
     //    Question (small, accent) → what it found (large) → the detail; the one
     //    number that answers it sits large at the right. While a test signal is
     //    playing the question line turns amber and says so: it's the one thing
-    //    you must not miss.
+    //    you must not miss. A setup problem (two Pre plugins, an oversized host
+    //    buffer) takes the same line, after the test signal.
     {
         // The big number, right-aligned under the header controls.
         int heroLeft = W - kPadX;
@@ -4202,6 +4219,12 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
         {
             g.setColour (PnsTheme::kWarn);
             g.drawText (juce::CharPointer_UTF8 ("\xe2\x97\x8f  TEST SIGNAL PLAYING  \xc2\xb7  your audio is replaced until you stop playback or leave this tab"),
+                        kPadX, 18, textRight - kPadX, 16, juce::Justification::centredLeft, true);
+        }
+        else if (m_setupWarning.isNotEmpty())
+        {
+            g.setColour (PnsTheme::kWarn);
+            g.drawText (juce::String::fromUTF8 ("\xe2\x97\x8f  CHECK YOUR SETUP  \xc2\xb7  ") + m_setupWarning,
                         kPadX, 18, textRight - kPadX, 16, juce::Justification::centredLeft, true);
         }
         else

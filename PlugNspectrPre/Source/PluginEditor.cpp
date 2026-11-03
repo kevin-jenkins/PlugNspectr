@@ -27,9 +27,11 @@ PlugNspectrPreEditor::~PlugNspectrPreEditor()
 void PlugNspectrPreEditor::timerCallback()
 {
     const bool connected = m_proc.isPostConnected();
-    if (connected != m_postConnected)
+    const bool idle      = m_proc.isIdle();
+    if (connected != m_postConnected || idle != m_idle)
     {
         m_postConnected = connected;
+        m_idle          = idle;
         repaint();
     }
 }
@@ -75,7 +77,12 @@ void PlugNspectrPreEditor::paint (juce::Graphics& g)
     // Version label
     g.setFont (PnsTheme::fontLabel());
     g.setColour (PnsTheme::kTextSecondary);
-    g.drawText ("v1.0", W - PnsTheme::kPaddingMid - 36, (hH - 11) / 2, 36, 11,
+   #ifdef JucePlugin_VersionString
+    const juce::String version = "v" JucePlugin_VersionString;
+   #else
+    const juce::String version = "dev";
+   #endif
+    g.drawText (version, W - PnsTheme::kPaddingMid - 60, (hH - 11) / 2, 60, 11,
                 juce::Justification::centredRight);
 
     // ── Content area ──────────────────────────────────────────────────────
@@ -152,12 +159,12 @@ void PlugNspectrPreEditor::paint (juce::Graphics& g)
     cy += bH + 10.0f;
 
     // ── Connection status indicator ───────────────────────────────────────
-    const juce::Colour dotCol = m_postConnected
+    const juce::Colour dotCol = (m_postConnected && ! m_idle)
         ? PnsTheme::kAccentPrimary            // connected — ice cyan
-        : PnsTheme::kWarn;                     // waiting for Post — amber
+        : PnsTheme::kWarn;                     // waiting for Post, or idle — amber
 
     constexpr float dotR = 4.0f;
-    const float statusW = 140.0f;
+    const float statusW = m_idle ? 330.0f : 140.0f;
     const float statusX = panelX + (panelW - statusW) * 0.5f;
     const float dotCY   = cy + dotR;
 
@@ -166,9 +173,9 @@ void PlugNspectrPreEditor::paint (juce::Graphics& g)
 
     g.setFont (PnsTheme::fontLabel());
     g.setColour (PnsTheme::kTextSecondary);
-    const char* statusStr = m_postConnected
-        ? "Connected to Post"
-        : "Waiting for Post plugin...";
+    const char* statusStr = m_idle          ? "Another Pre is active. This one is idle (audio passes through)."
+                          : m_postConnected ? "Connected to Post"
+                                            : "Waiting for Post plugin...";
     g.drawText (statusStr,
                 (int) (statusX + dotR * 2.0f + 5.0f), (int) (dotCY - 5.5f),
                 (int) (statusW - dotR * 2.0f - 5.0f), 11,

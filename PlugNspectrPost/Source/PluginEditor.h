@@ -1162,6 +1162,7 @@ private:
     // "No Pre" overlay animation state
     float m_overlayAlpha  = 0.0f;   // current rendered alpha (0=hidden, 1=fully visible)
     float m_overlayTarget = 0.0f;   // desired alpha (animated toward each tick)
+    juce::String m_setupWarning;    // a setup problem to fix (amber strip), or empty
     float m_pulsePhase    = 0.0f;   // 0–2π, for the pulsing search dot
 
     // ── Dock — test tone controls ────────────────────────────────

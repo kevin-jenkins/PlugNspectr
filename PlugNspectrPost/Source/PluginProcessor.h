@@ -229,6 +229,9 @@ public:
     // True while the host's blocks exceed what Pre can send (pns::kMaxSamples).
     bool isHostBlockTooLarge() const { return m_hostBlockTooLarge.load(); }
 
+    // True if a second PlugNspectr Pre was turned away in the last second.
+    bool isSecondPreActive() const { return m_ipc.isPreConflict (1000u); }
+
     // Command channel — the editor routes test-stimulus commands to Pre through
     // the processor's IPC segment (same process; mirrors setChannelMode etc.).
     void postCommand (const pns::PNS_CmdBlock& c) { m_ipc.writeCommand (c); }

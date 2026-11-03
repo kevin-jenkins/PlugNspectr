@@ -27,6 +27,7 @@ private:
 
     PlugNspectrPreProcessor& m_proc;
     bool m_postConnected = false;
+    bool m_idle          = false;   // another Pre owns the segment
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PlugNspectrPreEditor)
 };
