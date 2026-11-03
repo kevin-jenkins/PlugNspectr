@@ -146,6 +146,15 @@
   <ItemGroup>
     <ClCompile Include="..\..\Source\PluginProcessor.cpp"/>
     <ClCompile Include="..\..\Source\PluginEditor.cpp"/>
+    <ClCompile Include="..\..\Source\Views\SpectrumView.cpp"/>
+    <ClCompile Include="..\..\Source\Views\DynamicsView.cpp"/>
+    <ClCompile Include="..\..\Source\Views\OscilloscopeView.cpp"/>
+    <ClCompile Include="..\..\Source\Views\StereoView.cpp"/>
+    <ClCompile Include="..\..\Source\Views\HarmonicsView.cpp"/>
+    <ClCompile Include="..\..\Source\Views\LinearView.cpp"/>
+    <ClCompile Include="..\..\Source\Views\TransferView.cpp"/>
+    <ClCompile Include="..\..\Source\Views\EnvelopeView.cpp"/>
+    <ClCompile Include="..\..\Source\Views\ThdSweepView.cpp"/>
     <ClCompile Include="..\..\..\..\..\Program Files\JUCE\modules\juce_audio_basics\audio_play_head\juce_AudioPlayHead.cpp">
       <ExcludedFromBuild>true</ExcludedFromBuild>
     </ClCompile>
@@ -2997,6 +3006,17 @@
     <ClInclude Include="..\..\Source\SharedMemoryBlock.h"/>
     <ClInclude Include="..\..\Source\PluginProcessor.h"/>
     <ClInclude Include="..\..\Source\PluginEditor.h"/>
+    <ClInclude Include="..\..\Source\Views\ViewOptions.h"/>
+    <ClInclude Include="..\..\Source\Views\ViewCommon.h"/>
+    <ClInclude Include="..\..\Source\Views\SpectrumView.h"/>
+    <ClInclude Include="..\..\Source\Views\DynamicsView.h"/>
+    <ClInclude Include="..\..\Source\Views\OscilloscopeView.h"/>
+    <ClInclude Include="..\..\Source\Views\StereoView.h"/>
+    <ClInclude Include="..\..\Source\Views\HarmonicsView.h"/>
+    <ClInclude Include="..\..\Source\Views\LinearView.h"/>
+    <ClInclude Include="..\..\Source\Views\TransferView.h"/>
+    <ClInclude Include="..\..\Source\Views\EnvelopeView.h"/>
+    <ClInclude Include="..\..\Source\Views\ThdSweepView.h"/>
     <ClInclude Include="..\..\Source\PlugNspectrTheme.h"/>
     <ClInclude Include="..\..\..\..\..\Program Files\JUCE\modules\juce_audio_basics\audio_play_head\juce_AudioPlayHead.h"/>
     <ClInclude Include="..\..\..\..\..\Program Files\JUCE\modules\juce_audio_basics\buffers\juce_AudioChannelSet.h"/>

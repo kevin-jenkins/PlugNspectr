@@ -15,6 +15,28 @@
       <FILE id="pns007" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
       <FILE id="pns008" name="PluginEditor.cpp" compile="1" resource="0"
             file="Source/PluginEditor.cpp"/>
+      <GROUP id="{6B1E3A52-7C4D-4E8F-9A21-5D3C0B7E1F42}" name="Views">
+        <FILE id="pnsv01" name="ViewOptions.h" compile="0" resource="0" file="Source/Views/ViewOptions.h"/>
+        <FILE id="pnsv02" name="ViewCommon.h" compile="0" resource="0" file="Source/Views/ViewCommon.h"/>
+        <FILE id="pnsv03" name="SpectrumView.h" compile="0" resource="0" file="Source/Views/SpectrumView.h"/>
+        <FILE id="pnsv04" name="SpectrumView.cpp" compile="1" resource="0" file="Source/Views/SpectrumView.cpp"/>
+        <FILE id="pnsv05" name="DynamicsView.h" compile="0" resource="0" file="Source/Views/DynamicsView.h"/>
+        <FILE id="pnsv06" name="DynamicsView.cpp" compile="1" resource="0" file="Source/Views/DynamicsView.cpp"/>
+        <FILE id="pnsv07" name="OscilloscopeView.h" compile="0" resource="0" file="Source/Views/OscilloscopeView.h"/>
+        <FILE id="pnsv08" name="OscilloscopeView.cpp" compile="1" resource="0" file="Source/Views/OscilloscopeView.cpp"/>
+        <FILE id="pnsv09" name="StereoView.h" compile="0" resource="0" file="Source/Views/StereoView.h"/>
+        <FILE id="pnsv10" name="StereoView.cpp" compile="1" resource="0" file="Source/Views/StereoView.cpp"/>
+        <FILE id="pnsv11" name="HarmonicsView.h" compile="0" resource="0" file="Source/Views/HarmonicsView.h"/>
+        <FILE id="pnsv12" name="HarmonicsView.cpp" compile="1" resource="0" file="Source/Views/HarmonicsView.cpp"/>
+        <FILE id="pnsv13" name="LinearView.h" compile="0" resource="0" file="Source/Views/LinearView.h"/>
+        <FILE id="pnsv14" name="LinearView.cpp" compile="1" resource="0" file="Source/Views/LinearView.cpp"/>
+        <FILE id="pnsv15" name="TransferView.h" compile="0" resource="0" file="Source/Views/TransferView.h"/>
+        <FILE id="pnsv16" name="TransferView.cpp" compile="1" resource="0" file="Source/Views/TransferView.cpp"/>
+        <FILE id="pnsv17" name="EnvelopeView.h" compile="0" resource="0" file="Source/Views/EnvelopeView.h"/>
+        <FILE id="pnsv18" name="EnvelopeView.cpp" compile="1" resource="0" file="Source/Views/EnvelopeView.cpp"/>
+        <FILE id="pnsv19" name="ThdSweepView.h" compile="0" resource="0" file="Source/Views/ThdSweepView.h"/>
+        <FILE id="pnsv20" name="ThdSweepView.cpp" compile="1" resource="0" file="Source/Views/ThdSweepView.cpp"/>
+      </GROUP>
       <FILE id="pns009" name="PlugNspectrTheme.h" compile="0" resource="0"
             file="Source/PlugNspectrTheme.h"/>
     </GROUP>
