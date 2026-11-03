@@ -171,8 +171,8 @@ public:
     void getMeasurement (MeasResult& out) const;
     void resetMeasurement ();
 
-    // Channel mode for all analysis: 0=Left, 1=Right, 2=Mid (L+R)/2, 3=Side (L-R)/2.
-    void setChannelMode (int m) { m_channelMode.store (juce::jlimit (0, 1, m)); }   // 0 = L+R, 1 = Side
+    // Signal all analysis runs on: 0 = L+R, (L+R)/2;  1 = Side, (L-R)/2.
+    void setChannelMode (int m) { m_channelMode.store (juce::jlimit (0, 1, m)); }
     int  getChannelMode () const { return m_channelMode.load(); }
 
     // Test seam — feed a known Pre/Post pair straight into the measurement
@@ -328,7 +328,8 @@ private:
     // Accumulated on the audio thread (private), then published as a consistent
     // triple under m_stereoLock when a frame completes. Correlation needs all
     // three to come from the same moment, so they cannot be separate atomics.
-    StereoBroadband                      m_stBbPreLive,  m_stBbPostLive;
+    StereoBroadband                      m_stBbPreLive,  m_stBbPostLive;   // audio thread only
+    std::atomic<bool>                    m_stResetLive { false };   // resetStereo → audio thread clears the live sums
     StereoBroadband                      m_stBbPre,      m_stBbPost;
     mutable juce::CriticalSection        m_stereoLock;
 
@@ -360,6 +361,11 @@ private:
     std::array<double, kMeasBins>        m_Syy   {};   // |Post|²
     std::array<double, kMeasBins>        m_SxyRe {};   // Re{conj(Pre)·Post}
     std::array<double, kMeasBins>        m_SxyIm {};   // Im{conj(Pre)·Post}
+    // getMeasurement's snapshot (message thread only), so the maths runs
+    // outside m_measLock instead of making the audio thread wait for it. On
+    // the heap: the processor is already large, and tests / the harness hold
+    // one on the stack.
+    mutable std::vector<double> m_snapSxx, m_snapSyy, m_snapSxyRe, m_snapSxyIm;
     int                                  m_measFrames = 0;
     double                               m_measSampleRate = 0.0;
     mutable juce::CriticalSection        m_measLock;

@@ -191,24 +191,35 @@ void PlugNspectrPostProcessor::computeLatency()
 
 void PlugNspectrPostProcessor::getMeasurement (MeasResult& out) const
 {
-    juce::ScopedLock sl (m_measLock);
-    out.frames         = m_measFrames;
-    out.latencySamples = m_latencySamples;
-    out.sampleRate     = (m_measSampleRate > 0.0) ? m_measSampleRate : getSampleRate();
+    // Snapshot under the lock, then do the ~8k sqrt/log/atan2 outside it — the
+    // audio thread takes this lock to publish every measurement frame (same
+    // pattern as getStereo).
+    {
+        juce::ScopedLock sl (m_measLock);
+        out.frames         = m_measFrames;
+        out.latencySamples = m_latencySamples;
+        out.sampleRate     = (m_measSampleRate > 0.0) ? m_measSampleRate : getSampleRate();
+        m_snapSxx  .assign (m_Sxx  .begin(), m_Sxx  .end());
+        m_snapSyy  .assign (m_Syy  .begin(), m_Syy  .end());
+        m_snapSxyRe.assign (m_SxyRe.begin(), m_SxyRe.end());
+        m_snapSxyIm.assign (m_SxyIm.begin(), m_SxyIm.end());
+    }
+    const auto& Sxx = m_snapSxx;  const auto& Syy = m_snapSyy;
+    const auto& SxyRe = m_snapSxyRe; const auto& SxyIm = m_snapSxyIm;
 
     for (int k = 0; k < kMeasBins; ++k)
     {
-        const double sxx = m_Sxx[k];
+        const double sxx = Sxx[k];
         if (sxx > 1.0e-20)
         {
-            const double hre = m_SxyRe[k] / sxx;          // H = Sxy / Sxx
-            const double him = m_SxyIm[k] / sxx;
+            const double hre = SxyRe[k] / sxx;          // H = Sxy / Sxx
+            const double him = SxyIm[k] / sxx;
             const double mag = std::sqrt (hre * hre + him * him);
             out.magDb[k] = 20.0f * std::log10 ((float) juce::jmax (mag, 1.0e-9));
             out.phase[k] = std::atan2 ((float) him, (float) hre);
 
-            const double sxy2 = m_SxyRe[k] * m_SxyRe[k] + m_SxyIm[k] * m_SxyIm[k];
-            const double den  = sxx * m_Syy[k];
+            const double sxy2 = SxyRe[k] * SxyRe[k] + SxyIm[k] * SxyIm[k];
+            const double den  = sxx * Syy[k];
             out.coh[k] = (den > 1.0e-20) ? (float) juce::jlimit (0.0, 1.0, sxy2 / den) : 0.0f;
         }
         else
@@ -397,7 +408,7 @@ void PlugNspectrPostProcessor::pushThdSweepSamples (const float* post, int n, do
         const double binW = sr / kMeasFftSize;
         // Search radius must stay below half the harmonic spacing (f0 in bins),
         // or at low frequencies H2's window would grab the fundamental.
-        const int rad = juce::jlimit (1, 6, (int) (f0 / binW / 2.0) - 1);
+        const int rad = juce::jlimit (0, 6, (int) (f0 / binW / 2.0) - 1);   // 0: never reach into the fundamental's lobe
         auto peak = [&] (double freq) -> double
         {
             const int b  = (int) std::lround (freq / binW);
@@ -795,6 +806,7 @@ void PlugNspectrPostProcessor::pushStereoSamples (
     StereoBroadband& bbLive, StereoBroadband& bbPub)
 {
     if (l == nullptr || r == nullptr) return;
+    if (m_stResetLive.exchange (false)) { m_stBbPreLive = {}; m_stBbPostLive = {}; }
 
     // Broadband sums, decayed per block, for the correlation / mono-loss readouts.
     // Accumulated privately here; published under the lock on frame completion.
@@ -922,8 +934,9 @@ void PlugNspectrPostProcessor::resetStereo()
     m_stPostAcc = StereoAccum {};
     m_stBbPre   = StereoBroadband {};
     m_stBbPost  = StereoBroadband {};
-    m_stBbPreLive  = StereoBroadband {};
-    m_stBbPostLive = StereoBroadband {};
+    // The live sums belong to the audio thread (updated without the lock), so
+    // ask it to clear them rather than racing its read-modify-write.
+    m_stResetLive.store (true);
 }
 
 //==============================================================================

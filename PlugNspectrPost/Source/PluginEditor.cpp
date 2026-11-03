@@ -379,7 +379,13 @@ void SpectrumView::update()
                     m_peakMarkers.push_back ({ b, (float) b, 0.0f, true, newScores[i], isBoost });
                 else
                     for (auto& mk : m_peakMarkers)
-                        if (mk.bin == b) { mk.score = newScores[i]; mk.isBoost = isBoost; break; }
+                        if (mk.bin == b)
+                        {
+                            // Back in the top set: stop any fade-out under way,
+                            // or a still-current marker vanishes for 5 s.
+                            mk.score = newScores[i]; mk.isBoost = isBoost; mk.fadingIn = true;
+                            break;
+                        }
             }
 
             m_topBins   = newTop;
@@ -1109,19 +1115,15 @@ void DynamicsView::update()
             }
             measured = pns::analysis::gainReduction (m_alignPre.data(), m_alignPost.data(), len, W);
         }
-        const bool  audible   = measured.audible;
+        const bool  audible   = measured.audible && m_lagSettled;
         const float currentGr = measured.meanDb;
-        const float deepestGr = measured.minDb;
+        const float deepestGr = audible ? measured.minDb : 0.0f;
 
         const auto rms = m_proc.getRms();
         m_preConnected = rms.preValid;
 
         if (rms.preValid)
         {
-            // Instantaneous hold: keep last non-zero reading
-            if (deepestGr < -0.1f)
-                m_instantGr = deepestGr;
-
             // 30 s rolling average over the time audio was playing — moments
             // with no cut count as 0. (Averaging only the non-zero moments made
             // a few stray dips read as a steady cut.) Silence stores +1, skipped.
@@ -1176,16 +1178,35 @@ void DynamicsView::update()
             m_smoothPostDb = m_smoothPostDb * kSmooth + rms.postDb * (1.0f - kSmooth);
         }
 
-        m_gr[m_grPos] = rms.preValid
-            ? juce::jlimit (-24.0f, 0.0f, deepestGr)
-            : 0.0f;
-        m_grPos = (m_grPos + 1) % kGrLen;
+        // History lane + peak hold on an audio-time clock: one point per
+        // 1/30 s of audio holding the deepest cut in it, so the lane spans
+        // exactly 3 s and the hold decays at the same rate at any buffer size.
+        m_grDeepest = juce::jmin (m_grDeepest, rms.preValid ? deepestGr : 0.0f);
+        m_grClock  += capN;
+        const int perPoint = juce::jmax (1, (int) (juce::jmax (1.0, sr) / kGrRateHz));
+        // One update can cover several points (big host blocks); they all
+        // hold this update's measurement — it's the only one there is for them.
+        const float point = juce::jlimit (-24.0f, 0.0f, m_grDeepest);
+        bool emitted = false;
+        while (m_grClock >= perPoint)
+        {
+            m_grClock -= perPoint;
+            emitted = true;
+            m_gr[(size_t) m_grPos] = point;
+            m_grPos = (m_grPos + 1) % kGrLen;
 
-        // Peak hold: track most-negative GR, decay at 0.998 per frame (~3s hold)
-        if (rms.preValid && deepestGr < m_grPeakHold)
-            m_grPeakHold = deepestGr;
-        else
-            m_grPeakHold = juce::jmin (0.0f, m_grPeakHold * 0.998f);
+            // Peak hold: deepest cut seen, decaying 0.998 per point (~3 s hold).
+            if (point < m_grPeakHold) m_grPeakHold = point;
+            else                            m_grPeakHold = juce::jmin (0.0f, m_grPeakHold * 0.998f);
+
+            // "Cut now": the deepest cut in the last half second, so it falls
+            // back to 0 when compression stops (it used to hold forever).
+            float recent = 0.0f;
+            for (int k = 1; k <= kGrRateHz / 2; ++k)
+                recent = juce::jmin (recent, m_gr[(size_t) ((m_grPos - k + kGrLen) % kGrLen)]);
+            m_instantGr = recent;
+        }
+        if (emitted) m_grDeepest = 0.0f;
     }
 }
 
@@ -1209,6 +1230,8 @@ void DynamicsView::resetReadings()
     m_avgGrFill  = 0;
     m_gr.fill (0.0f);
     m_grPos      = 0;
+    m_grClock    = 0;
+    m_grDeepest  = 0.0f;
     m_shiftSinceMs = 0.0;
     // m_fastGr is kept: it already reflects the new state.
 }
@@ -1245,6 +1268,8 @@ void DynamicsView::reset()
     m_smoothPostDb = -90.0f;
     m_gr.fill (0.0f);
     m_grPos = 0;
+    m_grClock   = 0;
+    m_grDeepest = 0.0f;
 
     // Brief flash for feedback (same as the old double-click).
     m_grFlashEnd = juce::Time::getMillisecondCounterHiRes() + 200.0;
@@ -1676,8 +1701,19 @@ void OscilloscopeView::update()
         const float prev = ringGet (m_ringPost, i - 1);
         const float curr = ringGet (m_ringPost, i);
 
-        // Rising zero-crossing above minimum amplitude threshold
-        if (prev < 0.0f && curr >= 0.0f && curr > 0.01f)
+        // A rising zero crossing that leads to a real edge: the signal must
+        // climb past ~-54 dBFS before it next goes negative. (Testing only the
+        // first sample's step never triggered on low or quiet tones — 100 Hz
+        // at -6 dBFS rises ~0.0065 per sample.) Noise around zero still fails.
+        bool edge = false;
+        if (prev < 0.0f && curr >= 0.0f)
+            for (uint64_t k = i; k < juce::jmin (i + 512, m_totalWritten); ++k)
+            {
+                const float v = ringGet (m_ringPost, k);
+                if (v > 0.002f) { edge = true; break; }
+                if (v < 0.0f)   break;
+            }
+        if (edge)
         {
             for (int s = 0; s < captureTarget; ++s)
             {
@@ -2397,7 +2433,11 @@ void HarmonicsView::update()
     {
         const float targetFreq   = fund * (float) (h + 1);
         const int   targetBin    = juce::roundToInt (targetFreq / binW);
-        const int   searchRadius = 3;
+        // Peak search, ±3 bins at most but kept under half the harmonic
+        // spacing so a harmonic's window never reaches the fundamental's
+        // main lobe (a fixed ±3 did at low tones / high sample rates — at
+        // 96 kHz H2's window held the fundamental's own bin).
+        const int   searchRadius = juce::jlimit (0, 3, (int) (fund / binW / 2.0f) - 1);
         const int   lo = juce::jmax (1, targetBin - searchRadius);
         const int   hi = juce::jmin (PlugNspectrPostProcessor::kNumSpecBins - 1,
                                      targetBin + searchRadius);
@@ -3714,7 +3754,11 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     addAndMakeVisible (m_infoBtn);
 
     m_about.setLogo (m_pnsLogo);
-    m_about.setSystemInfo ("1.1.0",
+#ifdef JucePlugin_VersionString
+    m_about.setSystemInfo (JucePlugin_VersionString,   // from the .jucer / CMake project version
+#else
+    m_about.setSystemInfo ("dev",                       // tools builds (render harness) carry no version
+#endif
                            juce::AudioProcessor::getWrapperTypeDescription (audioProcessor.wrapperType),
                            juce::SystemStats::getOperatingSystemName());
     addChildComponent (m_about);   // hidden until the info icon is clicked
@@ -3734,6 +3778,9 @@ PlugNspectrPostEditor::~PlugNspectrPostEditor()
     // Drop the stereo gate too — otherwise closing the window while the Stereo
     // tab is showing leaves four FFTs per frame running with nothing reading them.
     audioProcessor.setStereoActive (false);
+    // And the EQ-curve accumulation gate, or with Measure on it keeps
+    // averaging programme material into the held curve after the window closes.
+    audioProcessor.setLinearMeasuring (false);
     setLookAndFeel (nullptr);
     stopTimer();
 }
@@ -3820,7 +3867,7 @@ void PlugNspectrPostEditor::timerCallback()
 
     // ── Views ──────────────────────────────────────────────────────────────
     m_lagTracker.update();
-    m_dynView.setLagSamples (m_lagTracker.lagSamples());
+    m_dynView.setLagSamples (m_lagTracker.lagSamples(), m_lagTracker.settled());
     m_dynView.update();
     if (m_activeTab == TabDynamics) m_dynView.repaint();
 

@@ -313,8 +313,14 @@ public:
     void reset   ();   // clear all accumulated readings and history (keeps the zoom)
     void resetReadings();   // clear the cut readings only (average, peak hold, now); keeps the waveform
     void openOptionsForTest() { m_options.setOpen (true); }
-    // Post-vs-Pre latency, measured once by the editor's LagTracker.
-    void setLagSamples (int lag) { m_lagSamples = juce::jlimit (0, kSampleBufLen / 2, lag); }
+    // Post-vs-Pre latency, measured once by the editor's LagTracker. Until it
+    // has settled, gain reduction isn't recorded: unaligned transients would
+    // read as cuts.
+    void setLagSamples (int lag, bool settled)
+    {
+        m_lagSamples = juce::jlimit (0, kSampleBufLen / 2, lag);
+        m_lagSettled = settled;
+    }
 
 private:
     //──────────────────────────────────────────────────────────────────────────
@@ -340,7 +346,8 @@ private:
     double m_shiftSinceMs    = 0.0;   // when the fast/slow disagreement began; 0 = agreeing
     double m_restartNoteEnd  = 0.0;   // show "readings restarted" until this time
 
-    int m_lagSamples = 0;
+    int  m_lagSamples = 0;
+    bool m_lagSettled = false;
     std::vector<float> m_alignPre, m_alignPost;   // delay-aligned copy of the newest audio
 
     // Zoom: visible window in seconds (6 / 12)
@@ -401,7 +408,11 @@ private:
     //──────────────────────────────────────────────────────────────────────────
     // GR scrolling history (circular buffer, 3 s @ 30 fps)
     //──────────────────────────────────────────────────────────────────────────
-    static constexpr int kGrLen = 90;
+    // 3 s at 30 points per second of AUDIO (not per UI tick, which varies with
+    // the host block size), so the lane's "-3s" axis is true at any buffer.
+    static constexpr int kGrLen = 90, kGrRateHz = 30;
+    int   m_grClock  = 0;         // samples since the last history point
+    float m_grDeepest = 0.0f;     // deepest cut since the last history point
 
     std::array<float, kGrLen> m_gr {};
     int                       m_grPos = 0;
@@ -435,13 +446,14 @@ public:
     void update  ();
     // Post-vs-Pre latency (measured by the Dynamics view): Pre is drawn this
     // many samples earlier so both traces show the same moment of audio.
-    void setLagSamples (int lag) { m_lag = juce::jlimit (0, kRingLen / 2, lag); }
+    void setLagSamples (int lag) { m_lag = juce::jlimit (0, kRingLen - kMaxCapture - 1, lag); }
     void setToneActive (bool on) { m_toneOn = on; }   // steers the headline's advice
     PnsTheme::Summary summary() const;   // one-line plain-language verdict for the banner
 
 private:
-    // Ring buffer: ~1s at 48kHz, enough for trigger search + capture
-    static constexpr int kRingLen    = 48000;
+    // Ring buffer: room for the longest capture plus LagTracker's maximum
+    // 250 ms of latency even at 192 kHz (48k + 20k samples), with margin.
+    static constexpr int kRingLen    = 96000;
     // Max display samples: 100ms at up to 192kHz
     static constexpr int kMaxCapture = 20000;
 
@@ -884,8 +896,7 @@ public:
         if (m_logo.isValid())
         {
             const float lw = 150.0f, lh = lw * (float) m_logo.getHeight() / (float) m_logo.getWidth();
-            g.drawImage (m_logo, (float) c.getCentreX() - lw * 0.5f, (float) c.getY(), lw, lh,
-                         0, 0, m_logo.getWidth(), m_logo.getHeight());
+            g.drawImage (m_logo, { (float) c.getCentreX() - lw * 0.5f, (float) c.getY(), lw, lh });
         }
 
         g.setColour (PnsTheme::kTextPrimary);
@@ -956,44 +967,63 @@ public:
         if (sr != m_sr)
         {
             m_sr = sr;
+            m_ringPre.assign ((size_t) need, 0.0f);
+            m_ringPost.assign ((size_t) need, 0.0f);
             m_pre.assign ((size_t) need, 0.0f);
             m_post.assign ((size_t) need, 0.0f);
-            m_filled = m_sinceEstimate = 0;
+            m_write = m_filled = m_sinceEstimate = 0;
+            m_locked = false; m_heardUnlocked = 0;
         }
 
         const int n = m_proc.readCaptureSince (m_capReadPos, m_capPre, m_capPost);
         if (n <= 0) return;
 
-        // Newest-last history: slide left, append the newest k samples.
+        // Ring history; straightened into m_pre / m_post only when an estimate
+        // is due (twice a second) instead of sliding ~84k samples every tick.
         const int k = juce::jmin (n, need);
-        auto append = [&] (std::vector<float>& hist, const juce::AudioBuffer<float>& cap)
+        const float* srcPre  = m_capPre .getReadPointer (0) + (n - k);
+        const float* srcPost = m_capPost.getReadPointer (0) + (n - k);
+        for (int i = 0; i < k; ++i)
         {
-            std::copy (hist.begin() + k, hist.end(), hist.begin());
-            const float* src = cap.getReadPointer (0) + (n - k);
-            std::copy (src, src + k, hist.end() - k);
-        };
-        append (m_pre,  m_capPre);
-        append (m_post, m_capPost);
+            m_ringPre [(size_t) m_write] = srcPre[i];
+            m_ringPost[(size_t) m_write] = srcPost[i];
+            if (++m_write == need) m_write = 0;
+        }
         m_filled = juce::jmin (need, m_filled + n);
 
         m_sinceEstimate += n;
+        if (! m_locked) m_heardUnlocked += n;
         if (m_filled >= need && m_sinceEstimate >= (int) (sr * 0.5))
         {
             m_sinceEstimate = 0;
+            // Oldest sample first: the ring from the write position onwards.
+            std::copy (m_ringPre.begin() + m_write,  m_ringPre.end(),  m_pre.begin());
+            std::copy (m_ringPre.begin(),            m_ringPre.begin() + m_write,  m_pre.end()  - m_write);
+            std::copy (m_ringPost.begin() + m_write, m_ringPost.end(), m_post.begin());
+            std::copy (m_ringPost.begin(),           m_ringPost.begin() + m_write, m_post.end() - m_write);
             const int lag = pns::analysis::estimateLag (m_pre.data(), m_post.data(), need, sr);
-            if (lag >= 0) m_lag = lag;
+            if (lag >= 0) { m_lag = lag; m_locked = true; }
         }
     }
 
     int lagSamples() const { return m_lag; }
 
+    // True once a confident estimate exists, or after 4 s of audio without
+    // one: steady material (a held tone, a drone) gives no answer, and for it
+    // alignment doesn't matter.
+    bool settled() const { return m_locked || m_heardUnlocked >= (juce::int64) (4.0 * m_sr); }
+
 private:
     PlugNspectrPostProcessor& m_proc;
     uint64_t                  m_capReadPos = 0;
     juce::AudioBuffer<float>  m_capPre, m_capPost;
-    std::vector<float>        m_pre, m_post;
+    std::vector<float>        m_ringPre, m_ringPost;   // history ring
+    std::vector<float>        m_pre, m_post;           // ring straightened for an estimate
+    int                       m_write = 0;
     double m_sr = 0.0;
     int    m_filled = 0, m_sinceEstimate = 0, m_lag = 0;
+    bool   m_locked = false;
+    juce::int64 m_heardUnlocked = 0;
 };
 
 //==============================================================================

@@ -84,8 +84,10 @@ void PlugNspectrPreProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         constexpr int kSteps = 100;
         const double holdLen = 0.15 * sr;
         const double sweepLen = holdLen * kSteps;
-        double levelDb = m_cmd.testToneLevelDb;
-        if (levelDb > -0.5 || levelDb < -90.0) levelDb = -6.0;
+        // Post writes the level in the same command that starts the sweep, so
+        // it is always meaningful here; only keep it inside a sane range.
+        const double levelDb = std::isfinite (m_cmd.testToneLevelDb)
+                             ? juce::jlimit (-90.0, 0.0, m_cmd.testToneLevelDb) : -6.0;
         const float  amp  = (float) std::pow (10.0, levelDb / 20.0);
         const int    numCh = buffer.getNumChannels(), numSmp = buffer.getNumSamples();
 
@@ -191,9 +193,11 @@ void PlugNspectrPreProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const double frequency = m_cmd.testToneFrequency;
         const double freq      = juce::jlimit (20.0, 20000.0, frequency);
         const double phaseInc  = (2.0 * juce::MathConstants<double>::pi * freq) / sr;
-        // Tone level from the command block (dBFS), clamped; default -6 dBFS.
-        double levelDb = m_cmd.testToneLevelDb;
-        if (levelDb > -0.5 || levelDb < -90.0) levelDb = -6.0;   // 0/unset → default
+        // Tone level from the command block (dBFS), written by Post together
+        // with testToneActive, so 0 dBFS is a real setting (it used to be
+        // mistaken for "unset" and played at -6 dBFS). Clamped to -90..0.
+        const double levelDb = std::isfinite (m_cmd.testToneLevelDb)
+                             ? juce::jlimit (-90.0, 0.0, m_cmd.testToneLevelDb) : -6.0;
         const float kAmp = (float) std::pow (10.0, levelDb / 20.0);
 
         const int numCh  = buffer.getNumChannels();
