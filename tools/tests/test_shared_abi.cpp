@@ -10,17 +10,17 @@
 
 // Cross-process sharing requires lock-free atomics and POD payloads; the magic
 // is version-stamped so a stale segment from an older build is rejected.
-static_assert (pns::kMagic == 0x504E5332u, "shared-memory magic/version changed");
+static_assert (pns::kMagic == 0x504E5333u, "shared-memory magic/version changed");
 static_assert (std::atomic<uint32_t>::is_always_lock_free, "atomics must be lock-free in shared memory");
 static_assert (std::is_trivially_copyable<pns::AudioPayload>::value, "AudioPayload must be POD");
 static_assert (std::is_trivially_copyable<pns::PNS_CmdBlock>::value, "PNS_CmdBlock must be POD");
 static_assert (std::is_standard_layout<pns::SharedHeader>::value,    "SharedHeader must be standard-layout");
 static_assert (pns::kMaxChannels == 2,    "channel count changed");
-static_assert (pns::kMaxSamples  == 4096, "block size changed");
+static_assert (pns::kMaxSamples  == 32768, "block size changed");
 
 TEST_CASE ("Shared ABI: layout invariants are pinned")
 {
-    CHECK (pns::kMagic == 0x504E5332u);
+    CHECK (pns::kMagic == 0x504E5333u);
     CHECK (std::atomic<uint32_t>::is_always_lock_free);
     // The audio buffer dominates the segment, which holds both payloads + atomics.
     const size_t audioBytes = (size_t) pns::kMaxChannels * pns::kMaxSamples * sizeof (float);

@@ -36,7 +36,8 @@ TEST_CASE ("Seqlock: concurrent writer/reader never tears")
         }
     });
 
-    pns::AudioPayload out;
+    auto outPtr = std::make_unique<pns::AudioPayload>();   // 256 KB: keep it off the stack
+    auto& out = *outPtr;
     for (int i = 0; i < 300000; ++i)
     {
         if (! tx.readBlock (out)) continue;

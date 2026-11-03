@@ -226,6 +226,9 @@ public:
         return m_ipc.isPreAlive (500u);
     }
 
+    // True while the host's blocks exceed what Pre can send (pns::kMaxSamples).
+    bool isHostBlockTooLarge() const { return m_hostBlockTooLarge.load(); }
+
     // Command channel — the editor routes test-stimulus commands to Pre through
     // the processor's IPC segment (same process; mirrors setChannelMode etc.).
     void postCommand (const pns::PNS_CmdBlock& c) { m_ipc.writeCommand (c); }
@@ -257,11 +260,16 @@ public:
 
 
 private:
-    void analyseBlock (juce::AudioBuffer<float>& buffer, bool preReady);
+    // Analyses up to kAnaBlock samples of `buffer` against m_preIn from
+    // `preOffset`. Larger host blocks are fed through it in pieces.
+    void analyseBlock (juce::AudioBuffer<float>& buffer, bool preReady, int preOffset);
+    static constexpr int kAnaBlock = 4096;
 
     //==========================================================================
     pns::Transport     m_ipc;      // single cross-platform IPC segment
     pns::AudioPayload  m_preIn;    // last Pre block, copied out under the seqlock
+    uint32_t           m_preSeq = 0;   // its sequence number: unchanged = no new block
+    bool               m_preSeqValid = false;
 
     mutable juce::CriticalSection m_captureLock;
     // kCaptureChannels x kCaptureRingLen: 0 = derived analysis signal, 1 = L, 2 = R.
@@ -276,11 +284,12 @@ private:
     bool                          m_testPreActive = false;   // forced by render harness
     std::atomic<bool>             m_transportPlaying { true };
     std::atomic<bool>             m_linearMeasuring  { false };
+    std::atomic<bool>             m_hostBlockTooLarge { false };
 
     // L/R/Mid/Side channel selection + derived per-block analysis signals.
     std::atomic<int>                       m_channelMode { 0 };
-    std::array<float, pns::kMaxSamples>    m_anaPre  {};
-    std::array<float, pns::kMaxSamples>    m_anaPost {};
+    std::array<float, kAnaBlock>           m_anaPre  {};
+    std::array<float, kAnaBlock>           m_anaPost {};
 
     //==========================================================================
     // FFT
