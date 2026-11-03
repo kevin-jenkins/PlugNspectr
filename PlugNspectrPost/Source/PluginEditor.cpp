@@ -379,7 +379,13 @@ void SpectrumView::update()
                     m_peakMarkers.push_back ({ b, (float) b, 0.0f, true, newScores[i], isBoost });
                 else
                     for (auto& mk : m_peakMarkers)
-                        if (mk.bin == b) { mk.score = newScores[i]; mk.isBoost = isBoost; break; }
+                        if (mk.bin == b)
+                        {
+                            // Back in the top set: stop any fade-out under way,
+                            // or a still-current marker vanishes for 5 s.
+                            mk.score = newScores[i]; mk.isBoost = isBoost; mk.fadingIn = true;
+                            break;
+                        }
             }
 
             m_topBins   = newTop;
@@ -3748,7 +3754,11 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     addAndMakeVisible (m_infoBtn);
 
     m_about.setLogo (m_pnsLogo);
-    m_about.setSystemInfo ("1.1.0",
+#ifdef JucePlugin_VersionString
+    m_about.setSystemInfo (JucePlugin_VersionString,   // from the .jucer / CMake project version
+#else
+    m_about.setSystemInfo ("dev",                       // tools builds (render harness) carry no version
+#endif
                            juce::AudioProcessor::getWrapperTypeDescription (audioProcessor.wrapperType),
                            juce::SystemStats::getOperatingSystemName());
     addChildComponent (m_about);   // hidden until the info icon is clicked
@@ -3768,6 +3778,9 @@ PlugNspectrPostEditor::~PlugNspectrPostEditor()
     // Drop the stereo gate too — otherwise closing the window while the Stereo
     // tab is showing leaves four FFTs per frame running with nothing reading them.
     audioProcessor.setStereoActive (false);
+    // And the EQ-curve accumulation gate, or with Measure on it keeps
+    // averaging programme material into the held curve after the window closes.
+    audioProcessor.setLinearMeasuring (false);
     setLookAndFeel (nullptr);
     stopTimer();
 }

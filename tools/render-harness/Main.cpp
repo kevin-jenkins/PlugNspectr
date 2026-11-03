@@ -447,7 +447,8 @@ int main (int argc, char* argv[])
 
     if (argc > 1 && juce::String (argv[1]) == "program-render")
     {
-        PlugNspectrPostProcessor proc;
+        auto procPtr = std::make_unique<PlugNspectrPostProcessor>();   // large: keep it off the stack
+        auto& proc = *procPtr;
         juce::StringArray a;
         for (int i = 0; i < argc; ++i) a.add (argv[i]);
         return runProgramRender (proc, a);
@@ -456,7 +457,8 @@ int main (int argc, char* argv[])
     juce::File outDir = juce::File::getCurrentWorkingDirectory().getChildFile ("frames");
     outDir.createDirectory();
 
-    PlugNspectrPostProcessor proc;
+    auto procPtr = std::make_unique<PlugNspectrPostProcessor>();   // large: keep it off the stack
+    auto& proc = *procPtr;
     proc.setRateAndBufferSizeDetails (kSampleRate, kBlock);   // as a host would, so getSampleRate() is real
     proc.prepareToPlay (kSampleRate, kBlock);
     proc.setTestPreActive (true);
