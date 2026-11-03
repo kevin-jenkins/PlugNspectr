@@ -1482,7 +1482,7 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
         g.drawText ("Avg cut", lx, row0, lw, 12, juce::Justification::centredLeft);
 
         g.setFont (PnsTheme::fontReadout());
-        g.setColour (flashing ? juce::Colours::white : PnsTheme::kColorPostAvg);
+        g.setColour (flashing ? juce::Colours::white : PnsTheme::kTextPrimary);
         g.drawText (grStr (m_avgGr), vx, row0 - 1, vw, rowH, juce::Justification::centredRight);
 
         // ── Now ───────────────────────────────────────────────────────────
@@ -2119,7 +2119,7 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
         const auto zone = spec.cautionAbove
             ? juce::Rectangle<float> (plot.getX(), plot.getY(), plot.getWidth(), y0 - plot.getY())
             : juce::Rectangle<float> (plot.getX(), y0, plot.getWidth(), plot.getBottom() - y0);
-        g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.06f));
+        g.setColour (PnsTheme::kTextSecondary.withAlpha (0.05f));
         g.fillRect (zone);
     }
 
@@ -2153,7 +2153,7 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
     if (spec.cautionTag != nullptr && hasZero)
     {
         const float y0 = valToY (0.0f);
-        g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.50f));
+        g.setColour (PnsTheme::kTextSecondary.withAlpha (0.75f));
         constexpr int kTagW = 170;   // wide enough for the longest tag, unclipped
         g.drawText (spec.cautionTag, (int) plot.getRight() - (kTagW + 6),
                     spec.cautionAbove ? (int) plot.getY() + 2 : (int) y0 + 3,
@@ -2366,11 +2366,11 @@ void StereoView::drawReadouts (juce::Graphics& g, juce::Rectangle<float> area) c
 
     row ("Width", dbStr (m_st.bbWidthPre), dbStr (m_st.bbWidthPost), PnsTheme::kAccentPrimary);
     row ("Phase", juce::String (m_st.bbCorrPre, 2), juce::String (m_st.bbCorrPost, 2),
-         m_st.bbCorrPost < 0.0f ? PnsTheme::kColorPostAvg : PnsTheme::kAccentPrimary);
+         m_st.bbCorrPost < 0.0f ? PnsTheme::kWarn : PnsTheme::kAccentPrimary);
     // Mono-sum loss: how much level disappears when summed. Amber once it bites.
     row ("In mono", juce::String (m_st.monoLossPre, 1) + " dB",
                   juce::String (m_st.monoLossPost, 1) + " dB",
-         m_st.monoLossPost < -3.0f ? PnsTheme::kColorPostAvg : PnsTheme::kAccentPrimary);
+         m_st.monoLossPost < -3.0f ? PnsTheme::kWarn : PnsTheme::kAccentPrimary);
 }
 
 void StereoView::paint (juce::Graphics& g)
@@ -2626,13 +2626,13 @@ void HarmonicsView::drawSpectrumArea (juce::Graphics& g, juce::Rectangle<float> 
     // Harmonic marker lines and labels (H1-H8)
     const juce::Colour kHarmCols[8] = {
         PnsTheme::kColorPost,
-        PnsTheme::kColorPost.interpolatedWith (PnsTheme::kColorPostAvg, 1.0f/6.0f),
-        PnsTheme::kColorPost.interpolatedWith (PnsTheme::kColorPostAvg, 2.0f/6.0f),
-        PnsTheme::kColorPost.interpolatedWith (PnsTheme::kColorPostAvg, 3.0f/6.0f),
-        PnsTheme::kColorPost.interpolatedWith (PnsTheme::kColorPostAvg, 4.0f/6.0f),
-        PnsTheme::kColorPost.interpolatedWith (PnsTheme::kColorPostAvg, 5.0f/6.0f),
-        PnsTheme::kColorPostAvg,
-        PnsTheme::kColorPostAvg,
+        PnsTheme::kColorPost.interpolatedWith (PnsTheme::kTextPrimary, 1.0f/6.0f),
+        PnsTheme::kColorPost.interpolatedWith (PnsTheme::kTextPrimary, 2.0f/6.0f),
+        PnsTheme::kColorPost.interpolatedWith (PnsTheme::kTextPrimary, 3.0f/6.0f),
+        PnsTheme::kColorPost.interpolatedWith (PnsTheme::kTextPrimary, 4.0f/6.0f),
+        PnsTheme::kColorPost.interpolatedWith (PnsTheme::kTextPrimary, 5.0f/6.0f),
+        PnsTheme::kTextPrimary,
+        PnsTheme::kTextPrimary,
     };
 
     for (int h = 0; h < kNumH; ++h)
@@ -3972,7 +3972,7 @@ void PlugNspectrPostEditor::paintOverChildren (juce::Graphics& g)
     // is being emitted — an unmissable cue that the audio is being replaced.
     if (isStimulusActive())
     {
-        g.setColour (PnsTheme::kColorPostAvg);
+        g.setColour (PnsTheme::kWarn);
         g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (1.5f), 6.0f, 3.0f);
     }
 
@@ -4066,11 +4066,11 @@ void PlugNspectrPostEditor::paintOverChildren (juce::Graphics& g)
         g.fillPath (head);
     };
 
-    drawBlock (chainX,                              bW1, PnsTheme::kColorPost,    "PlugNspectr Pre");
+    drawBlock (chainX,                              bW1, PnsTheme::kColorPre,     "PlugNspectr Pre");
     drawArrow (chainX + bW1);
     drawBlock (chainX + bW1 + arrW,                 bW2, PnsTheme::kBorderActive, "Plugin to Analyze");
     drawArrow (chainX + bW1 + arrW + bW2);
-    drawBlock (chainX + bW1 + arrW + bW2 + arrW,    bW3, PnsTheme::kColorPostAvg, "PlugNspectr Post");
+    drawBlock (chainX + bW1 + arrW + bW2 + arrW,    bW3, PnsTheme::kColorPost,    "PlugNspectr Post");
     cy += bH + 10.0f;
 
     // ── Note ───────────────────────────────────────────────────────────────
@@ -4253,7 +4253,7 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
         g.setFont (PnsTheme::fontSized (12.0f, true));
         if (measuring)
         {
-            g.setColour (PnsTheme::kColorPostAvg);
+            g.setColour (PnsTheme::kWarn);
             g.drawText (juce::CharPointer_UTF8 ("\xe2\x97\x8f  TEST SIGNAL PLAYING  \xc2\xb7  your audio is replaced until you stop playback or leave this tab"),
                         kPadX, 18, textRight - kPadX, 16, juce::Justification::centredLeft, true);
         }
@@ -4272,7 +4272,7 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
         const juce::String detail = m_summary.text.fromFirstOccurrenceOf (sep, false, false)
                                                   .replace (sep, juce::String::fromUTF8 ("  \xc2\xb7  "));
         g.setFont (PnsTheme::fontSized (26.0f, true));
-        g.setColour (m_summary.warn ? PnsTheme::kColorPostAvg : PnsTheme::kTextPrimary);
+        g.setColour (m_summary.warn ? PnsTheme::kWarn : PnsTheme::kTextPrimary);
         g.drawFittedText (head, kPadX, 40, textRight - kPadX, 34, juce::Justification::centredLeft, 1, 0.8f);
         g.setFont (PnsTheme::fontSized (14.0f));
         g.setColour (PnsTheme::kTextSecondary);

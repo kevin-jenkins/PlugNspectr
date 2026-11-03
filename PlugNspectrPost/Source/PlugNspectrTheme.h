@@ -34,8 +34,13 @@ namespace PnsTheme
     static const juce::Colour kColorPre      { 125, 134, 150 };  // slate grey
     static const juce::Colour kColorPost     {  76, 201, 240 };  // ice cyan
     static const juce::Colour kColorPreAvg   { 170, 178, 192 };  // light slate
-    static const juce::Colour kColorPostAvg  { 245, 176,  65 };  // amber — test signal / warnings
-    static const juce::Colour kColorGainRed  { 255, 138,  91 };  // coral — gain reduction
+    static const juce::Colour kColorPostAvg  { 168, 228, 248 };  // pale ice — Post long-term average
+    static const juce::Colour kColorGainRed  { 140, 214, 240 };  // light ice — gain reduction
+
+    // The one warm colour, and only for things you must act on: a test signal
+    // replacing your audio, an armed stimulus button, or a result worth fixing
+    // (clipping, mono cancellation). Nothing decorative uses it.
+    static const juce::Colour kWarn          { 245, 176,  65 };  // amber
 
     // Per-signal opacity constants
     static constexpr float kColorPreAlpha  = 0.60f;
@@ -58,7 +63,7 @@ namespace PnsTheme
     static const juce::Colour kGridLine  {  24,  28,  34 };   // #181C22 subtle
     static const juce::Colour kGridLabel {  92, 100, 112 };   // #5C6470 readable
     static const juce::Colour kZeroLine  {  44,  50,  60 };   // #2C323C
-    static const juce::Colour kClipLine  { 204,  51,  51 };   // #CC3333 soft red
+    static const juce::Colour kClipLine  { 196, 140,  52 };   // dim amber — 0 dBFS, a warning line
 
     //──────────────────────────────────────────────────────────────────────────
     // Spacing  (px)
@@ -274,11 +279,11 @@ public:
         const auto bounds = button.getLocalBounds().toFloat().reduced (0.5f);
         const float r     = (float) PnsTheme::kCornerRadius;
 
-        g.setColour (active ? (armed ? PnsTheme::kColorPostAvg : PnsTheme::kBtnActiveBg)
+        g.setColour (active ? (armed ? PnsTheme::kWarn : PnsTheme::kBtnActiveBg)
                             : PnsTheme::kBgWidget);
         g.fillRoundedRectangle (bounds, r);
 
-        const auto borderCol = active      ? (armed ? PnsTheme::kColorPostAvg : PnsTheme::kAccentPrimary)
+        const auto borderCol = active      ? (armed ? PnsTheme::kWarn : PnsTheme::kAccentPrimary)
                              : highlighted ? PnsTheme::kBorderActive
                                            : PnsTheme::kBorderSubtle;
         g.setColour (borderCol);

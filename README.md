@@ -197,7 +197,7 @@ The measurement tabs replace your audio with a test signal — dangerous on a ma
 - The **Measure** / **Test Tone** buttons turn solid amber while armed.
 - The stimulus **auto-stops** when you **leave the tab** or **stop DAW playback** — so a tone can't keep blasting after you stop the transport.
 
-Throughout, the colour language is consistent: **grey = into your plugin**, **cyan = out of your plugin and your current selection**, **amber = test signal touching your audio**.
+Throughout, the colour language is consistent: **grey = into your plugin**, **cyan = out of your plugin and your current selection**, **amber = act on this**: a test signal replacing your audio, or a result worth fixing (clipping, mono cancellation). Nothing decorative is amber.
 
 ### Cursor Readouts & Curve Freeze
 
@@ -217,7 +217,7 @@ Real-time FFT frequency analysis showing how the plugin is shaping your audio's 
 **What you see:**
 - **Pre signal** (grey, dimmed) — the unprocessed spectrum
 - **Post signal** (cyan) — the processed spectrum
-- **Pre / Post Averages** — 10-second rolling averages, with an amber fill between them showing the cumulative EQ difference
+- **Pre / Post Averages** — 10-second rolling averages, with a faint fill between them showing the cumulative EQ difference
 
 **Settings pill (top right):** smoothing speed (**Fast / Medium / Slow**), the **long-term average** lines on or off, and **Start over**, which clears the rolling averages and the fluctuation markers so the averaged Pre↔Post comparison reflects only post-tweak audio — the "start over after a plugin change" companion to the same control on the Dynamics tab.
 
@@ -242,14 +242,14 @@ Reveals how the plugin is affecting dynamic range and level in real time.
 **Readouts (right panel):**
 | Readout | Description |
 |---|---|
-| **Avg cut** | Average gain reduction over the last 30 s (amber) |
+| **Avg cut** | Average gain reduction over the last 30 s |
 | **Now** | Instantaneous gain reduction — holds last non-zero value (cyan) |
 | **Loudness — In / Out** | RMS input / output level (dB) |
-| **Loudness — Change** | Net level difference (coral = attenuation, cyan = gain, grey = unity) |
+| **Loudness — Change** | Net level difference (cyan when the level changed, grey = unity) |
 
 > **Double-click** the readout panel (Avg cut / Now) for the same full reset as the **Reset** button.
 
-**Gain Reduction (bottom):** a scrolling GR history with a coral gradient fill and a peak-hold line. Y = 0 to −24 dB; X = last 3 seconds. Flat at 0 = dynamically transparent; deep consistent dips = heavy compression; brief dips = peak limiting.
+**Gain Reduction (bottom):** a scrolling GR history with a light-blue gradient fill and a peak-hold line. Y = 0 to −24 dB; X = last 3 seconds. Flat at 0 = dynamically transparent; deep consistent dips = heavy compression; brief dips = peak limiting.
 
 ---
 
