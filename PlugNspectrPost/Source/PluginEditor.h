@@ -159,7 +159,7 @@ public:
 
     // Drain the capture and, every ~0.5 s of audio, re-estimate. Keeps the last
     // confident answer when the audio gives none (silence, a steady tone).
-    void update()
+    void update (const CaptureChunk& cap)
     {
         const double sr = m_proc.getSampleRate();
         if (sr <= 0.0) return;
@@ -175,14 +175,14 @@ public:
             m_locked = false; m_heardUnlocked = 0;
         }
 
-        const int n = m_proc.readCaptureSince (m_capReadPos, m_capPre, m_capPost);
+        const int n = cap.n;
         if (n <= 0) return;
 
         // Ring history; straightened into m_pre / m_post only when an estimate
         // is due (twice a second) instead of sliding ~84k samples every tick.
         const int k = juce::jmin (n, need);
-        const float* srcPre  = m_capPre .getReadPointer (0) + (n - k);
-        const float* srcPost = m_capPost.getReadPointer (0) + (n - k);
+        const float* srcPre  = cap.pre .getReadPointer (0) + (n - k);
+        const float* srcPost = cap.post.getReadPointer (0) + (n - k);
         for (int i = 0; i < k; ++i)
         {
             m_ringPre [(size_t) m_write] = srcPre[i];
@@ -216,8 +216,6 @@ public:
 
 private:
     PlugNspectrPostProcessor& m_proc;
-    uint64_t                  m_capReadPos = 0;
-    juce::AudioBuffer<float>  m_capPre, m_capPost;
     std::vector<float>        m_ringPre, m_ringPost;   // history ring
     std::vector<float>        m_pre, m_post;           // ring straightened for an estimate
     int                       m_write = 0;
@@ -401,6 +399,8 @@ private:
 
     PnsLookAndFeel    m_laf;
     juce::Image       m_pnsLogo;
+    uint64_t          m_capReadPos = 0;
+    CaptureChunk      m_cap;          // this tick's capture, shared by every raw-audio reader
     LagTracker        m_lagTracker;   // Post-vs-Pre latency, shared by Dynamics + Waveform
     SpectrumView      m_specView;
     DynamicsView      m_dynView;

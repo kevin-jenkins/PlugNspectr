@@ -23,19 +23,16 @@ void DynamicsView::resized()
     m_options.place (getWidth() - PnsTheme::kPaddingMid, PnsTheme::kPaddingSmall);
 }
 
-void DynamicsView::update()
+void DynamicsView::update (const CaptureChunk& cap)
 {
-    // Drain the capture ring once per tick; the waveform and the GR/level block
-    // below both consume this same chunk. This used to be gated to 30 fps "so
-    // scroll speed is constant", which was compensating for the old snapshot API
-    // dropping blocks — with a ring the scroll rate follows the sample count and
-    // is correct at any buffer size, so the gate is gone.
-    const uint64_t capBefore = m_capReadPos;
-    const int      capN       = m_proc.readCaptureSince (m_capReadPos, m_capPre, m_capPost);
+    // This tick's capture chunk; the waveform and the GR/level block below both
+    // consume it. The scroll rate follows the sample count, so it is correct at
+    // any buffer size.
+    const int      capN       = cap.n;
     // If the UI stalled longer than the ring holds, some audio is gone. Advance
     // the absolute clock by the elapsed amount, not just what survived, or the
     // waveform stays permanently time-compressed after the stall.
-    const uint64_t capElapsed = m_capReadPos - capBefore;
+    const uint64_t capElapsed = cap.elapsed;
 
     // ── Waveform sample buffer ────────────────────────────────────────────
     {
@@ -54,8 +51,8 @@ void DynamicsView::update()
             }
             m_totalSamplesWritten += lost;
 
-            const float* postData = m_capPost.getReadPointer (0);
-            const float* preData  = m_capPre .getReadPointer (0);
+            const float* postData = cap.post.getReadPointer (0);
+            const float* preData  = cap.pre.getReadPointer (0);
             const int skip = juce::jmax (0, capN - kSampleBufLen);   // only the newest ring-full survives
             for (int i = skip; i < capN; ++i)
             {

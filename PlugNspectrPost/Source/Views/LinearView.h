@@ -5,6 +5,7 @@
 #include "../PluginProcessor.h"
 #include "../PnsAnalysis.h"
 #include "ViewOptions.h"
+#include "ViewCommon.h"
 
 //==============================================================================
 // Linear view — transfer-function magnitude / phase / group-delay measurement
@@ -29,7 +30,7 @@ public:
                     m_measureActive = false;
                     m_measureBtn.setToggleState (false, juce::dontSendNotification);
                     repaint(); return true; }
-    void setCursorForTest (int x) { m_cursorX = (float) x; m_cursorLocked = true; }
+    void setCursorForTest (int x) { m_cursor.lockAt (x); }
 
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
@@ -37,8 +38,7 @@ public:
 
 private:
     static constexpr int kBins = PlugNspectrPostProcessor::kMeasBins;
-    float m_cursorX = -1.0f;     // hairline x in view coords (-1 = hidden)
-    bool  m_cursorLocked = false;
+    HoverCursor m_cursor;
 
     void drawPanel (juce::Graphics& g, juce::Rectangle<float> r, const char* title,
                     const std::array<float, kBins>& vals, float vMin, float vMax,

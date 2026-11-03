@@ -5,6 +5,7 @@
 #include "../PluginProcessor.h"
 #include "../PnsAnalysis.h"
 #include "ViewOptions.h"
+#include "ViewCommon.h"
 
 //==============================================================================
 // Stereo view — what the plugin does to the stereo image. Two stacked lanes
@@ -20,10 +21,11 @@ public:
     void paint   (juce::Graphics& g) override;
     void resized ()                   override;
     void update  ();
+    void consumeCapture (const CaptureChunk& cap);   // every tick; update() runs less often
     PnsTheme::Summary summary() const;   // one-line plain-language verdict for the banner
     void reset   ();   // clear the averages and the goniometer trail
 
-    void setCursorForTest (int x) { m_cursorX = (float) x; m_cursorLocked = true; }
+    void setCursorForTest (int x) { m_cursor.lockAt (x); }
 
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
@@ -43,13 +45,15 @@ private:
     std::array<float, kGonioPoints> m_gxPre  {}, m_gyPre  {};
     int      m_gonioPos  = 0;
     int      m_gonioFill = 0;
-    uint64_t m_capReadPos = 0;
-    juce::AudioBuffer<float> m_capPre, m_capPost;
+    // Raw L/R queued by consumeCapture() since the last update(): post L, post R,
+    // pre L, pre R. update() processes it as one chunk, so the decimation and
+    // the auto-gain behave as when update() drained the ring itself.
+    juce::AudioBuffer<float> m_pending { 4, 0 };
+    int                      m_pendingN = 0;
     float    m_gonioScale = 2.0f;   // smoothed auto-gain so quiet material still reads
     float    m_gonioPeak  = 0.0f;   // decaying peak envelope the gain tracks
 
-    float m_cursorX = -1.0f;
-    bool  m_cursorLocked = false;
+    HoverCursor m_cursor;
 
     // Display copies, smoothed over a fractional-octave window. The raw per-bin
     // estimates are far too jagged to compare by eye: the FFT is linearly spaced,

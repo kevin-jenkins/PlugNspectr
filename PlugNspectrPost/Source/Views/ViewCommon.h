@@ -4,6 +4,48 @@
 #include "../PlugNspectrTheme.h"
 
 //==============================================================================
+// One drain of the processor's capture ring, taken by the editor once per UI
+// tick and handed to every reader of raw audio (LagTracker, Dynamics,
+// Waveform, Stereo) instead of each draining the ring itself.
+struct CaptureChunk
+{
+    juce::AudioBuffer<float> pre, post;   // kCaptureChannels x n
+    int      n       = 0;                 // samples in pre / post
+    uint64_t elapsed = 0;                 // audio since the last drain: n plus any lost to a stall
+};
+
+//==============================================================================
+// The hover cursor of the measurement views: it follows the mouse over the
+// view's plot, a click there locks or unlocks it, and leaving the view hides
+// it unless locked. Each call returns true if the view should repaint.
+struct HoverCursor
+{
+    float x      = -1.0f;   // hairline x in view coords (-1 = hidden)
+    bool  locked = false;
+
+    bool move (juce::Point<float> p, bool inPlot)
+    {
+        if (locked) return false;
+        x = inPlot ? p.x : -1.0f;
+        return true;
+    }
+    bool exit()
+    {
+        if (locked) return false;
+        x = -1.0f;
+        return true;
+    }
+    bool down (juce::Point<float> p, bool inPlot)
+    {
+        if (! inPlot) return false;
+        x = p.x;
+        locked = ! locked;
+        return true;
+    }
+    void lockAt (int px) { x = (float) px; locked = true; }
+};
+
+//==============================================================================
 // Shared single-plot cursor: hairline + dot + readout chip.
 inline void drawCursorChip (juce::Graphics& g, juce::Rectangle<float> plot, float cx,
                             float dotY, juce::Colour dotCol,

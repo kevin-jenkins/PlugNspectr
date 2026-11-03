@@ -256,7 +256,16 @@ void PlugNspectrPostEditor::timerCallback()
         m_pulsePhase -= juce::MathConstants<float>::twoPi;
 
     // ── Views ──────────────────────────────────────────────────────────────
-    m_lagTracker.update();
+    // One drain of the capture ring per tick, handed to every reader of it.
+    {
+        const uint64_t before = m_capReadPos;
+        m_cap.n       = audioProcessor.readCaptureSince (m_capReadPos, m_cap.pre, m_cap.post);
+        m_cap.elapsed = m_capReadPos - before;
+    }
+    m_oscView.consumeCapture (m_cap);
+    m_stereoView.consumeCapture (m_cap);
+
+    m_lagTracker.update (m_cap);
     m_dynView.setLagSamples (m_lagTracker.lagSamples(), m_lagTracker.settled());
     audioProcessor.setAlignLag (m_lagTracker.locked() ? m_lagTracker.lagSamples() : 0);
     if (const auto note = delayNote(); note != m_delayNote)
@@ -264,7 +273,7 @@ void PlugNspectrPostEditor::timerCallback()
         m_delayNote = note;
         repaint (0, 0, getWidth(), PnsTheme::kHeroHeight);
     }
-    m_dynView.update();
+    m_dynView.update (m_cap);
     if (m_activeTab == TabDynamics) m_dynView.repaint();
 
     if (++m_tickCounter % 2 == 0)

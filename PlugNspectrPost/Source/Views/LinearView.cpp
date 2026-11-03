@@ -1,4 +1,5 @@
 #include "LinearView.h"
+#include "ViewCommon.h"
 
 #include <algorithm>
 #include <cmath>
@@ -118,36 +119,27 @@ void LinearView::update()
 }
 
 // Hairline cursor: hover to read values; click to lock/unlock.
-static bool linearCursorInPlot (juce::Component& c, juce::Point<float> p, float& outX)
+static bool linearCursorInPlot (juce::Component& c, juce::Point<float> p)
 {
     auto a = c.getLocalBounds().toFloat().reduced (8.0f);
     a.removeFromTop ((float) PnsTheme::kButtonHeight + 4.0f);
     const float px = a.getX() + 46.0f, pw = a.getWidth() - 46.0f - 12.0f;
-    outX = p.x;
     return (p.x >= px && p.x <= px + pw && p.y >= a.getY());
 }
 
 void LinearView::mouseMove (const juce::MouseEvent& e)
 {
-    if (m_cursorLocked) return;
-    float x; m_cursorX = linearCursorInPlot (*this, e.position, x) ? x : -1.0f;
-    repaint();
+    if (m_cursor.move (e.position, linearCursorInPlot (*this, e.position))) repaint();
 }
 
 void LinearView::mouseExit (const juce::MouseEvent&)
 {
-    if (! m_cursorLocked) { m_cursorX = -1.0f; repaint(); }
+    if (m_cursor.exit()) repaint();
 }
 
 void LinearView::mouseDown (const juce::MouseEvent& e)
 {
-    float x;
-    if (linearCursorInPlot (*this, e.position, x))
-    {
-        m_cursorX = x;
-        m_cursorLocked = ! m_cursorLocked;
-        repaint();
-    }
+    if (m_cursor.down (e.position, linearCursorInPlot (*this, e.position))) repaint();
 }
 
 void LinearView::drawPanel (juce::Graphics& g, juce::Rectangle<float> r, const char* title,
@@ -249,11 +241,11 @@ void LinearView::paint (juce::Graphics& g)
                m_hasFrozen ? &m_frozenGroup : nullptr);
 
     // ── Cursor readout — hairline across all panels + dot + value chip ─────
-    if (m_meas.frames > 0 && m_cursorX >= 0.0f)
+    if (m_meas.frames > 0 && m_cursor.x >= 0.0f)
     {
         constexpr float kML = 46.0f, kMR = 12.0f, kMT = 15.0f, kMB = 14.0f;
         const float px = magR.getX() + kML, pw = magR.getWidth() - kML - kMR;
-        const float cx = juce::jlimit (px, px + pw, m_cursorX);
+        const float cx = juce::jlimit (px, px + pw, m_cursor.x);
         const double t  = (double) (cx - px) / pw;
         const double f  = 20.0 * std::pow (1000.0, t);                 // inverse of freqToX
         const double sr = (m_meas.sampleRate > 0.0) ? m_meas.sampleRate
@@ -299,7 +291,7 @@ void LinearView::paint (juce::Graphics& g)
             g.drawText (rows[i], juce::roundToInt (bx) + 6, juce::roundToInt (by) + 4 + i * 13,
                         (int) boxW - 10, 12, juce::Justification::centredLeft);
         }
-        if (m_cursorLocked)
+        if (m_cursor.locked)
         {
             g.setColour (PnsTheme::kAccentPrimary);
             g.fillEllipse (bx + boxW - 12.0f, by + 4.0f, 5.0f, 5.0f);
