@@ -165,13 +165,17 @@ PlugNspectr Post has **nine tabs**, grouped by how they get their signal:
 - **Live analysis** (program material): **Spectrum · Dynamics · Oscilloscope · Stereo**
 - **Measurement** (inject a test signal): **Harmonics · Freq Response · Compression · Attack / Release · Distortion**
 
-The measurement tabs sit on a recessed **amber tray** in the tab bar to set them apart — they're the ones that temporarily replace your audio with a test signal.
+The measurement tabs sit on a recessed **amber tray** labelled **TEST** to set them apart — they're the ones that temporarily replace your audio with a test signal.
+
+**Summary banner.** Under the tab bar, every tab states the question it answers and what it found, in plain words — for example *"How hard it compresses — Starts compressing near −20 dB, ratio about 4:1"*, *"What it does to the stereo image — Wider by 4.2 dB, safe in mono"*, or *"Its EQ curve — Cuts up to 13 dB near 16 kHz"*. The sentence turns **amber** when it's something worth acting on (clipping, mono cancellation). Hover a tab for the same question as a tooltip.
+
+Graph titles follow the same rule: the plain name first, the engineering term after it — **OUTPUT LEVEL vs INPUT LEVEL · transfer curve**, **MONO SAFETY · correlation**, **STEREO FIELD · goniometer**.
 
 The top-right **ⓘ** icon opens an **About** box (version, plugin format, OS, and a link back to this manual).
 
 ### Analysis Channel
 
-The header has a two-way **`L+R · Side`** selector that picks which signal *all* analysis runs on:
+The header has a two-way **Analyze `L+R · Side`** selector that picks which signal *all* analysis runs on:
 
 | Mode | Signal | What it is |
 |---|---|---|
@@ -184,7 +188,7 @@ This is **analysis-only** — your audio always passes through untouched in full
 
 The measurement tabs replace your audio with a test signal — dangerous on a master bus. PlugNspectr makes this impossible to miss:
 
-- An **amber border** frames the whole window and an **amber banner** appears below the tab bar whenever any stimulus is active.
+- An **amber border** frames the whole window and the summary banner below the tab bar turns **amber** ("Test signal playing — your audio is replaced…") whenever any stimulus is active.
 - The **Measure** / **Test Tone** buttons turn solid amber while armed.
 - The stimulus **auto-stops** when you **leave the tab** or **stop DAW playback** — so a tone can't keep blasting after you stop the transport.
 
@@ -228,17 +232,17 @@ Reveals how the plugin is affecting dynamic range and level in real time.
 
 **Waveform comparison (top):** Pre (soft sand, background) vs Post (bright teal, foreground) overlaid; where Post is smaller than Pre, compression/limiting is occurring, highlighted by the teal fill. Time window: **6s** or **12s** (default).
 
-**Reset (circular-arrow icon, top right):** clears all readings and history — waveform, Avg GR, the 30 s rolling average, GR history, and the In/Out levels — so measurement starts over after you tweak the plugin chain. The auto-zoom is kept so the view doesn't jump.
+**Reset (circular-arrow icon, top right):** clears all readings and history — waveform, Avg cut, the 30 s rolling average, GR history, and the In/Out levels — so measurement starts over after you tweak the plugin chain. The auto-zoom is kept so the view doesn't jump.
 
 **Readouts (right panel):**
 | Readout | Description |
 |---|---|
-| **Avg GR** | Average gain reduction over the last 30 s (amber) |
+| **Avg cut** | Average gain reduction over the last 30 s (amber) |
 | **Now** | Instantaneous gain reduction — holds last non-zero value (teal) |
-| **In / Out** | RMS input / output level (dB) |
-| **Δ** | Net level difference (orange = attenuation, teal = gain, grey = unity) |
+| **Loudness — In / Out** | RMS input / output level (dB) |
+| **Loudness — Change** | Net level difference (orange = attenuation, teal = gain, grey = unity) |
 
-> **Double-click** the readout panel (Avg GR / Now) for the same full reset as the **Reset** button.
+> **Double-click** the readout panel (Avg cut / Now) for the same full reset as the **Reset** button.
 
 **Gain Reduction (bottom):** a scrolling GR history with an orange gradient fill and a peak-hold line. Y = 0 to −24 dB; X = last 3 seconds. Flat at 0 = dynamically transparent; deep consistent dips = heavy compression; brief dips = peak limiting.
 
@@ -299,13 +303,13 @@ Bass sitting at the floor is normal and desirable. Most mixes live around −15 
 
 The two lanes are mathematically linked — both derive from the same measurement — but each makes a different thing obvious. Width answers *"how much stereo?"*; correlation answers *"is it real stereo, or a phase trick?"*
 
-**Worked example.** A bus processor showing width at the floor and correlation at `+1` below 100 Hz, then width leaping to `0…+8 dB` with correlation crashing to `−0.5` above it, has widened your highs **by pushing them anti-phase rather than decorrelating them** — that content partially cancels in mono. Note the broadband **Mono** readout may still look harmless (say `−0.6 dB`), because it is energy-weighted and a correlated low end dominates it. Broadband says "safe", per-band says "anti-phase above 100 Hz" — both true, and exactly why the per-band view earns its place.
+**Worked example.** A bus processor showing width at the floor and correlation at `+1` below 100 Hz, then width leaping to `0…+8 dB` with correlation crashing to `−0.5` above it, has widened your highs **by pushing them anti-phase rather than decorrelating them** — that content partially cancels in mono. Note the broadband **In mono** readout may still look harmless (say `−0.6 dB`), because it is energy-weighted and a correlated low end dominates it. Broadband says "safe", per-band says "anti-phase above 100 Hz" — both true, and exactly why the per-band view earns its place.
 
 **Goniometer:** the classic 45°-rotated X/Y display — **mono draws a vertical line**, hard-panned content sits on the diagonals, and a symmetric stereo signal is vertically balanced (a lean suggests an L/R level imbalance). Post in teal with the Pre trace drawn over it, so the narrower reference stays visible instead of being buried inside the wider one.
 
-**Readouts:** broadband **Width**, **Correlation**, and **Mono** (level lost when summed to mono — `0 dB` is mono-safe) for Pre and Post. Correlation turns amber when it goes negative and Mono when the loss exceeds 3 dB.
+**Readouts:** broadband **Width**, **Phase** (correlation: `+1` in phase, `−1` anti-phase), and **In mono** (level lost when summed to mono — `0 dB` is mono-safe) for Pre and Post. Phase turns amber when it goes negative and In mono when the loss exceeds 3 dB.
 
-> This tab reads your **program material**, so it needs stereo audio playing — the `L+R / Side` selector and the footer tone controls dim here, since the tab uses both channels and the internal test tone is mono. On a mono track it says so instead of drawing a meaningless curve.
+> This tab reads your **program material**, so it needs stereo audio playing — the `L+R / Side` selector dims and the footer tone controls are hidden here, since the tab uses both channels and the internal test tone is mono. On a mono track it says so instead of drawing a meaningless curve.
 
 ---
 
@@ -381,7 +385,7 @@ The footer hosts the test-tone controls and global level trim:
 
 > **Double-click** a trim slider to reset to 0.0 dB. Trims display grey at 0 dB and teal when active.
 
-> **FREQ / LEVEL / Test Tone** only apply where they're used — they're active on the live tabs and **Harmonics** (with **LEVEL** also on **Distortion**), and dim out on the other measurement tabs, which are driven entirely by their **Measure** button.
+> **FREQ / LEVEL / Test Tone** only apply where they're used — they're active on the live tabs and **Harmonics** (with **LEVEL** also on **Distortion**), and are hidden on the other measurement tabs, which are driven entirely by their **Measure** button (the footer says so instead).
 
 ---
 
@@ -395,7 +399,7 @@ The footer hosts the test-tone controls and global level trim:
 
 ### Live tabs
 - **Spectrum:** use **Slow** smoothing for subtle EQ coloration; let audio run 10+ seconds before reading the averages and variance markers.
-- **Dynamics:** the **30-second Avg GR** is the most musically meaningful compression reading; use **12s** for compressors and **6s** for limiters; the **Δ** readout flags non-unity gain.
+- **Dynamics:** the **30-second Avg cut** is the most musically meaningful compression reading; use **12s** for compressors and **6s** for limiters; the loudness **Change** readout flags non-unity gain.
 - **Oscilloscope:** **10ms** for individual transients, **50ms** for compressor attack/release, **100ms** for longer passages.
 
 ### Measurement tabs

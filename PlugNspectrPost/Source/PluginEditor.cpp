@@ -1295,11 +1295,7 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
     };
 
     // ── Title ─────────────────────────────────────────────────────────────
-    g.setFont (PnsTheme::fontLabel());
-    g.setColour (PnsTheme::kTextSecondary);
-    g.drawText ("WAVEFORM COMPARISON",
-                (int) area.getX(), (int) area.getY(),
-                (int) area.getWidth(), 16, juce::Justification::centred);
+    PnsTheme::drawPanelTitle (g, area.withHeight (16.0f), "LEVEL OVER TIME", "pre vs post waveform");
 
     // ── Background ────────────────────────────────────────────────────────
     g.setColour (PnsTheme::kBgPanel);
@@ -1464,7 +1460,7 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
         // ── Avg GR ────────────────────────────────────────────────────────
         g.setFont (PnsTheme::fontLabel());
         g.setColour (PnsTheme::kTextSecondary);
-        g.drawText ("Avg GR", lx, row0, lw, 12, juce::Justification::centredLeft);
+        g.drawText ("Avg cut", lx, row0, lw, 12, juce::Justification::centredLeft);
 
         g.setFont (PnsTheme::fontReadout());
         g.setColour (flashing ? juce::Colours::white : PnsTheme::kColorPostAvg);
@@ -1501,7 +1497,7 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
 
         g.setFont (PnsTheme::fontLabel());
         g.setColour (PnsTheme::kTextSecondary);
-        g.drawText ("VOLUME", lx, vrow0, 50, 11, juce::Justification::centredLeft);
+        g.drawText ("LOUDNESS", lx, vrow0, 60, 11, juce::Justification::centredLeft);
 
         // In
         g.drawText ("In", lx, dataRow0, lw, 12, juce::Justification::centredLeft);
@@ -1527,7 +1523,7 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
 
         g.setFont (PnsTheme::fontLabel());
         g.setColour (PnsTheme::kTextSecondary);
-        g.drawText (juce::String::fromUTF8 ("\xce\x94"), lx, dataRow2, lw, 12, juce::Justification::centredLeft);
+        g.drawText ("Change", lx, dataRow2, lw, 12, juce::Justification::centredLeft);
         g.setFont (PnsTheme::fontReadout());
         g.setColour (deltaCol);
         g.drawText (deltaStr, vx, dataRow2 - 1, vw, rowH, juce::Justification::centredRight);
@@ -1553,11 +1549,7 @@ void DynamicsView::drawGrMeter (juce::Graphics& g, juce::Rectangle<float> area)
         return py + ph * (-juce::jlimit (kMinGr, kMaxGr, gr)) / (-kMinGr);
     };
 
-    g.setFont (PnsTheme::fontLabel());
-    g.setColour (PnsTheme::kTextSecondary);
-    g.drawText ("GAIN REDUCTION",
-                (int) area.getX(), (int) area.getY(),
-                (int) area.getWidth(), 16, juce::Justification::centred);
+    PnsTheme::drawPanelTitle (g, area.withHeight (16.0f), "HOW MUCH IT TURNS DOWN", "gain reduction, dB");
 
     g.setColour (PnsTheme::kBgPanel);
     g.fillRect (px, py, pw, ph);
@@ -1782,10 +1774,7 @@ void OscilloscopeView::paint (juce::Graphics& g)
     g.fillRect (px, py, pw, ph);
 
     // ── Title ─────────────────────────────────────────────────────────────
-    g.setFont (PnsTheme::fontLabel());
-    g.setColour (PnsTheme::kTextSecondary);
-    g.drawText ("OSCILLOSCOPE",
-                (int) px, 0, (int) pw, (int) kMT, juce::Justification::centred);
+    PnsTheme::drawPanelTitle (g, { px, 0.0f, pw, kMT }, "WAVEFORM CLOSE-UP", "oscilloscope");
 
     // ── Grid — solid for clip lines, dotted for sub-divisions ─────────────
     g.setColour (PnsTheme::kClipLine);
@@ -2055,10 +2044,11 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
                                         area.getHeight() - kMT - kMB };
     if (plot.getWidth() <= 0.0f || plot.getHeight() <= 0.0f) return;
 
-    g.setFont (PnsTheme::fontLabel());
-    g.setColour (PnsTheme::kTextSecondary);
-    g.drawText (spec.title, (int) area.getX(), (int) area.getY(),
-                (int) area.getWidth(), 13, juce::Justification::centred);
+    {   // "PLAIN|technical" — plain name first, engineering term after it
+        const juce::String t (spec.title);
+        PnsTheme::drawPanelTitle (g, area.withHeight (13.0f), t.upToFirstOccurrenceOf ("|", false, false),
+                                  t.fromFirstOccurrenceOf ("|", false, false));
+    }
 
     // Pre/Post key. The readout panel colour-codes the two, but the graphs
     // themselves never said which trace was which.
@@ -2236,10 +2226,7 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
 
 void StereoView::drawGonio (juce::Graphics& g, juce::Rectangle<float> area) const
 {
-    g.setFont (PnsTheme::fontLabel());
-    g.setColour (PnsTheme::kTextSecondary);
-    g.drawText ("GONIOMETER", (int) area.getX(), (int) area.getY(),
-                (int) area.getWidth(), 13, juce::Justification::centred);
+    PnsTheme::drawPanelTitle (g, area.withHeight (13.0f), "STEREO FIELD", "goniometer");
 
     // Square plot, centred.
     const float d = juce::jmin (area.getWidth(), area.getHeight() - 16.0f);
@@ -2351,10 +2338,10 @@ void StereoView::drawReadouts (juce::Graphics& g, juce::Rectangle<float> area) c
                                        ? juce::String ("mono") : juce::String (v, 1) + " dB"; };
 
     row ("Width", dbStr (m_st.bbWidthPre), dbStr (m_st.bbWidthPost), PnsTheme::kAccentPrimary);
-    row ("Corr",  juce::String (m_st.bbCorrPre, 2), juce::String (m_st.bbCorrPost, 2),
+    row ("Phase", juce::String (m_st.bbCorrPre, 2), juce::String (m_st.bbCorrPost, 2),
          m_st.bbCorrPost < 0.0f ? PnsTheme::kColorPostAvg : PnsTheme::kAccentPrimary);
     // Mono-sum loss: how much level disappears when summed. Amber once it bites.
-    row ("Mono",  juce::String (m_st.monoLossPre, 1) + " dB",
+    row ("In mono", juce::String (m_st.monoLossPre, 1) + " dB",
                   juce::String (m_st.monoLossPost, 1) + " dB",
          m_st.monoLossPost < -3.0f ? PnsTheme::kColorPostAvg : PnsTheme::kAccentPrimary);
 }
@@ -2375,7 +2362,7 @@ void StereoView::paint (juce::Graphics& g)
     // -40..+10 dB in 5 steps and -1..+1 in 4 give round axis labels.
     const float laneH = (left.getHeight() - kGap) * 0.5f;
     static constexpr LaneSpec kWidthLane {
-        "WIDTH  (Side / Mid)",
+        "STEREO WIDTH|side vs mid",
         PlugNspectrPostProcessor::kStereoFloorDb, 10.0f, " dB", 5, true,
         // "SIDE" not "WIDE": the axis is the Side/Mid ratio, so the top of the
         // scale is side-dominant. "WIDE" also read as desirable while sitting
@@ -2385,7 +2372,7 @@ void StereoView::paint (juce::Graphics& g)
         "MONO", "SIDE", true, nullptr, true
     };
     static constexpr LaneSpec kCorrLane {
-        "CORRELATION",
+        "MONO SAFETY|correlation",
         -1.0f, 1.0f, "", 4, false,
         "ANTI-PHASE", "IN PHASE", false, "CANCELS IN MONO", false
     };
@@ -2535,7 +2522,7 @@ void HarmonicsView::paint (juce::Graphics& g)
     {
         g.setFont (PnsTheme::fontPrimary());
         g.setColour (PnsTheme::kTextSecondary);
-        g.drawText ("Activate test tone to begin analysis",
+        g.drawText ("Turn on Test Tone (bottom bar) - Pre plays a pure tone through your plugin",
                     getLocalBounds(), juce::Justification::centred);
         return;
     }
@@ -2595,11 +2582,7 @@ void HarmonicsView::drawSpectrumArea (juce::Graphics& g, juce::Rectangle<float> 
     g.fillRect (px, py, pw, ph);
 
     // Title
-    g.setFont (PnsTheme::fontLabel());
-    g.setColour (PnsTheme::kTextSecondary);
-    g.drawText ("HARMONIC SPECTRUM",
-                (int) area.getX(), (int) area.getY(), (int) area.getWidth(), (int) kMT,
-                juce::Justification::centred);
+    PnsTheme::drawPanelTitle (g, area.withHeight (kMT), "WHAT IT ADDS", "harmonic spectrum");
 
     // dB grid
     g.setFont (PnsTheme::fontLabel());
@@ -2755,7 +2738,7 @@ void HarmonicsView::drawReadouts (juce::Graphics& g, juce::Rectangle<float> area
     // ── THD section ───────────────────────────────────────────────────────
     g.setFont (PnsTheme::fontLabel());
     g.setColour (PnsTheme::kTextSecondary);
-    g.drawText ("THD", lx, y, 30, 11, juce::Justification::centredLeft);
+    g.drawText ("DISTORTION (THD)", lx, y, rx - lx, 11, juce::Justification::centredLeft);
     y += 14;
 
     auto thdStr = [] (float v) -> juce::String {
@@ -2784,7 +2767,7 @@ void HarmonicsView::drawReadouts (juce::Graphics& g, juce::Rectangle<float> area
     // ── HARMONICS (dB) ────────────────────────────────────────────────────
     g.setFont (PnsTheme::fontLabel());
     g.setColour (PnsTheme::kTextSecondary);
-    g.drawText ("HARMONICS (dB)", lx, y, rx - lx, 11, juce::Justification::centredLeft);
+    g.drawText ("EACH HARMONIC (dB)", lx, y, rx - lx, 11, juce::Justification::centredLeft);
     y += 14;
 
     for (int h = 1; h < kNumH; ++h)   // H2-H8
@@ -2966,10 +2949,11 @@ void LinearView::drawPanel (juce::Graphics& g, juce::Rectangle<float> r, const c
     g.setColour (PnsTheme::kBgPanel);
     g.fillRect (px, py, pw, ph);
 
-    g.setFont (PnsTheme::fontLabel());
-    g.setColour (PnsTheme::kTextSecondary);
-    g.drawText (title, (int) r.getX(), (int) r.getY(), (int) r.getWidth(), 13,
-                juce::Justification::centred);
+    {   // "PLAIN|technical" — plain name first, engineering term after it
+        const juce::String t (title);
+        PnsTheme::drawPanelTitle (g, r.withHeight (13.0f), t.upToFirstOccurrenceOf ("|", false, false),
+                                  t.fromFirstOccurrenceOf ("|", false, false));
+    }
 
     auto valToY = [&] (float v) { return py + ph * (vMax - v) / (vMax - vMin); };
 
@@ -3044,11 +3028,11 @@ void LinearView::paint (juce::Graphics& g)
     const auto  phR  = area.removeFromTop (h);
     const auto  gdR  = area;
 
-    drawPanel (g, magR, "MAGNITUDE (dB)",   m_meas.magDb, -48.0f,  12.0f, "dB",  PnsTheme::kColorPost,
+    drawPanel (g, magR, "LEVEL CHANGE|magnitude, dB",   m_meas.magDb, -48.0f,  12.0f, "dB",  PnsTheme::kColorPost,
                m_hasFrozen ? &m_frozenMag   : nullptr);
-    drawPanel (g, phR,  "PHASE (deg)",      m_phaseDeg,  -180.0f, 180.0f, "deg", PnsTheme::kColorPostAvg,
+    drawPanel (g, phR,  "PHASE SHIFT|phase, deg",      m_phaseDeg,  -180.0f, 180.0f, "deg", PnsTheme::kColorPostAvg,
                m_hasFrozen ? &m_frozenPhase : nullptr);
-    drawPanel (g, gdR,  "GROUP DELAY (ms)", m_groupMs,    m_gdLo,  m_gdHi, "ms",  PnsTheme::kColorGainRed,
+    drawPanel (g, gdR,  "DELAY BY FREQUENCY|group delay, ms", m_groupMs,    m_gdLo,  m_gdHi, "ms",  PnsTheme::kColorGainRed,
                m_hasFrozen ? &m_frozenGroup : nullptr);
 
     // ── Cursor readout — hairline across all panels + dot + value chip ─────
@@ -3124,7 +3108,7 @@ void LinearView::paint (juce::Graphics& g)
     {
         g.setFont (PnsTheme::fontPrimary());
         g.setColour (PnsTheme::kTextSecondary);
-        g.drawText ("Enable Measure to inject a noise stimulus and measure magnitude / phase / group delay",
+        g.drawText ("Press Measure (top right) - Pre plays noise through your plugin to map its EQ curve",
                     getLocalBounds().reduced (20), juce::Justification::centred);
     }
 }
@@ -3266,11 +3250,7 @@ void TransferView::paint (juce::Graphics& g)
     auto X = [&] (float inDb)  { return px + pw * (inDb  - lo) / (hi - lo); };
     auto Y = [&] (float outDb) { return py + ph * (hi - outDb) / (hi - lo); };
 
-    g.setFont (PnsTheme::fontLabel());
-    g.setColour (PnsTheme::kTextSecondary);
-    g.drawText ("TRANSFER CURVE: output vs input (dB)",
-                (int) r.getX(), (int) r.getY(), (int) r.getWidth(), 13,
-                juce::Justification::centred);
+    PnsTheme::drawPanelTitle (g, r.withHeight (13.0f), "OUTPUT LEVEL vs INPUT LEVEL", "transfer curve, dB");
 
     g.setColour (PnsTheme::kBgPanel);
     g.fillRect (px, py, pw, ph);
@@ -3351,7 +3331,7 @@ void TransferView::paint (juce::Graphics& g)
     {
         g.setFont (PnsTheme::fontPrimary());
         g.setColour (PnsTheme::kTextSecondary);
-        g.drawText ("Enable Measure to sweep a level ramp and plot the transfer curve",
+        g.drawText ("Press Measure (top right) - Pre ramps a tone up in level to map how hard your plugin compresses",
                     getLocalBounds().reduced (20), juce::Justification::centred);
     }
 }
@@ -3419,11 +3399,8 @@ void EnvelopeView::paint (juce::Graphics& g)
     auto X = [&] (float ms) { return px + pw * ms / 1000.0f; };
     auto Y = [&] (float gr) { return py + ph * (m_grHi - gr) / m_grHi; };
 
-    g.setFont (PnsTheme::fontLabel());
-    g.setColour (PnsTheme::kTextSecondary);
-    g.drawText ("ATTACK / RELEASE: gain reduction vs time (ms)",
-                (int) area.getX(), (int) area.getY(), (int) area.getWidth(), 13,
-                juce::Justification::centred);
+    PnsTheme::drawPanelTitle (g, area.withHeight (13.0f), "HOW FAST IT GRABS AND LETS GO",
+                              "gain reduction vs time, ms");
 
     g.setColour (PnsTheme::kBgPanel);
     g.fillRect (px, py, pw, ph);
@@ -3497,7 +3474,7 @@ void EnvelopeView::paint (juce::Graphics& g)
     {
         g.setFont (PnsTheme::fontPrimary());
         g.setColour (PnsTheme::kTextSecondary);
-        g.drawText ("Enable Measure to send a level-step stimulus and plot attack / release",
+        g.drawText ("Press Measure (top right) - Pre steps the level up and down to time how fast your plugin reacts",
                     getLocalBounds().reduced (20), juce::Justification::centred);
     }
 }
@@ -3586,10 +3563,7 @@ void ThdSweepView::paint (juce::Graphics& g)
     auto Y = [&] (float pct) { const float lv = juce::jlimit (yLo, yHi, std::log10 (juce::jmax (pct, 1.0e-4f)));
                                return py + ph * (yHi - lv) / (yHi - yLo); };
 
-    g.setFont (PnsTheme::fontLabel());
-    g.setColour (PnsTheme::kTextSecondary);
-    g.drawText ("THD vs FREQUENCY (%)", (int) area.getX(), (int) area.getY(),
-                (int) area.getWidth(), 13, juce::Justification::centred);
+    PnsTheme::drawPanelTitle (g, area.withHeight (13.0f), "DISTORTION BY FREQUENCY", "THD, %");
 
     g.setColour (PnsTheme::kBgPanel);
     g.fillRect (px, py, pw, ph);
@@ -3700,7 +3674,7 @@ void ThdSweepView::paint (juce::Graphics& g)
     {
         g.setFont (PnsTheme::fontPrimary());
         g.setColour (PnsTheme::kTextSecondary);
-        g.drawText ("Enable Measure to sweep a tone across frequency and plot THD",
+        g.drawText ("Press Measure (top right) - Pre sweeps a tone low to high to map distortion at every frequency",
                     getLocalBounds().reduced (20), juce::Justification::centred);
     }
 }
@@ -3729,6 +3703,13 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     {
         btn->getProperties().set ("tabButton", true);
         addAndMakeVisible (btn);
+    }
+    {
+        juce::TextButton* tabs[TabCount] = { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope,
+                                             &m_tabStereo, &m_tabHarmonics, &m_tabLinear, &m_tabTransfer,
+                                             &m_tabEnvelope, &m_tabThd };
+        for (int i = 0; i < TabCount; ++i)
+            tabs[i]->setTooltip (tabQuestion (i));
     }
 
     m_tabSpectrum    .onClick = [this] { switchTab (TabSpectrum);     };
@@ -3956,6 +3937,14 @@ void PlugNspectrPostEditor::timerCallback()
 
         m_thdView.update();
         if (m_activeTab == TabThd) m_thdView.repaint();
+
+        const auto sm = currentSummary();
+        if (sm.text != m_summary.text || sm.warn != m_summary.warn)
+        {
+            m_summary = sm;
+            repaint (0, PnsTheme::kHeaderHeight + PnsTheme::kTabBarHeight,
+                     getWidth(), PnsTheme::kBannerHeight);
+        }
     }
 }
 
@@ -4103,6 +4092,55 @@ void PlugNspectrPostEditor::paintOverChildren (juce::Graphics& g)
 }
 
 //==============================================================================
+// Each tab answers one question; this is its headline in the summary banner
+// and its tooltip.
+const char* PlugNspectrPostEditor::tabQuestion (int tab)
+{
+    switch (tab)
+    {
+        case TabSpectrum:     return "What it does to the tone";
+        case TabDynamics:     return "How much it turns the level down";
+        case TabOscilloscope: return "The waveform up close";
+        case TabStereo:       return "What it does to the stereo image";
+        case TabHarmonics:    return "What it adds as harmonics";
+        case TabLinear:       return "Its EQ curve";
+        case TabTransfer:     return "How hard it compresses";
+        case TabEnvelope:     return "How fast it reacts";
+        case TabThd:          return "Distortion at every frequency";
+        default:              return "";
+    }
+}
+
+PnsTheme::Summary PlugNspectrPostEditor::currentSummary() const
+{
+    switch (m_activeTab)
+    {
+        case TabSpectrum:     return m_specView    .summary();
+        case TabDynamics:     return m_dynView     .summary();
+        case TabOscilloscope: return m_oscView     .summary();
+        case TabStereo:       return m_stereoView  .summary();
+        case TabHarmonics:    return m_harmView    .summary();
+        case TabLinear:       return m_linearView  .summary();
+        case TabTransfer:     return m_transferView.summary();
+        case TabEnvelope:     return m_envelopeView.summary();
+        case TabThd:          return m_thdView     .summary();
+        default:              return {};
+    }
+}
+
+// Footer relevance. FREQ + Test Tone belong to the single-tone tabs (live tabs
+// + Harmonics); LEVEL also drives the Distortion sweep. Stereo is excluded even
+// though it's live: every Pre generator is mono, so a tone reads as zero side.
+bool PlugNspectrPostEditor::footerFreqOn (int tab)
+{
+    return (tab <= TabOscilloscope || tab == TabHarmonics);
+}
+bool PlugNspectrPostEditor::footerLevelOn (int tab)
+{
+    return footerFreqOn (tab) || tab == TabThd;
+}
+
+//==============================================================================
 void PlugNspectrPostEditor::switchTab (int index)
 {
     m_activeTab = index;
@@ -4129,14 +4167,9 @@ void PlugNspectrPostEditor::switchTab (int index)
     m_envelopeView.setVisible (index == TabEnvelope);
     m_thdView     .setVisible (index == TabThd);
 
-    // ── Footer relevance per tab ───────────────────────────────────────────
-    // FREQ + Test Tone belong to the single-tone tabs (live tabs + Harmonics);
-    // LEVEL also drives the Distortion sweep level. The other measurement tabs
-    // are driven entirely by Measure/Freeze, so dim + disable the footer there.
-    // Stereo is excluded despite being a live tab: every Pre generator is mono
-    // (writes ch0 then copies), so a test tone there reads as zero side energy.
-    const bool freqOn  = (index <= TabOscilloscope || index == TabHarmonics);
-    const bool levelOn = (freqOn || index == TabThd);
+    // ── Footer relevance per tab (see footerFreqOn) ────────────────────────
+    const bool freqOn  = footerFreqOn (index);
+    const bool levelOn = footerLevelOn (index);
     const bool toneOn  = freqOn;
 
     // Four extra FFTs — only run them while the Stereo tab is actually showing.
@@ -4157,9 +4190,11 @@ void PlugNspectrPostEditor::switchTab (int index)
         m_harmView.setToneActive (false);
     }
 
-    m_footerFreqSlider .setEnabled (freqOn);   m_footerFreqSlider .setAlpha (freqOn  ? 1.0f : 0.35f);
-    m_footerLevelSlider.setEnabled (levelOn);  m_footerLevelSlider.setAlpha (levelOn ? 1.0f : 0.35f);
-    m_footerToneBtn    .setEnabled (toneOn);   m_footerToneBtn    .setAlpha (toneOn  ? 1.0f : 0.35f);
+    // Hide rather than grey out: a dimmed control still asks "should I touch this?"
+    m_footerFreqSlider .setVisible (freqOn);
+    m_footerLevelSlider.setVisible (levelOn);
+    m_footerToneBtn    .setVisible (toneOn);
+    m_summary = currentSummary();
 
     writeCmdBlock();   // start/stop the measurement noise with the tab
     repaint();
@@ -4192,8 +4227,10 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
     // (The version now lives in the About modal, opened by the info icon at the
     //  top-right corner — positioned in resized(), drawn as a child component.)
 
-    // "CH" label left of the L/R/M/S segmented selector
-    g.drawText ("CH", m_chLR.getX() - 26, (hH - 12) / 2, 22, 12, juce::Justification::centredRight);
+    // Label left of the L+R / Side selector
+    g.setFont (PnsTheme::fontLabel());
+    g.setColour (PnsTheme::kTextSecondary);
+    g.drawText ("Analyze", m_chLR.getX() - 54, (hH - 12) / 2, 48, 12, juce::Justification::centredRight);
 
     // ── Test-signal tray — recessed amber group behind the test-signal tabs ─
     {
@@ -4202,8 +4239,11 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
         g.fillRoundedRectangle (tray, 5.0f);
         g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.55f));
         g.fillRect (tray.getX(), tray.getY(), tray.getWidth(), 2.0f);
+        // Group caption: these tabs play a test signal instead of listening.
         g.setColour (PnsTheme::kColorPostAvg);
-        g.fillEllipse (tray.getX() + 7.0f, tray.getCentreY() - 3.0f, 6.0f, 6.0f);
+        g.setFont (PnsTheme::fontLabel().boldened());
+        g.drawText ("TEST", juce::Rectangle<float> (tray.getX() + 8.0f, tray.getY(), 30.0f, tray.getHeight()),
+                    juce::Justification::centredLeft);
     }
 
     // ── Tab bar bottom border ─────────────────────────────────────────────
@@ -4211,26 +4251,50 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
     g.setColour (PnsTheme::kBorderSubtle);
     g.drawHorizontalLine (tbBottom - 1, 0.0f, (float) getWidth());
 
-    // ── Measuring banner — reserved strip below the tab bar ────────────────
+    // ── Summary banner — the tab's question, then what it found ────────────
+    //    While a test signal is playing the strip turns amber and leads with
+    //    that, since it's the one thing you must not miss.
     {
-        constexpr int kBannerH = 20;
-        if (isStimulusActive())
+        constexpr int kBannerH = PnsTheme::kBannerHeight;
+        const bool measuring = isStimulusActive();
+        const juce::Rectangle<int> strip (0, tbBottom, getWidth(), kBannerH);
+
+        g.setColour (measuring ? PnsTheme::kColorPostAvg.withAlpha (0.14f) : PnsTheme::kBgPanel);
+        g.fillRect (strip);
+        g.setColour (PnsTheme::kBorderSubtle);
+        g.drawHorizontalLine (strip.getBottom() - 1, 0.0f, (float) getWidth());
+
+        auto row = strip.reduced (PnsTheme::kPaddingMid, 0);
+        auto textW = [] (const juce::Font& f, const juce::String& t)
         {
-            g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.16f));
-            g.fillRect (0, tbBottom, getWidth(), kBannerH);
+            juce::GlyphArrangement ga;
+            ga.addLineOfText (f, t, 0.0f, 0.0f);
+            return (int) std::ceil (ga.getBoundingBox (0, -1, true).getWidth());
+        };
+
+        if (measuring)
+        {
             g.setColour (PnsTheme::kColorPostAvg);
             g.fillRect (0, tbBottom, 4, kBannerH);
-            g.fillEllipse (16.0f, (float) tbBottom + (float) kBannerH * 0.5f - 3.0f, 6.0f, 6.0f);
+            g.fillEllipse ((float) row.getX(), (float) row.getCentreY() - 3.0f, 6.0f, 6.0f);
+            row.removeFromLeft (12);
+            const juce::String warn ("Test signal playing - your audio is replaced until you stop playback or leave this tab.");
             g.setFont (PnsTheme::fontLabel());
-            g.setColour (PnsTheme::kColorPostAvg);
-            g.drawText ("Measuring - your audio is replaced by a test signal. Auto-stops when you stop playback or leave this tab.",
-                        30, tbBottom, getWidth() - 40, kBannerH, juce::Justification::centredLeft);
+            g.drawText (warn, row.removeFromLeft (textW (PnsTheme::fontLabel(), warn) + 16),
+                        juce::Justification::centredLeft);
         }
         else
         {
-            g.setColour (PnsTheme::kBorderSubtle);
-            g.drawHorizontalLine (tbBottom + kBannerH - 1, 0.0f, (float) getWidth());
+            const auto f = PnsTheme::fontTitle();
+            g.setFont (f);
+            g.setColour (PnsTheme::kTextPrimary);
+            const juce::String q (tabQuestion (m_activeTab));
+            g.drawText (q, row.removeFromLeft (textW (f, q) + 14), juce::Justification::centredLeft);
         }
+
+        g.setFont (PnsTheme::fontPrimary());
+        g.setColour (m_summary.warn ? PnsTheme::kColorPostAvg : PnsTheme::kTextSecondary.brighter (0.5f));
+        g.drawText (m_summary.text, row, juce::Justification::centredLeft, true);
     }
 
     // ── Footer bar ────────────────────────────────────────────────────────
@@ -4245,9 +4309,19 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
 
     // Footer controls are only relevant on some tabs (see switchTab) — dim the
     // FREQ/LEVEL labels to match the enabled/disabled state of their knobs.
-    const bool freqOn  = (m_activeTab <= TabOscilloscope || m_activeTab == TabHarmonics);
-    const bool levelOn = (freqOn || m_activeTab == TabThd);
-    const auto dim      = [] (juce::Colour c, bool on) { return on ? c : c.withAlpha (0.35f); };
+    const bool freqOn  = footerFreqOn (m_activeTab);
+    const bool levelOn = footerLevelOn (m_activeTab);
+    const auto dim      = [] (juce::Colour c, bool on) { return on ? c : c.withAlpha (0.0f); };
+
+    if (! levelOn)
+    {
+        g.setFont (PnsTheme::fontLabel());
+        g.setColour (PnsTheme::kGridLabel.brighter (0.3f));
+        g.drawText (m_activeTab == TabStereo
+                        ? "Stereo listens to your real audio - the test tone is mono, so it is off here."
+                        : "This test is run by the Measure button (top right). Keep playback running while it measures.",
+                    juce::Rectangle<int> (0, footerY, W2, kFooterH), juce::Justification::centred);
+    }
 
     // "FREQ" label — to the right of the knob (knob is 28px wide at kPaddingLarge)
     constexpr int knobX = PnsTheme::kPaddingLarge;
@@ -4269,6 +4343,7 @@ void PlugNspectrPostEditor::paint (juce::Graphics& g)
     g.drawText (freqStr, freqLabelX + 36, footerY, 64, kFooterH, juce::Justification::centredLeft);
 
     // "LEVEL" label + value — knob is positioned in resized() just before this.
+    // (Hidden labels on tabs that don't use them: dim() above returns transparent.)
     const int lvlLabelX = freqLabelX + 100 + 28 + 6;
     g.setColour (dim (PnsTheme::kTextSecondary, levelOn));
     g.drawText ("LEVEL", lvlLabelX, footerY, 40, kFooterH, juce::Justification::centredLeft);
@@ -4295,7 +4370,7 @@ void PlugNspectrPostEditor::resized()
 {
     constexpr int hH     = PnsTheme::kHeaderHeight;
     constexpr int tbH    = PnsTheme::kTabBarHeight;
-    constexpr int kBannerH = 20;   // reserved strip below the tab bar (measuring banner)
+    constexpr int kBannerH = PnsTheme::kBannerHeight;   // summary / measuring strip under the tabs
 
     // Variable-width tabs: live group (left), then test-signal group on the
     // amber tray. Width = label width + padding so the renamed tabs all fit.
@@ -4311,7 +4386,7 @@ void PlugNspectrPostEditor::resized()
     place (m_tabSpectrum); place (m_tabDynamics); place (m_tabOscilloscope);
     place (m_tabStereo);
 
-    constexpr int trayGap = 12, trayPadL = 18, trayPadR = 10;
+    constexpr int trayGap = 12, trayPadL = 34, trayPadR = 10;
     x += trayGap;
     const int trayLeft = x;
     x += trayPadL;
@@ -4355,4 +4430,234 @@ void PlugNspectrPostEditor::resized()
     const int lvlKnobX = PnsTheme::kPaddingLarge + 28 + 4 + 100;
     m_footerLevelSlider.setBounds (lvlKnobX, H - kFooterH + 4, 28, 28);
     m_footerToneBtn   .setBounds ((W - 80) / 2, H - kFooterH + 7, 80, 22);
+}
+
+//==============================================================================
+// Plain-language summaries — what each tab found, in one sentence, for the
+// banner under the tab bar. Thresholds are "would a listener notice": ~1 dB for
+// level, 0.5 dB of gain reduction, 0.01% THD. Below them the plugin is reported
+// as leaving that property alone rather than quoting noise.
+//==============================================================================
+PnsTheme::Summary SpectrumView::summary() const
+{
+    if (m_warmupN < kWarmupFrames)
+        return { "Play some audio - this compares the tone going in with the tone coming out." };
+
+    const double sr = m_proc.getSampleRate();
+    if (sr <= 0.0) return {};
+    const double binW = sr / PlugNspectrPostProcessor::kFftSize;
+
+    struct Band { const char* name; double lo, hi; };
+    static constexpr Band bands[] = { { "Lows", 20.0, 250.0 }, { "Mids", 250.0, 4000.0 },
+                                      { "Highs", 4000.0, 20000.0 } };
+    juce::StringArray parts;
+    for (const auto& b : bands)
+    {
+        double ePre = 0.0, ePost = 0.0;
+        for (int k = 1; k < PlugNspectrPostProcessor::kNumSpecBins; ++k)
+        {
+            const double f = k * binW;
+            if (f < b.lo || f >= b.hi) continue;
+            ePre  += (double) m_avgPre [(size_t) k] * m_avgPre [(size_t) k];
+            ePost += (double) m_avgPost[(size_t) k] * m_avgPost[(size_t) k];
+        }
+        if (ePre < 1.0e-12 || ePost < 1.0e-12) continue;
+        const float d = (float) (10.0 * std::log10 (ePost / ePre));
+        if (std::abs (d) >= 1.0f)
+            parts.add (juce::String (b.name) + " " + PnsTheme::fmtDb (d));
+    }
+    if (parts.isEmpty())
+        return { "No real change to the tone - every band within 1 dB." };
+    return { "Tone change:  " + parts.joinIntoString (",  ") };
+}
+
+PnsTheme::Summary DynamicsView::summary() const
+{
+    if (m_smoothPreDb <= -89.0f)
+        return { "Play some audio - this shows how much the plugin turns the level down." };
+
+    juce::String s;
+    if (m_avgGr > -0.5f && m_grPeakHold > -1.0f)
+        s = "Not turning the level down";
+    else
+        s = "Turning down about " + juce::String (-m_avgGr, 1) + " dB on average, up to "
+          + juce::String (-m_grPeakHold, 1) + " dB on peaks";
+
+    const float delta = m_smoothPostDb - m_smoothPreDb;
+    if (std::abs (delta) >= 0.5f)
+        s << "  -  output is " << juce::String (std::abs (delta), 1) << " dB "
+          << (delta > 0.0f ? "louder" : "quieter");
+    return { s };
+}
+
+PnsTheme::Summary OscilloscopeView::summary() const
+{
+    if (! m_hasDisplay)
+        return { "Play some audio - this zooms in on a few cycles of the waveform." };
+
+    float pkPre = 0.0f, pkPost = 0.0f;
+    for (int i = 0; i < m_displayCount; ++i)
+    {
+        pkPre  = juce::jmax (pkPre,  std::abs (m_displayPre [(size_t) i]));
+        pkPost = juce::jmax (pkPost, std::abs (m_displayPost[(size_t) i]));
+    }
+    if (pkPost >= 0.999f)
+        return { "Output is hitting 0 dBFS - look for flattened tops (clipping).", true };
+
+    auto dbfs = [] (float a) { return juce::String (juce::Decibels::gainToDecibels (a, -90.0f), 1) + " dBFS"; };
+    return { "Peaks: in " + dbfs (pkPre) + ",  out " + dbfs (pkPost)
+             + "  -  compare the shapes for added edges or rounding." };
+}
+
+PnsTheme::Summary StereoView::summary() const
+{
+    if (! m_st.stereoSource)
+        return { "This track is mono - there is no stereo image to compare." };
+
+    const float floor = PlugNspectrPostProcessor::kStereoFloorDb + 0.01f;
+    juce::String s;
+    const bool preMono = m_st.bbWidthPre <= floor, postMono = m_st.bbWidthPost <= floor;
+    if (preMono && postMono)
+        s = "Both sides identical (mono)";
+    else if (preMono)                 // no side at all going in: a dB difference to the floor means nothing
+        s = "Turns a mono signal into stereo";
+    else if (postMono)
+        s = "Collapses the stereo image to mono";
+    else
+    {
+        const float d = m_st.bbWidthPost - m_st.bbWidthPre;
+        s = std::abs (d) < 1.0f ? juce::String ("Stereo width unchanged")
+          : juce::String (d > 0.0f ? "Wider by " : "Narrower by ") + juce::String (std::abs (d), 1) + " dB";
+    }
+
+    const float monoDrop = m_st.monoLossPre - m_st.monoLossPost;   // extra dB lost when summed
+    if (m_st.bbCorrPost < 0.0f || (m_st.monoLossPost < -3.0f && monoDrop > 1.0f))
+        return { s + "  -  careful: loses " + juce::String (-m_st.monoLossPost, 1)
+                   + " dB when played in mono", true };
+    return { s + "  -  safe in mono" };
+}
+
+PnsTheme::Summary HarmonicsView::summary() const
+{
+    if (! m_toneActive && ! m_harmonicsPaused)
+        return { "Turn on Test Tone below - Pre plays a pure tone through your plugin." };
+
+    const float added = m_thdPost - m_thdPre;
+    if (m_thdPost < 0.01f || added < 0.005f)
+        return { "Clean - no measurable harmonics added (" + PnsTheme::fmtPct (m_thdPost) + ")." };
+
+    int dom = 1;                                 // loudest of H2..H8 at the output
+    for (int h = 2; h < kNumH; ++h)
+        if (m_harmPost[(size_t) h] > m_harmPost[(size_t) dom]) dom = h;
+    const int n = dom + 1;
+    const juce::String which = n == 2 ? juce::String ("2nd") : n == 3 ? juce::String ("3rd")
+                                                             : juce::String (n) + "th";
+    const juce::String flavour = (n % 2 == 0) ? "even - smooth, warm" : "odd - edgier, brighter";
+    return { "Adds " + PnsTheme::fmtPct (m_thdPost) + " distortion, mostly the " + which
+             + " harmonic (" + flavour + ")." };
+}
+
+PnsTheme::Summary LinearView::summary() const
+{
+    if (m_meas.frames == 0)
+        return { "Press Measure - Pre plays noise through your plugin to map its EQ curve." };
+
+    const double sr = m_meas.sampleRate;
+    const int    N  = PlugNspectrPostProcessor::kMeasFftSize;
+    float hiV = -1.0e9f, loV = 1.0e9f;
+    double hiF = 0.0, loF = 0.0;
+    for (int k = 1; k < kBins; ++k)
+    {
+        const double f = (double) k * sr / N;
+        if (f < 30.0 || f > 16000.0 || m_meas.coh[(size_t) k] < 0.5f) continue;
+        const float v = m_meas.magDb[(size_t) k];
+        if (v > hiV) { hiV = v; hiF = f; }
+        if (v < loV) { loV = v; loF = f; }
+    }
+    if (hiV < loV) return { "Measuring... keep playback running." };
+
+    juce::StringArray parts;
+    if (hiV >=  0.5f) parts.add ("boosts up to " + juce::String (hiV, 1) + " dB near " + PnsTheme::fmtHz (hiF));
+    if (loV <= -0.5f) parts.add ("cuts up to "   + juce::String (-loV, 1) + " dB near " + PnsTheme::fmtHz (loF));
+    juce::String s = parts.isEmpty() ? juce::String ("flat - within 0.5 dB everywhere")
+                                     : parts.joinIntoString (",  ");
+    s = s.substring (0, 1).toUpperCase() + s.substring (1);
+    if (m_latSamples != 0)
+        s << "  -  delays audio by " << m_latSamples << " samples";
+    return { s };
+}
+
+PnsTheme::Summary TransferView::summary() const
+{
+    using P = PlugNspectrPostProcessor;
+    int first = -1, last = -1;
+    for (int b = 0; b < kBins; ++b)
+        if (m_dyn.valid[(size_t) b]) { if (first < 0) first = b; last = b; }
+    if (first < 0 || last - first < 2)
+        return { "Press Measure - Pre ramps a tone up in level to map how hard your plugin compresses." };
+
+    auto inDb = [] (int b) { return P::kDynMinDb + (float) b * P::kDynBinW; };
+    // Gain reduction relative to the quietest point, so make-up gain doesn't read as compression.
+    const float offset = inDb (first) - m_dyn.outDb[(size_t) first];
+    auto grAt = [&] (int b) { return (inDb (b) - m_dyn.outDb[(size_t) b]) - offset; };
+
+    int knee = -1;
+    for (int b = first; b <= last; ++b)
+        if (m_dyn.valid[(size_t) b] && grAt (b) > 1.0f) { knee = juce::jmax (first, b - 1); break; }
+    if (knee < 0)
+        return { "No compression across the measured range (" + juce::String (juce::roundToInt (inDb (first)))
+                 + " to " + juce::String (juce::roundToInt (inDb (last))) + " dB)." };
+
+    const float dIn  = inDb (last) - inDb (knee);
+    const float dOut = m_dyn.outDb[(size_t) last] - m_dyn.outDb[(size_t) knee];
+    const juce::String ratio = dOut <= 0.1f ? juce::String ("limiting (output stops rising)")
+                                            : "ratio about " + juce::String (dIn / dOut, 1) + ":1";
+    return { "Starts compressing near " + juce::String (juce::roundToInt (inDb (knee))) + " dB,  " + ratio };
+}
+
+PnsTheme::Summary EnvelopeView::summary() const
+{
+    auto ms = [] (int b) { return (float) b / (float) kBins * 1000.0f; };
+    const int half = kBins / 2;
+    float peak = 0.0f; int nValid = 0;
+    for (int b = 0; b < half; ++b)
+        if (m_env.valid[(size_t) b]) { peak = juce::jmax (peak, m_env.grDb[(size_t) b]); ++nValid; }
+    if (nValid < 2)
+        return { "Press Measure - Pre steps the level up and down to time how fast your plugin reacts." };
+    if (peak < 0.5f)
+        return { "The test step didn't trigger any gain reduction - try a lower threshold." };
+
+    int att = 0;                                   // 90% of the full reduction
+    for (int b = 0; b < half; ++b)
+        if (m_env.valid[(size_t) b] && m_env.grDb[(size_t) b] >= 0.9f * peak) { att = b; break; }
+    const float startGr = m_env.valid[(size_t) half] ? m_env.grDb[(size_t) half] : peak;
+    int rel = -1;                                  // back down to 10% of where it started
+    for (int b = half; b < kBins; ++b)
+        if (m_env.valid[(size_t) b] && m_env.grDb[(size_t) b] <= 0.1f * startGr) { rel = b; break; }
+
+    juce::String s = "Grabs in about " + juce::String (juce::roundToInt (ms (att))) + " ms";
+    s << ",  lets go in " << (rel < 0 ? juce::String ("more than 500 ms")
+                                      : "about " + juce::String (juce::roundToInt (ms (rel) - 500.0f)) + " ms");
+    return { s };
+}
+
+PnsTheme::Summary ThdSweepView::summary() const
+{
+    using P = PlugNspectrPostProcessor;
+    double sum = 0.0; int n = 0; float hi = 0.0f; int hiB = 0;
+    for (int b = 0; b < kBins; ++b)
+    {
+        if (! m_thd.valid[(size_t) b]) continue;
+        sum += m_thd.thdPct[(size_t) b]; ++n;
+        if (m_thd.thdPct[(size_t) b] > hi) { hi = m_thd.thdPct[(size_t) b]; hiB = b; }
+    }
+    if (n < 2)
+        return { "Press Measure - Pre sweeps a tone from low to high to map distortion at every frequency." };
+    if (hi < 0.01f)
+        return { "Clean at every frequency - under 0.01% distortion." };
+
+    const float  avg = (float) (sum / n);
+    const double f   = P::kThdLoHz * std::pow ((double) P::kThdHiHz / P::kThdLoHz, (double) hiB / (kBins - 1));
+    return { "Averages " + PnsTheme::fmtPct (avg) + " distortion,  most (" + PnsTheme::fmtPct (hi)
+             + ") near " + PnsTheme::fmtHz (f) };
 }
