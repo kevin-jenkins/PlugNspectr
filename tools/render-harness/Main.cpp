@@ -289,6 +289,7 @@ int main (int argc, char* argv[])
     outDir.createDirectory();
 
     PlugNspectrPostProcessor proc;
+    proc.setRateAndBufferSizeDetails (kSampleRate, kBlock);   // as a host would, so getSampleRate() is real
     proc.prepareToPlay (kSampleRate, kBlock);
     proc.setTestPreActive (true);
 
@@ -344,6 +345,9 @@ int main (int argc, char* argv[])
     const bool transferRender = (argc > 1 && juce::String (argv[1]) == "transfer-render");
     const bool envelopeRender = (argc > 1 && juce::String (argv[1]) == "envelope-render");
     const bool thdRender      = (argc > 1 && juce::String (argv[1]) == "thd-render");
+    // Transparent chain with latency: Post is Pre delayed 2048 samples, unity
+    // gain, on drum-like hits. Dynamics must read 0 dB of cut.
+    const bool bypassRender   = (argc > 1 && juce::String (argv[1]) == "dynamics-bypass");
 
     using Tabs = PlugNspectrPostEditor;
     editor->setSize (1280, 800);
@@ -373,6 +377,8 @@ int main (int argc, char* argv[])
     double enPhase = 0.0, enGr = 0.0; uint32_t enPos = 0;   // envelope step + compressor state
     double thdPh = 0.0; int thdStep = 0;       // THD sweep state (5% 2nd-harmonic plugin)
     double stLpS = 0.0, stLpM = 0.0;           // stereo widener crossover / mono-bed state
+    constexpr int kBypassLag = 2048;
+    std::vector<float> byLine ((size_t) kBypassLag, 0.0f); int byPos = 0; uint32_t byClock = 0;
 
     for (int f = 0; f < numFrames; ++f)
     {
@@ -502,6 +508,26 @@ int main (int argc, char* argv[])
                 pre[(size_t) i] = x;
             }
             proc.injectMeasurementBlock (pre.data(), post.data(), kBlock);
+        }
+        else if (bypassRender)
+        {
+            juce::AudioBuffer<float> pre (1, kBlock), post (1, kBlock);
+            double preSq = 0.0, postSq = 0.0;
+            for (int i = 0; i < kBlock; ++i, ++byClock)
+            {
+                // A decaying noise hit every 250 ms over a quiet bed.
+                const float t   = (float) (byClock % 12000) / (float) kSampleRate;
+                const float hit = 0.6f * std::exp (-t * 30.0f) * (rng.nextFloat() * 2.0f - 1.0f);
+                const float x   = hit + 0.02f * (rng.nextFloat() * 2.0f - 1.0f);
+                const float y   = byLine[(size_t) byPos];
+                byLine[(size_t) byPos] = x;
+                byPos = (byPos + 1) % kBypassLag;
+                pre.setSample (0, i, x); post.setSample (0, i, y);
+                preSq += (double) x * x; postSq += (double) y * y;
+            }
+            proc.injectTestCapture (pre, post,
+                                    20.0f * std::log10 (juce::jmax ((float) std::sqrt (preSq / kBlock), 1.0e-6f)),
+                                    20.0f * std::log10 (juce::jmax ((float) std::sqrt (postSq / kBlock), 1.0e-6f)));
         }
         else
         {

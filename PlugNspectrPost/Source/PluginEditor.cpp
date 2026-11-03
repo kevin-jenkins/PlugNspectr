@@ -1073,11 +1073,13 @@ void DynamicsView::update()
                 const juce::int64 a1 = juce::jmin ((binIndex + 1) * (juce::int64) binSamples, total);
                 // Contiguous range (≤ binSamples < kSampleBufLen): one modulo to
                 // seed the ring index, then increment-with-wrap in the hot loop.
-                int idx = (int) (a0 % kSampleBufLen);
+                int idx    = (int) (a0 % kSampleBufLen);
+                int preIdx = (int) (((a0 - m_lagSamples) % kSampleBufLen + kSampleBufLen) % kSampleBufLen);
                 for (juce::int64 a = a0; a < a1; ++a)
                 {
-                    const float ps  = m_preSamples [idx];
+                    const float ps  = m_preSamples [preIdx];
                     const float qs  = m_postSamples[idx];
+                    if (++preIdx == kSampleBufLen) preIdx = 0;
                     if (ps < preMin)  preMin  = ps;
                     if (ps > preMax)  preMax  = ps;
                     if (qs < postMin) postMin = qs;
@@ -1146,45 +1148,26 @@ void DynamicsView::update()
         }
     }
 
-    // ── Peak-based GR + rolling average + smoothed RMS volume ────────────
+    // ── Delay-aligned GR + rolling average + smoothed RMS volume ─────────
     // Only when the ring actually produced audio. The UI ticks at 60 Hz but at
     // larger buffer sizes blocks arrive less often, so some ticks legitimately
     // drain nothing — treating those as "GR = 0" injected spurious zeros into the
     // history and the rolling average (a visible sawtooth).
     if (capN > 0)
     {
-        // Peak over everything drained this tick, not just the newest block — the
-        // old snapshot could miss transients entirely at small buffer sizes.
-        const int n = capN;
-
-        float currentGr = 0.0f;
-
+        const double sr = m_proc.getSampleRate();
+        if (--m_lagCountdown <= 0)
         {
-            const float* prePtr  = m_capPre .getReadPointer (0);
-            const float* postPtr = m_capPost.getReadPointer (0);
-
-            float prePeak = 0.0f, postPeak = 0.0f;
-            for (int i = 0; i < n; ++i)
-            {
-                prePeak  = juce::jmax (prePeak,  std::abs (prePtr[i]));
-                postPeak = juce::jmax (postPeak, std::abs (postPtr[i]));
-            }
-
-            if (prePeak > 1.0e-3f)   // ~-60 dBFS silence gate — ignore noise floor
-                currentGr = 20.0f * std::log10 (juce::jmax (postPeak, 1.0e-6f))
-                          - 20.0f * std::log10 (prePeak);
+            estimateLag (sr);
+            m_lagCountdown = 30;   // ~0.5 s at 60 Hz
         }
+        // +1 = too quiet to judge (gated out of the average); otherwise ≤ 0 dB.
+        const float aligned   = alignedGrDb (sr);
+        const bool  audible   = aligned <= 0.0f;
+        const float currentGr = audible ? aligned : 0.0f;
 
         const auto rms = m_proc.getRms();
         m_preConnected = rms.preValid;
-
-        // Reject the peak-timing-skew false positive (a transparent plugin showed
-        // GR while In/Out RMS were identical, i.e. RMS delta ≈ 0). Keep the gate
-        // small — 0.2 dB — so a genuine 0.5 dB gain reduction (RMS delta ≈ 0.5)
-        // still registers; the original false case had a 0.0 dB delta, so it's
-        // still caught.
-        if (rms.preValid && std::abs (rms.postDb - rms.preDb) < 0.2f)
-            currentGr = 0.0f;
 
         if (rms.preValid)
         {
@@ -1192,16 +1175,17 @@ void DynamicsView::update()
             if (currentGr < -0.1f)
                 m_instantGr = currentGr;
 
-            // Push current GR into 30s rolling average buffer
-            m_avgGrBuf[m_avgGrPos] = currentGr;
+            // 30 s rolling average over the time audio was playing — moments
+            // with no cut count as 0. (Averaging only the non-zero moments made
+            // a few stray dips read as a steady cut.) Silence stores +1, skipped.
+            m_avgGrBuf[m_avgGrPos] = audible ? currentGr : 1.0f;
             m_avgGrPos  = (m_avgGrPos + 1) % kAvgGrLen;
             m_avgGrFill = juce::jmin (m_avgGrFill + 1, kAvgGrLen);
 
-            // Compute average of non-zero entries
             float sum = 0.0f;
             int   cnt = 0;
             for (int i = 0; i < m_avgGrFill; ++i)
-                if (m_avgGrBuf[i] < -0.1f) { sum += m_avgGrBuf[i]; ++cnt; }
+                if (m_avgGrBuf[i] <= 0.0f) { sum += m_avgGrBuf[i]; ++cnt; }
             m_avgGr = (cnt > 0) ? sum / (float) cnt : 0.0f;
 
             // Smooth RMS volume (0.9 decay)
@@ -1221,6 +1205,117 @@ void DynamicsView::update()
         else
             m_grPeakHold = juce::jmin (0.0f, m_grPeakHold * 0.998f);
     }
+}
+
+//──────────────────────────────────────────────────────────────────────────────
+// Post-vs-Pre lag. Both signals are reduced to 1 ms peak envelopes over the last
+// 1.5 s, and Post is slid against Pre over 0..250 ms; the best Pearson match
+// wins if it is convincing (r > 0.7), then a raw-sample pass refines it to the
+// sample. Envelopes for the coarse search so it works on any program material
+// and survives EQ/saturation changing the waveform.
+void DynamicsView::estimateLag (double sr)
+{
+    if (sr <= 0.0) return;
+    const int B = juce::jmax (1, juce::roundToInt (sr / 1000.0));     // samples per bin
+    constexpr int N = 1500, kMaxLag = 250;                              // bins (ms)
+    const juce::int64 total = m_totalSamplesWritten;
+    if ((juce::int64) m_samplesStored < (juce::int64) (N + kMaxLag + 1) * B) return;
+
+    std::vector<float> pre ((size_t) (N + kMaxLag)), post ((size_t) N);
+    auto env = [&] (const std::array<float, kSampleBufLen>& buf, juce::int64 start, int bins, std::vector<float>& out)
+    {
+        int idx = (int) ((start % kSampleBufLen + kSampleBufLen) % kSampleBufLen);
+        for (int b = 0; b < bins; ++b)
+        {
+            float pk = 0.0f;
+            for (int i = 0; i < B; ++i)
+            {
+                pk = juce::jmax (pk, std::abs (buf[(size_t) idx]));
+                if (++idx == kSampleBufLen) idx = 0;
+            }
+            out[(size_t) b] = pk;
+        }
+    };
+    const juce::int64 postStart = total - (juce::int64) N * B;
+    env (m_postSamples, postStart, N, post);
+    env (m_preSamples,  postStart - (juce::int64) kMaxLag * B, N + kMaxLag, pre);
+
+    auto meanSd = [] (const float* x, int n, float& mean, float& sd)
+    {
+        double s = 0.0, s2 = 0.0;
+        for (int i = 0; i < n; ++i) { s += x[i]; s2 += (double) x[i] * x[i]; }
+        mean = (float) (s / n);
+        sd   = (float) std::sqrt (juce::jmax (0.0, s2 / n - (s / n) * (s / n)));
+    };
+    float pm, ps;
+    meanSd (post.data(), N, pm, ps);
+    if (ps < 1.0e-4f) return;   // too steady / quiet to locate anything
+
+    float bestR = 0.0f; int bestLag = -1;
+    for (int L = 0; L <= kMaxLag; ++L)
+    {
+        const float* x = pre.data() + (kMaxLag - L);   // Pre, L ms earlier than Post
+        float xm, xs;
+        meanSd (x, N, xm, xs);
+        if (xs < 1.0e-4f) continue;
+        double c = 0.0;
+        for (int i = 0; i < N; ++i) c += (double) (x[i] - xm) * (post[(size_t) i] - pm);
+        const float rr = (float) (c / N) / (xs * ps);
+        if (rr > bestR) { bestR = rr; bestLag = L; }
+    }
+    if (bestLag < 0 || bestR <= 0.7f) return;
+
+    // Refine to the sample: raw cross-correlation over the newest ~85 ms, within
+    // one envelope bin either side of the coarse estimate.
+    constexpr int kFine = 4096;
+    const int coarse = bestLag * B;
+    double bestC = -1.0e30; int best = coarse;
+    for (int lag = juce::jmax (0, coarse - B); lag <= coarse + B; ++lag)
+    {
+        if ((juce::int64) m_samplesStored < (juce::int64) (kFine + lag + 1)) break;
+        int qi = (int) (((total - kFine) % kSampleBufLen + kSampleBufLen) % kSampleBufLen);
+        int pi = (int) (((total - kFine - lag) % kSampleBufLen + kSampleBufLen) % kSampleBufLen);
+        double c = 0.0;
+        for (int i = 0; i < kFine; ++i)
+        {
+            c += (double) m_preSamples[(size_t) pi] * m_postSamples[(size_t) qi];
+            if (++pi == kSampleBufLen) pi = 0;
+            if (++qi == kSampleBufLen) qi = 0;
+        }
+        if (c > bestC) { bestC = c; best = lag; }
+    }
+    m_lagSamples = best;
+}
+
+// Gain reduction over the newest ~30 ms, Pre delayed by the measured lag so the
+// two windows hold the same audio. RMS over a window (not a per-chunk peak) so
+// a sub-millisecond residual skew can't turn a transient into a fake dip.
+// Returns +1 when Pre is below the -60 dBFS gate; else min (0, post - pre) dB,
+// with a 0.2 dB dead band so float noise on identical signals reads as 0.
+float DynamicsView::alignedGrDb (double sr) const
+{
+    if (sr <= 0.0) return 1.0f;
+    const int W = juce::jmax (64, juce::roundToInt (sr * 0.03));
+    const juce::int64 total = m_totalSamplesWritten;
+    if ((juce::int64) m_samplesStored < (juce::int64) (W + m_lagSamples + 1)) return 1.0f;
+
+    auto rmsOf = [&] (const std::array<float, kSampleBufLen>& buf, juce::int64 start)
+    {
+        int idx = (int) ((start % kSampleBufLen + kSampleBufLen) % kSampleBufLen);
+        double e = 0.0;
+        for (int i = 0; i < W; ++i)
+        {
+            e += (double) buf[(size_t) idx] * buf[(size_t) idx];
+            if (++idx == kSampleBufLen) idx = 0;
+        }
+        return (float) std::sqrt (e / W);
+    };
+    const float postRms = rmsOf (m_postSamples, total - W);
+    const float preRms  = rmsOf (m_preSamples,  total - W - m_lagSamples);
+    if (preRms < 1.0e-3f) return 1.0f;
+
+    const float gr = 20.0f * std::log10 (juce::jmax (postRms, 1.0e-6f) / preRms);
+    return gr > -0.2f ? 0.0f : gr;
 }
 
 void DynamicsView::mouseDoubleClick (const juce::MouseEvent& e)

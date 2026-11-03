@@ -366,6 +366,15 @@ private:
     int                              m_samplesStored  = 0;
     juce::int64                      m_totalSamplesWritten = 0;  // monotonic; anchors absolute-aligned bins
 
+    // How far Post lags Pre, in samples — the latency of everything between
+    // them, which the host keeps even when those plugins are bypassed. Measured
+    // from the audio (envelope cross-correlation) and used to line Pre up with
+    // Post before comparing levels; without it every transient reads as a cut.
+    int m_lagSamples   = 0;
+    int m_lagCountdown = 0;   // ticks until the next lag estimate
+    void estimateLag (double sampleRate);
+    float alignedGrDb (double sampleRate) const;   // cut over the newest window, dB (≤ 0), or +1 if silent
+
     // Zoom: visible window in seconds (6 / 12)
     int m_zoomSeconds = 12;
 
