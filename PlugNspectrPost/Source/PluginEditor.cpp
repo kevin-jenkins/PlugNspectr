@@ -1223,23 +1223,10 @@ void DynamicsView::update()
     }
 }
 
-//──────────────────────────────────────────────────────────────────────────────
-// Hit-test covers the frosted GR panel (Avg GR + Now rows).
-static juce::Rectangle<int> getReadoutBounds (int compW)
-{
-    constexpr int kBtnBottom = PnsTheme::kPaddingSmall + PnsTheme::kButtonHeight;   // 28
-    constexpr int kPanelW    = 132;
-    constexpr int kGrRowsH   = 42;   // covers Avg GR + Now inside panel
-    const int panelTop   = kBtnBottom + 8;                       // 36
-    const int panelRight = compW - PnsTheme::kPaddingMid;
-    const int panelLeft  = panelRight - kPanelW;
-    return { panelLeft, panelTop, kPanelW, kGrRowsH };
-}
-
 void DynamicsView::mouseDoubleClick (const juce::MouseEvent& e)
 {
-    // Double-clicking the readout panel is a shortcut for the Reset button.
-    if (getReadoutBounds (getWidth()).contains (e.getPosition()))
+    // Double-clicking the readout chips is a shortcut for Start over.
+    if (m_chipBounds.contains (e.getPosition()))
         reset();
 }
 
@@ -1280,7 +1267,7 @@ void DynamicsView::reset()
 
 void DynamicsView::mouseMove (const juce::MouseEvent& e)
 {
-    const bool over = getReadoutBounds (getWidth()).contains (e.getPosition());
+    const bool over = m_chipBounds.contains (e.getPosition());
     if (over != m_mouseOverReadout)
     {
         m_mouseOverReadout = over;
@@ -1442,122 +1429,70 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
         }
     }
 
-    // ── Readouts: Avg GR / Now / VOLUME ──────────────────────────────────
+    // ── Readout chips along the bottom of the card ───────────────────────
+    //    The average cut is the headline number above the view, so the chips
+    //    carry what it doesn't: the cut right now, and the loudness in / out.
     {
-        auto grStr = [] (float v) -> juce::String {
-            return (v <= -0.1f) ? (juce::String (v, 1) + " dB") : "0.0 dB";
+        auto dbStr = [] (float v) -> juce::String
+        {
+            return v <= -89.0f ? juce::String ("---") : juce::String (v, 1) + " dB";
         };
-        auto dbStr = [] (float v) -> juce::String {
-            if (v <= -89.0f) return "---";
-            return juce::String (v, 1) + " dB";
+        const bool  flashing = (juce::Time::getMillisecondCounterHiRes() < m_grFlashEnd);
+        const float delta    = m_smoothPostDb - m_smoothPreDb;
+        juce::String deltaStr = m_smoothPreDb <= -89.0f ? juce::String ("---")
+                              : (delta >= 0.0f ? "+" : "") + juce::String (delta, 1) + " dB";
+
+        struct Chip { const char* label; juce::String value; juce::Colour col; };
+        const Chip chips[] = {
+            { "Cut now",  m_instantGr <= -0.1f ? juce::String (-m_instantGr, 1) + " dB" : juce::String ("0.0 dB"),
+              PnsTheme::kColorGainRed },
+            { "Loudness in",  dbStr (m_smoothPreDb),  PnsTheme::kTextPrimary },
+            { "Loudness out", dbStr (m_smoothPostDb), PnsTheme::kTextPrimary },
+            { "Change",   deltaStr, std::abs (delta) > 0.1f ? PnsTheme::kAccentPrimary : PnsTheme::kTextSecondary },
         };
 
-        const bool flashing = (juce::Time::getMillisecondCounterHiRes() < m_grFlashEnd);
+        constexpr float chipW = 116.0f, chipH = 44.0f, chipGap = 8.0f;
+        float cx = px + 10.0f;
+        const float cy = py + ph - chipH - 10.0f;
+        for (const auto& c : chips)
+        {
+            const juce::Rectangle<float> r (cx, cy, chipW, chipH);
+            g.setColour (PnsTheme::kBgDark.withAlpha (0.78f));
+            g.fillRoundedRectangle (r, 8.0f);
+            g.setColour (PnsTheme::kBorderSubtle);
+            g.drawRoundedRectangle (r.reduced (0.5f), 8.0f, 1.0f);
+            g.setFont (PnsTheme::fontLabel());
+            g.setColour (PnsTheme::kTextSecondary);
+            g.drawText (c.label, r.reduced (10.0f, 6.0f).withHeight (13.0f), juce::Justification::centredLeft);
+            g.setFont (PnsTheme::fontSized (16.0f, true));
+            g.setColour (flashing ? juce::Colours::white : c.col);
+            g.drawText (c.value, r.reduced (10.0f, 6.0f).withTrimmedTop (14.0f), juce::Justification::centredLeft);
+            cx += chipW + chipGap;
+        }
+        m_chipBounds = juce::Rectangle<float> (px + 10.0f, cy, cx - chipGap - (px + 10.0f), chipH).toNearestInt();
 
-        // Panel geometry — top sits 8px below the zoom buttons (bottom edge at 28px)
-        constexpr int kBtnBottom = PnsTheme::kPaddingSmall + PnsTheme::kButtonHeight;  // 28
-        constexpr int kPanelW    = 132;   // 120 content + 6px padding each side
-        constexpr int kPanelH    = 123;   // fits all rows with padding
-        const int     panelTop   = kBtnBottom + 8;
-        const int     panelRight = juce::roundToInt (area.getRight()) - PnsTheme::kPaddingMid;
-        const int     panelLeft  = panelRight - kPanelW;
-
-        PnsTheme::drawFrostedPanel (g, juce::Rectangle<float> (
-            (float) panelLeft, (float) panelTop,
-            (float) kPanelW,   (float) kPanelH));
-
-        const int lx = panelLeft  + PnsTheme::kPaddingSmall;
-        const int rx = panelRight - PnsTheme::kPaddingSmall;
-        constexpr int lw = 46;
-        constexpr int vw = 70;
-        const int vx = rx - vw;
-
-        constexpr int rowH = 14;
-        const int row0 = panelTop + PnsTheme::kPaddingSmall;   // 42
-        const int row1 = row0 + 17;
-
-        // ── Avg GR ────────────────────────────────────────────────────────
-        g.setFont (PnsTheme::fontLabel());
-        g.setColour (PnsTheme::kTextSecondary);
-        g.drawText ("Avg cut", lx, row0, lw, 12, juce::Justification::centredLeft);
-
-        g.setFont (PnsTheme::fontReadout());
-        g.setColour (flashing ? juce::Colours::white : PnsTheme::kTextPrimary);
-        g.drawText (grStr (m_avgGr), vx, row0 - 1, vw, rowH, juce::Justification::centredRight);
-
-        // ── Now ───────────────────────────────────────────────────────────
-        g.setFont (PnsTheme::fontLabel());
-        g.setColour (PnsTheme::kTextSecondary);
-        g.drawText ("Now", lx, row1, lw, 12, juce::Justification::centredLeft);
-
-        g.setFont (PnsTheme::fontReadout());
-        g.setColour (flashing ? juce::Colours::white : PnsTheme::kTextAccent);
-        g.drawText (grStr (m_instantGr), vx, row1 - 1, vw, rowH, juce::Justification::centredRight);
-
-        // ── Hover tooltip ─────────────────────────────────────────────────
         if (m_mouseOverReadout)
         {
             g.setFont (PnsTheme::fontLabel());
             g.setColour (PnsTheme::kGridLabel);
-            g.drawText ("Double-click to reset",
-                        lx, row1 + 14, rx - lx, 11, juce::Justification::centredRight);
+            g.drawText ("Double-click to start over", juce::roundToInt (cx + 4.0f), juce::roundToInt (cy),
+                        160, juce::roundToInt (chipH), juce::Justification::centredLeft);
         }
-
-        // ── Divider ───────────────────────────────────────────────────────
-        const int divY = row1 + 28;
-        g.setColour (PnsTheme::kBorderSubtle);
-        g.drawHorizontalLine (divY, (float) lx, (float) rx);
-
-        // ── VOLUME section ────────────────────────────────────────────────
-        const int vrow0    = divY + 5;
-        const int dataRow0 = vrow0 + 13;
-        const int dataRow1 = dataRow0 + 17;
-        const int dataRow2 = dataRow1 + 17;
-
-        g.setFont (PnsTheme::fontLabel());
-        g.setColour (PnsTheme::kTextSecondary);
-        g.drawText ("LOUDNESS", lx, vrow0, 60, 11, juce::Justification::centredLeft);
-
-        // In
-        g.drawText ("In", lx, dataRow0, lw, 12, juce::Justification::centredLeft);
-        g.setFont (PnsTheme::fontReadout());
-        g.setColour (PnsTheme::kTextPrimary);
-        g.drawText (dbStr (m_smoothPreDb), vx, dataRow0 - 1, vw, rowH, juce::Justification::centredRight);
-
-        // Out
-        g.setFont (PnsTheme::fontLabel());
-        g.setColour (PnsTheme::kTextSecondary);
-        g.drawText ("Out", lx, dataRow1, lw, 12, juce::Justification::centredLeft);
-        g.setFont (PnsTheme::fontReadout());
-        g.setColour (PnsTheme::kTextPrimary);
-        g.drawText (dbStr (m_smoothPostDb), vx, dataRow1 - 1, vw, rowH, juce::Justification::centredRight);
-
-        // Δ — colour depends on sign
-        const float delta = m_smoothPostDb - m_smoothPreDb;
-        const juce::Colour deltaCol = (delta < -0.1f) ? PnsTheme::kColorGainRed
-                                    : (delta >  0.1f) ? PnsTheme::kAccentPrimary
-                                                      : PnsTheme::kTextSecondary;
-        juce::String deltaStr = (delta >= 0.0f ? "+" : "") + juce::String (delta, 1) + " dB";
-        if (m_smoothPreDb <= -89.0f) deltaStr = "---";
-
-        g.setFont (PnsTheme::fontLabel());
-        g.setColour (PnsTheme::kTextSecondary);
-        g.drawText ("Change", lx, dataRow2, lw, 12, juce::Justification::centredLeft);
-        g.setFont (PnsTheme::fontReadout());
-        g.setColour (deltaCol);
-        g.drawText (deltaStr, vx, dataRow2 - 1, vw, rowH, juce::Justification::centredRight);
     }
-
-    // ── Border ────────────────────────────────────────────────────────────
-    g.setColour (PnsTheme::kBorderSubtle);
-    g.drawRect (px, py, pw, ph, 1.0f);
 }
 
 //──────────────────────────────────────────────────────────────────────────────
 void DynamicsView::drawGrMeter (juce::Graphics& g, juce::Rectangle<float> area)
 {
     constexpr float kML = 42.0f, kMR = 12.0f, kMT = 20.0f, kMB = 20.0f;
-    constexpr float kMinGr = -24.0f, kMaxGr = 0.0f;
+    // Scale to the deepest cut in view (history + peak hold) with headroom, on
+    // round steps so the axis doesn't twitch: 1.4 dB of cut fills a 3 dB lane
+    // instead of being a sliver at the top of a fixed 24 dB one.
+    float deepest = -m_grPeakHold;
+    for (float v : m_gr) deepest = juce::jmax (deepest, -v);
+    const float kMinGr = deepest * 1.2f <= 3.0f ? -3.0f : deepest * 1.2f <= 6.0f ? -6.0f
+                       : deepest * 1.2f <= 12.0f ? -12.0f : -24.0f;
+    constexpr float kMaxGr = 0.0f;
 
     const float px = area.getX() + kML,  py = area.getY() + kMT;
     const float pw = area.getWidth()  - kML - kMR;
@@ -1572,14 +1507,15 @@ void DynamicsView::drawGrMeter (juce::Graphics& g, juce::Rectangle<float> area)
 
     PnsTheme::drawPlotCard (g, { px, py, pw, ph });
 
-    const float grLines[] = { 0.0f, -3.0f, -6.0f, -9.0f, -12.0f, -15.0f, -18.0f, -21.0f, -24.0f };
-    for (float gr : grLines)
+    const int divs = kMinGr >= -6.0f ? 3 : 4;   // whole-dB steps: 1, 2, 3 or 6 dB
+    for (int i = 0; i <= divs; ++i)
     {
+        const float gr = kMinGr * (float) i / (float) divs;
         const float gy = grToY (gr);
         g.setColour (gr == 0.0f ? PnsTheme::kZeroLine : PnsTheme::kGridLine);
         g.drawHorizontalLine (juce::roundToInt (gy), px, px + pw);
 
-        juce::String lbl = (gr == 0.0f) ? "0" : juce::String (juce::roundToInt (gr));
+        const juce::String lbl (juce::roundToInt (gr));
         g.setColour (PnsTheme::kGridLabel);
         g.drawText (lbl, juce::roundToInt (area.getX()),
                     juce::roundToInt (gy) - 6,
@@ -1605,8 +1541,8 @@ void DynamicsView::drawGrMeter (juce::Graphics& g, juce::Rectangle<float> area)
     fillPath.lineTo (px + pw, zeroY);
     fillPath.closeSubPath();
     {
-        juce::ColourGradient grad (PnsTheme::kColorGainRed.withAlpha (0.85f), px, py,
-                                   PnsTheme::kColorGainRed.withAlpha (0.35f), px, py + ph,
+        juce::ColourGradient grad (PnsTheme::kColorGainRed.withAlpha (0.30f), px, py,
+                                   PnsTheme::kColorGainRed.withAlpha (0.10f), px, py + ph,
                                    false);
         g.setGradientFill (grad);
         g.fillPath (fillPath);
@@ -1636,8 +1572,6 @@ void DynamicsView::drawGrMeter (juce::Graphics& g, juce::Rectangle<float> area)
                     juce::roundToInt (pw), 16, juce::Justification::centred);
     }
 
-    g.setColour (PnsTheme::kBorderSubtle);
-    g.drawRect (px, py, pw, ph, 1.0f);
 }
 
 //──────────────────────────────────────────────────────────────────────────────
@@ -3573,7 +3507,7 @@ void ThdSweepView::paint (juce::Graphics& g)
     auto area = getLocalBounds().toFloat().reduced (8.0f);
     area.removeFromTop ((float) PnsTheme::kButtonHeight + 4.0f);
 
-    constexpr float kML = 46.0f, kMR = 12.0f, kMT = 16.0f, kMB = 20.0f;
+    constexpr float kML = 54.0f, kMR = 12.0f, kMT = 16.0f, kMB = 20.0f;
     const float px = area.getX() + kML, py = area.getY() + kMT;
     const float pw = area.getWidth() - kML - kMR, ph = area.getHeight() - kMT - kMB;
     if (pw <= 0 || ph <= 0) return;
@@ -3581,8 +3515,17 @@ void ThdSweepView::paint (juce::Graphics& g)
     const float lo = PlugNspectrPostProcessor::kThdLoHz, hi = PlugNspectrPostProcessor::kThdHiHz;
     auto X = [&] (double f) { return px + pw * (float) (std::log (juce::jlimit ((double) lo, (double) hi, f) / lo)
                                                         / std::log ((double) hi / lo)); };
-    // Log-% Y axis: 0.001% (bottom) .. 100% (top), 5 decades.
-    constexpr float yHi = 2.0f, yLo = -3.0f;
+    // Log-% Y axis, three decades, topped one decade above the highest reading
+    // (live or frozen) so the curve uses the height: 0.01..10% for a typical
+    // saturator, 0.001..1% for a clean EQ. Never above 100%.
+    float peak = 0.0f;
+    for (int b = 0; b < kBins; ++b)
+    {
+        if (m_thd.valid[(size_t) b])                   peak = juce::jmax (peak, m_thd.thdPct[(size_t) b]);
+        if (m_hasFrozen && m_frozenValid[(size_t) b]) peak = juce::jmax (peak, m_frozenThd[(size_t) b]);
+    }
+    const float yHi = juce::jlimit (0.0f, 2.0f, std::ceil (std::log10 (juce::jmax (peak, 1.0e-3f) * 1.5f)));
+    const float yLo = yHi - 3.0f;
     auto Y = [&] (float pct) { const float lv = juce::jlimit (yLo, yHi, std::log10 (juce::jmax (pct, 1.0e-4f)));
                                return py + ph * (yHi - lv) / (yHi - yLo); };
 
@@ -3590,9 +3533,9 @@ void ThdSweepView::paint (juce::Graphics& g)
 
     PnsTheme::drawPlotCard (g, { px, py, pw, ph });
 
-    const float decades[] = { 100.0f, 10.0f, 1.0f, 0.1f, 0.01f, 0.001f };
-    for (float d : decades)
+    for (int e = (int) yLo; e <= (int) yHi; ++e)
     {
+        const float d  = std::pow (10.0f, (float) e);
         const float gy = Y (d);
         g.setColour (PnsTheme::kGridLine);
         g.drawHorizontalLine (juce::roundToInt (gy), px, px + pw);

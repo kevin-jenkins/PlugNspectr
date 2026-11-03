@@ -408,6 +408,7 @@ private:
     float  m_grPeakHold       = 0.0f;  // most-negative GR seen, decays slowly
     double m_grFlashEnd       = 0.0;    // ms timestamp; 0 = not flashing
     bool   m_mouseOverReadout = false;
+    juce::Rectangle<int> m_chipBounds;   // readout chips, laid out in drawWaveform
 
     // 30-second GR average buffer — 900 slots at 30fps
     static constexpr int kAvgGrLen = 900;

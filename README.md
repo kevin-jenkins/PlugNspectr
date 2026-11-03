@@ -237,19 +237,19 @@ Reveals how the plugin is affecting dynamic range and level in real time.
 
 **Waveform comparison (top):** Pre (grey, background) vs Post (cyan, foreground) overlaid; where Post is smaller than Pre, compression/limiting is occurring, highlighted by the cyan fill. History (settings pill): **6 s** or **12 s** (default).
 
-**Reset (circular-arrow icon, top right):** clears all readings and history — waveform, Avg cut, the 30 s rolling average, GR history, and the In/Out levels — so measurement starts over after you tweak the plugin chain. The auto-zoom is kept so the view doesn't jump.
+**Start over (settings pill):** clears all readings and history — waveform, the 30 s rolling average, GR history, and the In/Out levels — so measurement starts over after you tweak the plugin chain. The auto-zoom is kept so the view doesn't jump.
 
-**Readouts (right panel):**
-| Readout | Description |
+**Average cut** — gain reduction averaged over the last 30 s — is the big number in the headline. **Chips** along the bottom of the waveform carry the rest:
+
+| Chip | Description |
 |---|---|
-| **Avg cut** | Average gain reduction over the last 30 s |
-| **Now** | Instantaneous gain reduction — holds last non-zero value (cyan) |
-| **Loudness — In / Out** | RMS input / output level (dB) |
-| **Loudness — Change** | Net level difference (cyan when the level changed, grey = unity) |
+| **Cut now** | Instantaneous gain reduction — holds the last non-zero value |
+| **Loudness in / out** | RMS input / output level (dB) |
+| **Change** | Net level difference (cyan when the level changed, grey = unity) |
 
-> **Double-click** the readout panel (Avg cut / Now) for the same full reset as the **Reset** button.
+> **Double-click** the chips for the same full reset as **Start over**.
 
-**Gain Reduction (bottom):** a scrolling GR history with a light-blue gradient fill and a peak-hold line. Y = 0 to −24 dB; X = last 3 seconds. Flat at 0 = dynamically transparent; deep consistent dips = heavy compression; brief dips = peak limiting.
+**Gain Reduction (bottom):** a scrolling GR history with a light-blue fill. The scale fits the cut actually happening — **3, 6, 12 or 24 dB** — so gentle compression is as readable as heavy limiting; X = last 3 seconds. Flat at 0 = dynamically transparent; deep consistent dips = heavy compression; brief dips = peak limiting.
 
 ---
 
@@ -374,7 +374,7 @@ The measured **time response** — gain reduction vs time — captured with a le
 
 <img src="docs/screenshots/distortion.png" width="820" alt="Distortion tab — THD vs frequency" />
 
-**THD vs frequency** — total harmonic distortion measured as Pre sweeps a stepped tone across the spectrum (50 Hz → 5 kHz, log). Shows how a plugin's distortion changes with frequency (e.g. more harmonic generation in the lows from tape/tube emulations), plotted log-log. Cursor readout shows **frequency → THD %**; **Freeze** for A/B comparison.
+**THD vs frequency** — total harmonic distortion measured as Pre sweeps a stepped tone across the spectrum (50 Hz → 5 kHz, log). Shows how a plugin's distortion changes with frequency (e.g. more harmonic generation in the lows from tape/tube emulations), plotted log-log over three decades that follow the reading (e.g. 0.01–10% for a saturator, 0.001–1% for a clean EQ). Cursor readout shows **frequency → THD %**; **Freeze** for A/B comparison.
 
 ---
 
