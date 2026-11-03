@@ -250,10 +250,15 @@ public:
                             const juce::AudioBuffer<float>& post,
                             float preDb, float postDb);
     void setTestPreActive (bool active) { m_testPreActive = active; }
+    // Runs the full per-block analysis on recorded audio: `pre` as if it came
+    // from PlugNspectrPre, `post` as this plugin's input. Any length.
+    void injectProgramBlock (const juce::AudioBuffer<float>& pre, juce::AudioBuffer<float>& post);
     void setTestTransportPlaying (bool p) { m_transportPlaying.store (p); }
 
 
 private:
+    void analyseBlock (juce::AudioBuffer<float>& buffer, bool preReady);
+
     //==========================================================================
     pns::Transport     m_ipc;      // single cross-platform IPC segment
     pns::AudioPayload  m_preIn;    // last Pre block, copied out under the seqlock

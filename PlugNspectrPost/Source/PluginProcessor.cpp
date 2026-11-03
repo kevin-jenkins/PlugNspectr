@@ -476,11 +476,22 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         if (const auto pos = ph->getPosition())
             m_transportPlaying.store (pos->getIsPlaying());
 
-    const int numCh  = juce::jmin (buffer.getNumChannels(), pns::kMaxChannels);
-    const int numSmp = juce::jmin (buffer.getNumSamples(),  pns::kMaxSamples);
-
     // Pull the latest Pre block (torn-free via the seqlock); valid only if Pre is live.
     const bool preReady = isPreActive() && m_ipc.readBlock (m_preIn);
+    analyseBlock (buffer, preReady);
+
+    // ── Post heartbeat — lets Pre editor detect that Post is running ──────
+    m_ipc.postHeartbeat();
+}
+
+//==============================================================================
+// Everything processBlock does with a Post block and the matching Pre block in
+// m_preIn: analysis channel, stereo, capture ring, spectra, measurement engines,
+// RMS. Split out so the render harness can drive it with recorded audio.
+void PlugNspectrPostProcessor::analyseBlock (juce::AudioBuffer<float>& buffer, bool preReady)
+{
+    const int numCh  = juce::jmin (buffer.getNumChannels(), pns::kMaxChannels);
+    const int numSmp = juce::jmin (buffer.getNumSamples(),  pns::kMaxSamples);
     const int  preCh    = preReady ? juce::jmin (m_preIn.numChannels, pns::kMaxChannels) : 0;
     const int  preSmp   = preReady ? juce::jmin (m_preIn.numSamples,  pns::kMaxSamples)  : 0;
 
@@ -586,9 +597,25 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         juce::ScopedLock sl (m_rmsLock);
         m_lastRms = { preDb, postDb, preValid };
     }
+}
 
-    // ── Post heartbeat — lets Pre editor detect that Post is running ──────
-    m_ipc.postHeartbeat();
+void PlugNspectrPostProcessor::injectProgramBlock (const juce::AudioBuffer<float>& pre,
+                                                   juce::AudioBuffer<float>& post)
+{
+    const int n  = juce::jmin (pre.getNumSamples(), post.getNumSamples());
+    const int ch = juce::jmin (pre.getNumChannels(), pns::kMaxChannels);
+    for (int start = 0; start < n; start += pns::kMaxSamples)
+    {
+        const int len = juce::jmin (pns::kMaxSamples, n - start);
+        m_preIn.numChannels   = ch;
+        m_preIn.numSamples    = len;
+        m_preIn.sampleRate    = getSampleRate();
+        m_preIn.dynModeActive = 0;   // programme material, no stimulus
+        for (int c = 0; c < ch; ++c)
+            std::copy_n (pre.getReadPointer (c, start), len, m_preIn.preData[c]);
+        juce::AudioBuffer<float> view (post.getArrayOfWritePointers(), post.getNumChannels(), start, len);
+        analyseBlock (view, true);
+    }
 }
 
 //==============================================================================

@@ -15,36 +15,15 @@
 //==============================================================================
 SpectrumView::SpectrumView (PlugNspectrPostProcessor& p) : m_proc (p)
 {
-    // Smoothing combo — styled by PnsLookAndFeel
-    m_smoothBox.addItem ("Fast",   1);
-    m_smoothBox.addItem ("Medium", 2);
-    m_smoothBox.addItem ("Slow",   3);
-    m_smoothBox.setSelectedId (2, juce::dontSendNotification);
-    m_smoothBox.onChange = [this]
-    {
-        switch (m_smoothBox.getSelectedId())
-        {
-            case 1:  setSmoothPreset (SmoothPreset::Fast);   break;
-            case 3:  setSmoothPreset (SmoothPreset::Slow);   break;
-            default: setSmoothPreset (SmoothPreset::Medium); break;
-        }
-    };
-    addAndMakeVisible (m_smoothBox);
-
-    // Avg toggle — styled by PnsLookAndFeel
-    m_avgBtn.setToggleable (true);
-    m_avgBtn.setToggleState (true, juce::dontSendNotification);
-    m_avgBtn.onClick = [this]
-    {
-        m_showAvg = !m_showAvg;
-        m_avgBtn.setToggleState (m_showAvg, juce::dontSendNotification);
-    };
-    addAndMakeVisible (m_avgBtn);
-
-    m_reset.setTooltip ("Clear the rolling averages and fluctuation markers and "
-                        "start over (after tweaking the plugin chain)");
-    m_reset.onClick = [this] { reset(); };
-    addAndMakeVisible (m_reset);
+    m_options.addRow ("Smoothing", "How quickly the curves follow the music.",
+                      { "Fast", "Medium", "Slow" }, 1,
+                      [this] (int i) { setSmoothPreset (i == 0 ? SmoothPreset::Fast
+                                                      : i == 1 ? SmoothPreset::Medium : SmoothPreset::Slow); });
+    m_options.addRow ("Long-term average", "A steady line of the overall tone.",
+                      { "Off", "On" }, m_showAvg ? 1 : 0,
+                      [this] (int i) { m_showAvg = (i == 1); repaint(); });
+    m_options.setResetAction ("Clears the averages and markers.", [this] { reset(); });
+    addAndMakeVisible (m_options);
 
     setInterceptsMouseClicks (true, false);
 }
@@ -119,17 +98,7 @@ void SpectrumView::mouseDown (const juce::MouseEvent& e)
 
 void SpectrumView::resized()
 {
-    const int W = getWidth();
-    constexpr int bh      = PnsTheme::kButtonHeight;
-    constexpr int marginR = PnsTheme::kPaddingMid;
-    constexpr int marginT = PnsTheme::kPaddingSmall;
-    constexpr int gap     = 4;
-    constexpr int avgW    = 38;
-    constexpr int comboW  = 72;
-    m_avgBtn   .setBounds (W - marginR - avgW,                  marginT, avgW,  bh);
-    m_smoothBox.setBounds (W - marginR - avgW - gap - comboW,   marginT, comboW, bh);
-    constexpr int rw = 28;   // reset icon button
-    m_reset    .setBounds (m_smoothBox.getX() - 10 - rw,        marginT, rw, bh);
+    m_options.place (getWidth() - PnsTheme::kPaddingMid, PnsTheme::kPaddingSmall);
 }
 
 void SpectrumView::setSmoothPreset (SmoothPreset p)
@@ -463,9 +432,7 @@ void SpectrumView::paint (juce::Graphics& g)
 
     // ── Background ────────────────────────────────────────────────────────
     g.fillAll (PnsTheme::kBgDark);
-    // Pure #0F0F0F plot area
-    g.setColour (juce::Colour (0xff0f0f0f));
-    g.fillRect (px, py, pw, ph);
+    PnsTheme::drawPlotCard (g, { px, py, pw, ph });
 
     // ── Dotted grid ───────────────────────────────────────────────────────
     g.setFont (PnsTheme::fontLabel());
@@ -940,47 +907,18 @@ void SpectrumView::paint (juce::Graphics& g)
 //==============================================================================
 DynamicsView::DynamicsView (PlugNspectrPostProcessor& p) : m_proc (p)
 {
-    auto styleZoom = [&] (juce::TextButton& btn, bool active)
-    {
-        btn.setToggleable (true);
-        btn.setToggleState (active, juce::dontSendNotification);
-    };
-
-    styleZoom (m_zoom6s,  false);
-    styleZoom (m_zoom12s, true);   // default: 12s
-
-    auto setZoom = [this] (int seconds)
-    {
-        m_zoomSeconds = seconds;
-        m_zoom6s .setToggleState (seconds ==  6, juce::dontSendNotification);
-        m_zoom12s.setToggleState (seconds == 12, juce::dontSendNotification);
-    };
-
-    m_zoom6s .onClick = [this, setZoom] { setZoom ( 6); };
-    m_zoom12s.onClick = [this, setZoom] { setZoom (12); };
-
-    addAndMakeVisible (m_zoom6s);
-    addAndMakeVisible (m_zoom12s);
-
-    m_reset.setTooltip ("Clear all readings and history and start over "
-                        "(after tweaking the plugin chain)");
-    m_reset.onClick = [this] { reset(); };
-    addAndMakeVisible (m_reset);
+    m_options.addRow ("History", "How many seconds of audio the graphs show.",
+                      { "6 s", "12 s" }, m_zoomSeconds == 6 ? 0 : 1,
+                      [this] (int i) { m_zoomSeconds = (i == 0 ? 6 : 12); repaint(); });
+    m_options.setResetAction ("Clears every reading and the history.", [this] { reset(); });
+    addAndMakeVisible (m_options);
 
     setMouseCursor (juce::MouseCursor::NormalCursor);
 }
 
 void DynamicsView::resized()
 {
-    const int W  = getWidth();
-    constexpr int bw      = 28;
-    constexpr int bh      = PnsTheme::kButtonHeight;
-    constexpr int gap     = 2;
-    constexpr int marginR = PnsTheme::kPaddingSmall;
-    constexpr int marginT = PnsTheme::kPaddingSmall;
-    m_zoom12s.setBounds (W - marginR - bw,           marginT, bw, bh);
-    m_zoom6s .setBounds (W - marginR - bw * 2 - gap, marginT, bw, bh);
-    m_reset  .setBounds (m_zoom6s.getX() - 10 - bw,  marginT, bw, bh);   // icon button, matches toggles
+    m_options.place (getWidth() - PnsTheme::kPaddingMid, PnsTheme::kPaddingSmall);
 }
 
 void DynamicsView::update()
@@ -999,19 +937,34 @@ void DynamicsView::update()
 
     // ── Waveform sample buffer ────────────────────────────────────────────
     {
-        const int n = juce::jmin (capN, kSampleBufLen);
-        if (n > 0)
+        // Every reader indexes the ring by ABSOLUTE sample (a % kSampleBufLen),
+        // so the writer must too. If the UI stalled long enough for audio to be
+        // lost, blank that stretch at its true position rather than packing the
+        // survivors in early — otherwise the write position and the absolute
+        // clock drift apart for good and every later read mixes eras.
+        if (capN > 0)
         {
+            const juce::int64 lost = juce::jmax ((juce::int64) 0, (juce::int64) capElapsed - capN);
+            for (juce::int64 g = 0, ng = juce::jmin (lost, (juce::int64) kSampleBufLen); g < ng; ++g)
+            {
+                const auto idx = (size_t) ((m_totalSamplesWritten + lost - ng + g) % kSampleBufLen);
+                m_preSamples[idx] = m_postSamples[idx] = 0.0f;
+            }
+            m_totalSamplesWritten += lost;
+
             const float* postData = m_capPost.getReadPointer (0);
             const float* preData  = m_capPre .getReadPointer (0);
-            for (int i = 0; i < n; ++i)
+            const int skip = juce::jmax (0, capN - kSampleBufLen);   // only the newest ring-full survives
+            for (int i = skip; i < capN; ++i)
             {
-                m_postSamples[m_sampleWritePos] = postData ? postData[i] : 0.0f;
-                m_preSamples [m_sampleWritePos] = preData  ? preData[i]  : 0.0f;
-                m_sampleWritePos = (m_sampleWritePos + 1) % kSampleBufLen;
+                const auto idx = (size_t) ((m_totalSamplesWritten + i) % kSampleBufLen);
+                m_postSamples[idx] = postData ? postData[i] : 0.0f;
+                m_preSamples [idx] = preData  ? preData[i]  : 0.0f;
             }
-            m_samplesStored = juce::jmin (m_samplesStored + n, kSampleBufLen);
-            m_totalSamplesWritten += (juce::int64) capElapsed;
+            m_totalSamplesWritten += capN;
+            m_sampleWritePos = (int) (m_totalSamplesWritten % kSampleBufLen);
+            m_samplesStored  = (int) juce::jmin ((juce::int64) kSampleBufLen,
+                                                 (juce::int64) m_samplesStored + lost + capN);
         }
     }
 
@@ -1053,11 +1006,13 @@ void DynamicsView::update()
                 const juce::int64 a1 = juce::jmin ((binIndex + 1) * (juce::int64) binSamples, total);
                 // Contiguous range (≤ binSamples < kSampleBufLen): one modulo to
                 // seed the ring index, then increment-with-wrap in the hot loop.
-                int idx = (int) (a0 % kSampleBufLen);
+                int idx    = (int) (a0 % kSampleBufLen);
+                int preIdx = (int) (((a0 - m_lagSamples) % kSampleBufLen + kSampleBufLen) % kSampleBufLen);
                 for (juce::int64 a = a0; a < a1; ++a)
                 {
-                    const float ps  = m_preSamples [idx];
+                    const float ps  = m_preSamples [preIdx];
                     const float qs  = m_postSamples[idx];
+                    if (++preIdx == kSampleBufLen) preIdx = 0;
                     if (ps < preMin)  preMin  = ps;
                     if (ps > preMax)  preMax  = ps;
                     if (qs < postMin) postMin = qs;
@@ -1126,63 +1081,94 @@ void DynamicsView::update()
         }
     }
 
-    // ── Peak-based GR + rolling average + smoothed RMS volume ────────────
+    // ── Delay-aligned GR + rolling average + smoothed RMS volume ─────────
     // Only when the ring actually produced audio. The UI ticks at 60 Hz but at
     // larger buffer sizes blocks arrive less often, so some ticks legitimately
     // drain nothing — treating those as "GR = 0" injected spurious zeros into the
     // history and the rolling average (a visible sawtooth).
     if (capN > 0)
     {
-        // Peak over everything drained this tick, not just the newest block — the
-        // old snapshot could miss transients entirely at small buffer sizes.
-        const int n = capN;
+        const double sr = m_proc.getSampleRate();
 
-        float currentGr = 0.0f;
-
+        // Gain reduction over everything drained this update (at least one
+        // ~30 ms window), Pre read back by the measured lag so both hold the
+        // same audio. Mean feeds the averages; the deepest window feeds "cut
+        // now", the lane and the peak hold, so a brief grab isn't missed.
+        const int W   = juce::jmax (64, juce::roundToInt (juce::jmax (1.0, sr) * 0.03));
+        const int len = juce::jmin (juce::jmax (capN, W), kSampleBufLen - m_lagSamples - 1);
+        pns::analysis::GainReduction measured;
+        if (len > 0 && (juce::int64) m_samplesStored >= (juce::int64) len + m_lagSamples)
         {
-            const float* prePtr  = m_capPre .getReadPointer (0);
-            const float* postPtr = m_capPost.getReadPointer (0);
-
-            float prePeak = 0.0f, postPeak = 0.0f;
-            for (int i = 0; i < n; ++i)
+            m_alignPre .resize ((size_t) len);
+            m_alignPost.resize ((size_t) len);
+            const juce::int64 start = m_totalSamplesWritten - len;
+            for (int i = 0; i < len; ++i)
             {
-                prePeak  = juce::jmax (prePeak,  std::abs (prePtr[i]));
-                postPeak = juce::jmax (postPeak, std::abs (postPtr[i]));
+                m_alignPost[(size_t) i] = m_postSamples[(size_t) ((start + i) % kSampleBufLen)];
+                m_alignPre [(size_t) i] = m_preSamples [(size_t) ((start + i - m_lagSamples) % kSampleBufLen)];
             }
-
-            if (prePeak > 1.0e-3f)   // ~-60 dBFS silence gate — ignore noise floor
-                currentGr = 20.0f * std::log10 (juce::jmax (postPeak, 1.0e-6f))
-                          - 20.0f * std::log10 (prePeak);
+            measured = pns::analysis::gainReduction (m_alignPre.data(), m_alignPost.data(), len, W);
         }
+        const bool  audible   = measured.audible;
+        const float currentGr = measured.meanDb;
+        const float deepestGr = measured.minDb;
 
         const auto rms = m_proc.getRms();
         m_preConnected = rms.preValid;
 
-        // Reject the peak-timing-skew false positive (a transparent plugin showed
-        // GR while In/Out RMS were identical, i.e. RMS delta ≈ 0). Keep the gate
-        // small — 0.2 dB — so a genuine 0.5 dB gain reduction (RMS delta ≈ 0.5)
-        // still registers; the original false case had a 0.0 dB delta, so it's
-        // still caught.
-        if (rms.preValid && std::abs (rms.postDb - rms.preDb) < 0.2f)
-            currentGr = 0.0f;
-
         if (rms.preValid)
         {
             // Instantaneous hold: keep last non-zero reading
-            if (currentGr < -0.1f)
-                m_instantGr = currentGr;
+            if (deepestGr < -0.1f)
+                m_instantGr = deepestGr;
 
-            // Push current GR into 30s rolling average buffer
-            m_avgGrBuf[m_avgGrPos] = currentGr;
+            // 30 s rolling average over the time audio was playing — moments
+            // with no cut count as 0. (Averaging only the non-zero moments made
+            // a few stray dips read as a steady cut.) Silence stores +1, skipped.
+            m_avgGrBuf[m_avgGrPos] = audible ? currentGr : 1.0f;
+            m_avgGrDur[m_avgGrPos] = capN;
             m_avgGrPos  = (m_avgGrPos + 1) % kAvgGrLen;
             m_avgGrFill = juce::jmin (m_avgGrFill + 1, kAvgGrLen);
 
-            // Compute average of non-zero entries
-            float sum = 0.0f;
-            int   cnt = 0;
-            for (int i = 0; i < m_avgGrFill; ++i)
-                if (m_avgGrBuf[i] < -0.1f) { sum += m_avgGrBuf[i]; ++cnt; }
-            m_avgGr = (cnt > 0) ? sum / (float) cnt : 0.0f;
+            // Newest first, weighted by the audio each entry covers, back to
+            // 30 s of audio (silence counts toward the 30 s but not the mean).
+            const double span = 30.0 * juce::jmax (1.0, sr);
+            double sum = 0.0, heard = 0.0, covered = 0.0;
+            for (int k = 0; k < m_avgGrFill && covered < span; ++k)
+            {
+                const int    i = (m_avgGrPos - 1 - k + kAvgGrLen) % kAvgGrLen;
+                const double d = (double) m_avgGrDur[(size_t) i];
+                covered += d;
+                if (m_avgGrBuf[(size_t) i] <= 0.0f) { sum += m_avgGrBuf[(size_t) i] * d; heard += d; }
+            }
+            m_avgGr = heard > 0.0 ? (float) (sum / heard) : 0.0f;
+
+            // Auto-restart on a lasting change (see m_fastGr). Time-based, since
+            // ticks with audio arrive at the host's block rate, not 60 Hz.
+            // The bar scales with the cut: a compressor riding 6 dB on average
+            // swings a few dB between phrases, which must not count as a change
+            // of plugin. 3 s of sustained disagreement, and at least 2 s of
+            // audio in the average first, so it never fires on a warm-up.
+            if (audible)
+            {
+                const double nowMs = juce::Time::getMillisecondCounterHiRes();
+                const float  k     = (float) juce::jlimit (0.0, 1.0, (double) capN / (0.5 * sr));
+                m_fastGr += k * (currentGr - m_fastGr);
+                const float bar = juce::jmax (1.5f, 0.4f * std::abs (m_avgGr));
+                if (heard > 2.0 * sr && std::abs (m_fastGr - m_avgGr) > bar)
+                {
+                    if (m_shiftSinceMs == 0.0) m_shiftSinceMs = nowMs;
+                    else if (nowMs - m_shiftSinceMs > 3000.0)
+                    {
+                        resetReadings();
+                        m_restartNoteEnd = nowMs + 4000.0;
+                    }
+                }
+                else
+                    m_shiftSinceMs = 0.0;
+            }
+            else
+                m_shiftSinceMs = 0.0;   // a pause breaks the run; it must be sustained while playing
 
             // Smooth RMS volume (0.9 decay)
             constexpr float kSmooth = 0.9f;
@@ -1191,36 +1177,40 @@ void DynamicsView::update()
         }
 
         m_gr[m_grPos] = rms.preValid
-            ? juce::jlimit (-24.0f, 0.0f, currentGr)
+            ? juce::jlimit (-24.0f, 0.0f, deepestGr)
             : 0.0f;
         m_grPos = (m_grPos + 1) % kGrLen;
 
         // Peak hold: track most-negative GR, decay at 0.998 per frame (~3s hold)
-        if (rms.preValid && currentGr < m_grPeakHold)
-            m_grPeakHold = currentGr;
+        if (rms.preValid && deepestGr < m_grPeakHold)
+            m_grPeakHold = deepestGr;
         else
             m_grPeakHold = juce::jmin (0.0f, m_grPeakHold * 0.998f);
     }
 }
 
-//──────────────────────────────────────────────────────────────────────────────
-// Hit-test covers the frosted GR panel (Avg GR + Now rows).
-static juce::Rectangle<int> getReadoutBounds (int compW)
-{
-    constexpr int kBtnBottom = PnsTheme::kPaddingSmall + PnsTheme::kButtonHeight;   // 28
-    constexpr int kPanelW    = 132;
-    constexpr int kGrRowsH   = 42;   // covers Avg GR + Now inside panel
-    const int panelTop   = kBtnBottom + 8;                       // 36
-    const int panelRight = compW - PnsTheme::kPaddingMid;
-    const int panelLeft  = panelRight - kPanelW;
-    return { panelLeft, panelTop, kPanelW, kGrRowsH };
-}
-
 void DynamicsView::mouseDoubleClick (const juce::MouseEvent& e)
 {
-    // Double-clicking the readout panel is a shortcut for the Reset button.
-    if (getReadoutBounds (getWidth()).contains (e.getPosition()))
+    // Double-clicking the readout chips is a shortcut for Start over.
+    if (m_chipBounds.contains (e.getPosition()))
         reset();
+}
+
+// Clear just the cut readings — used by the auto-restart when the plugin's
+// behaviour changes for good. The waveform history stays: it's still true.
+void DynamicsView::resetReadings()
+{
+    m_instantGr  = 0.0f;
+    m_avgGr      = 0.0f;
+    m_grPeakHold = 0.0f;
+    m_avgGrBuf.fill (0.0f);
+    m_avgGrDur.fill (0);
+    m_avgGrPos   = 0;
+    m_avgGrFill  = 0;
+    m_gr.fill (0.0f);
+    m_grPos      = 0;
+    m_shiftSinceMs = 0.0;
+    // m_fastGr is kept: it already reflects the new state.
 }
 
 // Clear every accumulated reading and history so measurement starts over after a
@@ -1244,8 +1234,11 @@ void DynamicsView::reset()
     m_avgGr      = 0.0f;
     m_grPeakHold = 0.0f;
     m_avgGrBuf.fill (0.0f);
+    m_avgGrDur.fill (0);
     m_avgGrPos   = 0;
     m_avgGrFill  = 0;
+    m_fastGr       = 0.0f;
+    m_shiftSinceMs = 0.0;
 
     // Smoothed In/Out levels and the scrolling GR history plot.
     m_smoothPreDb  = -90.0f;
@@ -1260,7 +1253,7 @@ void DynamicsView::reset()
 
 void DynamicsView::mouseMove (const juce::MouseEvent& e)
 {
-    const bool over = getReadoutBounds (getWidth()).contains (e.getPosition());
+    const bool over = m_chipBounds.contains (e.getPosition());
     if (over != m_mouseOverReadout)
     {
         m_mouseOverReadout = over;
@@ -1298,8 +1291,7 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
     PnsTheme::drawPanelTitle (g, area.withHeight (16.0f), "LEVEL OVER TIME", "pre vs post waveform");
 
     // ── Background ────────────────────────────────────────────────────────
-    g.setColour (PnsTheme::kBgPanel);
-    g.fillRect (px, py, pw, ph);
+    PnsTheme::drawPlotCard (g, { px, py, pw, ph });
 
     // ── Clip lines ── only meaningful when not auto-zoomed (edges = ±1.0) ──
     if (scale < 1.05f)
@@ -1423,122 +1415,78 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
         }
     }
 
-    // ── Readouts: Avg GR / Now / VOLUME ──────────────────────────────────
+    // ── Readout chips along the bottom of the card ───────────────────────
+    //    The average cut is the headline number above the view, so the chips
+    //    carry what it doesn't: the cut right now, and the loudness in / out.
     {
-        auto grStr = [] (float v) -> juce::String {
-            return (v <= -0.1f) ? (juce::String (v, 1) + " dB") : "0.0 dB";
+        auto dbStr = [] (float v) -> juce::String
+        {
+            return v <= -89.0f ? juce::String ("---") : juce::String (v, 1) + " dB";
         };
-        auto dbStr = [] (float v) -> juce::String {
-            if (v <= -89.0f) return "---";
-            return juce::String (v, 1) + " dB";
+        const bool  flashing = (juce::Time::getMillisecondCounterHiRes() < m_grFlashEnd);
+        const float delta    = m_smoothPostDb - m_smoothPreDb;
+        juce::String deltaStr = m_smoothPreDb <= -89.0f ? juce::String ("---")
+                              : (delta >= 0.0f ? "+" : "") + juce::String (delta, 1) + " dB";
+
+        struct Chip { const char* label; juce::String value; juce::Colour col; };
+        const Chip chips[] = {
+            { "Cut now",  m_instantGr <= -0.1f ? juce::String (-m_instantGr, 1) + " dB" : juce::String ("0.0 dB"),
+              PnsTheme::kColorGainRed },
+            { "Loudness in",  dbStr (m_smoothPreDb),  PnsTheme::kTextPrimary },
+            { "Loudness out", dbStr (m_smoothPostDb), PnsTheme::kTextPrimary },
+            { "Change",   deltaStr, std::abs (delta) > 0.1f ? PnsTheme::kAccentPrimary : PnsTheme::kTextSecondary },
         };
 
-        const bool flashing = (juce::Time::getMillisecondCounterHiRes() < m_grFlashEnd);
+        constexpr float chipW = 116.0f, chipH = 44.0f, chipGap = 8.0f;
+        float cx = px + 10.0f;
+        const float cy = py + ph - chipH - 10.0f;
+        for (const auto& c : chips)
+        {
+            const juce::Rectangle<float> r (cx, cy, chipW, chipH);
+            g.setColour (PnsTheme::kBgDark.withAlpha (0.78f));
+            g.fillRoundedRectangle (r, 8.0f);
+            g.setColour (PnsTheme::kBorderSubtle);
+            g.drawRoundedRectangle (r.reduced (0.5f), 8.0f, 1.0f);
+            g.setFont (PnsTheme::fontLabel());
+            g.setColour (PnsTheme::kTextSecondary);
+            g.drawText (c.label, r.reduced (10.0f, 6.0f).withHeight (13.0f), juce::Justification::centredLeft);
+            g.setFont (PnsTheme::fontSized (16.0f, true));
+            g.setColour (flashing ? juce::Colours::white : c.col);
+            g.drawText (c.value, r.reduced (10.0f, 6.0f).withTrimmedTop (14.0f), juce::Justification::centredLeft);
+            cx += chipW + chipGap;
+        }
+        m_chipBounds = juce::Rectangle<float> (px + 10.0f, cy, cx - chipGap - (px + 10.0f), chipH).toNearestInt();
 
-        // Panel geometry — top sits 8px below the zoom buttons (bottom edge at 28px)
-        constexpr int kBtnBottom = PnsTheme::kPaddingSmall + PnsTheme::kButtonHeight;  // 28
-        constexpr int kPanelW    = 132;   // 120 content + 6px padding each side
-        constexpr int kPanelH    = 123;   // fits all rows with padding
-        const int     panelTop   = kBtnBottom + 8;
-        const int     panelRight = juce::roundToInt (area.getRight()) - PnsTheme::kPaddingMid;
-        const int     panelLeft  = panelRight - kPanelW;
-
-        PnsTheme::drawFrostedPanel (g, juce::Rectangle<float> (
-            (float) panelLeft, (float) panelTop,
-            (float) kPanelW,   (float) kPanelH));
-
-        const int lx = panelLeft  + PnsTheme::kPaddingSmall;
-        const int rx = panelRight - PnsTheme::kPaddingSmall;
-        constexpr int lw = 46;
-        constexpr int vw = 70;
-        const int vx = rx - vw;
-
-        constexpr int rowH = 14;
-        const int row0 = panelTop + PnsTheme::kPaddingSmall;   // 42
-        const int row1 = row0 + 17;
-
-        // ── Avg GR ────────────────────────────────────────────────────────
-        g.setFont (PnsTheme::fontLabel());
-        g.setColour (PnsTheme::kTextSecondary);
-        g.drawText ("Avg cut", lx, row0, lw, 12, juce::Justification::centredLeft);
-
-        g.setFont (PnsTheme::fontReadout());
-        g.setColour (flashing ? juce::Colours::white : PnsTheme::kColorPostAvg);
-        g.drawText (grStr (m_avgGr), vx, row0 - 1, vw, rowH, juce::Justification::centredRight);
-
-        // ── Now ───────────────────────────────────────────────────────────
-        g.setFont (PnsTheme::fontLabel());
-        g.setColour (PnsTheme::kTextSecondary);
-        g.drawText ("Now", lx, row1, lw, 12, juce::Justification::centredLeft);
-
-        g.setFont (PnsTheme::fontReadout());
-        g.setColour (flashing ? juce::Colours::white : PnsTheme::kTextAccent);
-        g.drawText (grStr (m_instantGr), vx, row1 - 1, vw, rowH, juce::Justification::centredRight);
-
-        // ── Hover tooltip ─────────────────────────────────────────────────
-        if (m_mouseOverReadout)
+        if (juce::Time::getMillisecondCounterHiRes() < m_restartNoteEnd)
+        {
+            g.setFont (PnsTheme::fontLabel());
+            g.setColour (PnsTheme::kAccentPrimary);
+            g.drawText ("Readings restarted - the plugin's behaviour changed",
+                        juce::roundToInt (cx + 4.0f), juce::roundToInt (cy), 320,
+                        juce::roundToInt (chipH), juce::Justification::centredLeft);
+        }
+        else if (m_mouseOverReadout)
         {
             g.setFont (PnsTheme::fontLabel());
             g.setColour (PnsTheme::kGridLabel);
-            g.drawText ("Double-click to reset",
-                        lx, row1 + 14, rx - lx, 11, juce::Justification::centredRight);
+            g.drawText ("Double-click to start over", juce::roundToInt (cx + 4.0f), juce::roundToInt (cy),
+                        160, juce::roundToInt (chipH), juce::Justification::centredLeft);
         }
-
-        // ── Divider ───────────────────────────────────────────────────────
-        const int divY = row1 + 28;
-        g.setColour (PnsTheme::kBorderSubtle);
-        g.drawHorizontalLine (divY, (float) lx, (float) rx);
-
-        // ── VOLUME section ────────────────────────────────────────────────
-        const int vrow0    = divY + 5;
-        const int dataRow0 = vrow0 + 13;
-        const int dataRow1 = dataRow0 + 17;
-        const int dataRow2 = dataRow1 + 17;
-
-        g.setFont (PnsTheme::fontLabel());
-        g.setColour (PnsTheme::kTextSecondary);
-        g.drawText ("LOUDNESS", lx, vrow0, 60, 11, juce::Justification::centredLeft);
-
-        // In
-        g.drawText ("In", lx, dataRow0, lw, 12, juce::Justification::centredLeft);
-        g.setFont (PnsTheme::fontReadout());
-        g.setColour (PnsTheme::kTextPrimary);
-        g.drawText (dbStr (m_smoothPreDb), vx, dataRow0 - 1, vw, rowH, juce::Justification::centredRight);
-
-        // Out
-        g.setFont (PnsTheme::fontLabel());
-        g.setColour (PnsTheme::kTextSecondary);
-        g.drawText ("Out", lx, dataRow1, lw, 12, juce::Justification::centredLeft);
-        g.setFont (PnsTheme::fontReadout());
-        g.setColour (PnsTheme::kTextPrimary);
-        g.drawText (dbStr (m_smoothPostDb), vx, dataRow1 - 1, vw, rowH, juce::Justification::centredRight);
-
-        // Δ — colour depends on sign
-        const float delta = m_smoothPostDb - m_smoothPreDb;
-        const juce::Colour deltaCol = (delta < -0.1f) ? PnsTheme::kColorGainRed
-                                    : (delta >  0.1f) ? PnsTheme::kAccentPrimary
-                                                      : PnsTheme::kTextSecondary;
-        juce::String deltaStr = (delta >= 0.0f ? "+" : "") + juce::String (delta, 1) + " dB";
-        if (m_smoothPreDb <= -89.0f) deltaStr = "---";
-
-        g.setFont (PnsTheme::fontLabel());
-        g.setColour (PnsTheme::kTextSecondary);
-        g.drawText ("Change", lx, dataRow2, lw, 12, juce::Justification::centredLeft);
-        g.setFont (PnsTheme::fontReadout());
-        g.setColour (deltaCol);
-        g.drawText (deltaStr, vx, dataRow2 - 1, vw, rowH, juce::Justification::centredRight);
     }
-
-    // ── Border ────────────────────────────────────────────────────────────
-    g.setColour (PnsTheme::kBorderSubtle);
-    g.drawRect (px, py, pw, ph, 1.0f);
 }
 
 //──────────────────────────────────────────────────────────────────────────────
 void DynamicsView::drawGrMeter (juce::Graphics& g, juce::Rectangle<float> area)
 {
     constexpr float kML = 42.0f, kMR = 12.0f, kMT = 20.0f, kMB = 20.0f;
-    constexpr float kMinGr = -24.0f, kMaxGr = 0.0f;
+    // Scale to the deepest cut in view (history + peak hold) with headroom, on
+    // round steps so the axis doesn't twitch: 1.4 dB of cut fills a 3 dB lane
+    // instead of being a sliver at the top of a fixed 24 dB one.
+    float deepest = -m_grPeakHold;
+    for (float v : m_gr) deepest = juce::jmax (deepest, -v);
+    const float kMinGr = deepest * 1.2f <= 3.0f ? -3.0f : deepest * 1.2f <= 6.0f ? -6.0f
+                       : deepest * 1.2f <= 12.0f ? -12.0f : -24.0f;
+    constexpr float kMaxGr = 0.0f;
 
     const float px = area.getX() + kML,  py = area.getY() + kMT;
     const float pw = area.getWidth()  - kML - kMR;
@@ -1551,17 +1499,17 @@ void DynamicsView::drawGrMeter (juce::Graphics& g, juce::Rectangle<float> area)
 
     PnsTheme::drawPanelTitle (g, area.withHeight (16.0f), "HOW MUCH IT TURNS DOWN", "gain reduction, dB");
 
-    g.setColour (PnsTheme::kBgPanel);
-    g.fillRect (px, py, pw, ph);
+    PnsTheme::drawPlotCard (g, { px, py, pw, ph });
 
-    const float grLines[] = { 0.0f, -3.0f, -6.0f, -9.0f, -12.0f, -15.0f, -18.0f, -21.0f, -24.0f };
-    for (float gr : grLines)
+    const int divs = kMinGr >= -6.0f ? 3 : 4;   // whole-dB steps: 1, 2, 3 or 6 dB
+    for (int i = 0; i <= divs; ++i)
     {
+        const float gr = kMinGr * (float) i / (float) divs;
         const float gy = grToY (gr);
         g.setColour (gr == 0.0f ? PnsTheme::kZeroLine : PnsTheme::kGridLine);
         g.drawHorizontalLine (juce::roundToInt (gy), px, px + pw);
 
-        juce::String lbl = (gr == 0.0f) ? "0" : juce::String (juce::roundToInt (gr));
+        const juce::String lbl (juce::roundToInt (gr));
         g.setColour (PnsTheme::kGridLabel);
         g.drawText (lbl, juce::roundToInt (area.getX()),
                     juce::roundToInt (gy) - 6,
@@ -1587,8 +1535,8 @@ void DynamicsView::drawGrMeter (juce::Graphics& g, juce::Rectangle<float> area)
     fillPath.lineTo (px + pw, zeroY);
     fillPath.closeSubPath();
     {
-        juce::ColourGradient grad (PnsTheme::kColorGainRed.withAlpha (0.85f), px, py,
-                                   PnsTheme::kColorGainRed.withAlpha (0.35f), px, py + ph,
+        juce::ColourGradient grad (PnsTheme::kColorGainRed.withAlpha (0.30f), px, py,
+                                   PnsTheme::kColorGainRed.withAlpha (0.10f), px, py + ph,
                                    false);
         g.setGradientFill (grad);
         g.fillPath (fillPath);
@@ -1618,8 +1566,6 @@ void DynamicsView::drawGrMeter (juce::Graphics& g, juce::Rectangle<float> area)
                     juce::roundToInt (pw), 16, juce::Justification::centred);
     }
 
-    g.setColour (PnsTheme::kBorderSubtle);
-    g.drawRect (px, py, pw, ph, 1.0f);
 }
 
 //──────────────────────────────────────────────────────────────────────────────
@@ -1641,49 +1587,32 @@ void DynamicsView::paint (juce::Graphics& g)
 //==============================================================================
 OscilloscopeView::OscilloscopeView (PlugNspectrPostProcessor& p) : m_proc (p)
 {
-    auto styleBtn = [&] (juce::TextButton& btn, bool active)
-    {
-        btn.setToggleable (true);
-        btn.setToggleState (active, juce::dontSendNotification);
-    };
-
-    styleBtn (m_btn10ms,  false);
-    styleBtn (m_btn50ms,  true);   // default: 50ms
-    styleBtn (m_btn100ms, false);
-
-    auto setWindow = [this] (int ms)
-    {
-        m_windowMs    = ms;
-        m_hasDisplay  = false;
-        m_searchFrom  = m_totalWritten;
-        m_btn10ms .setToggleState (ms ==  10, juce::dontSendNotification);
-        m_btn50ms .setToggleState (ms ==  50, juce::dontSendNotification);
-        m_btn100ms.setToggleState (ms == 100, juce::dontSendNotification);
-    };
-
-    m_btn10ms .onClick = [this, setWindow] { setWindow ( 10); };
-    m_btn50ms .onClick = [this, setWindow] { setWindow ( 50); };
-    m_btn100ms.onClick = [this, setWindow] { setWindow (100); };
-
-    addAndMakeVisible (m_btn10ms);
-    addAndMakeVisible (m_btn50ms);
-    addAndMakeVisible (m_btn100ms);
+    m_options.addRow ("Zoom", "How much time fits across the screen.",
+                      { "10 ms", "50 ms", "100 ms" }, m_windowMs == 10 ? 0 : (m_windowMs == 50 ? 1 : 2),
+                      [this] (int i) { setWindowMs (i == 0 ? 10 : i == 1 ? 50 : 100); });
+    m_options.addRow ("Levels", "Matched scales Post to Pre's loudness, so only shape differences show.",
+                      { "Matched", "As played" }, 0,
+                      [this] (int i) { m_matchLevels = (i == 0); repaint(); });
+    m_options.addRow ("Update", "How often a new snapshot is drawn. Hold freezes it.",
+                      { "4x a second", "Live", "Hold" }, 0,
+                      [this] (int i) { m_refresh = i == 0 ? Refresh::Slow : i == 1 ? Refresh::Live : Refresh::Hold;
+                                       m_lastCaptureMs = 0.0; repaint(); });
+    addAndMakeVisible (m_options);
 }
 
 void OscilloscopeView::resized()
 {
-    const int W  = getWidth();
-    constexpr int bw      = 36;
-    constexpr int bh      = PnsTheme::kButtonHeight;
-    constexpr int gap     = 2;
-    constexpr int marginR = PnsTheme::kPaddingSmall;
-    constexpr int marginT = PnsTheme::kPaddingSmall;
-    m_btn100ms.setBounds (W - marginR - bw,               marginT, bw, bh);
-    m_btn50ms .setBounds (W - marginR - bw * 2 - gap,     marginT, bw, bh);
-    m_btn10ms .setBounds (W - marginR - bw * 3 - gap * 2, marginT, bw, bh);
+    m_options.place (getWidth() - PnsTheme::kPaddingMid, PnsTheme::kPaddingSmall);
 }
 
 //──────────────────────────────────────────────────────────────────────────────
+void OscilloscopeView::setWindowMs (int ms)
+{
+    m_windowMs   = ms;
+    m_hasDisplay = false;            // a new window needs a fresh snapshot
+    m_searchFrom = m_totalWritten;
+}
+
 float OscilloscopeView::ringGet (const std::array<float, kRingLen>& buf,
                                  uint64_t idx) const
 {
@@ -1722,14 +1651,23 @@ void OscilloscopeView::update()
     const double sr = m_proc.getSampleRate();
     if (sr <= 0.0 || m_ringAvail == 0) return;
 
+    // Throttle: keep the current picture until it is time for a new one.
+    const double nowMs = juce::Time::getMillisecondCounterHiRes();
+    if (m_refresh == Refresh::Hold && m_hasDisplay) return;
+    if (m_refresh == Refresh::Slow && m_hasDisplay && nowMs - m_lastCaptureMs < 250.0) return;
+
     const int captureTarget = juce::jmin ((int) (sr * m_windowMs / 1000.0), kMaxCapture);
     if (captureTarget <= 1) return;
 
     if (m_totalWritten < (uint64_t) captureTarget) return;
     const uint64_t searchEnd = m_totalWritten - (uint64_t) captureTarget;
 
+    // Leave room behind the trigger for Pre, which is read m_lag samples earlier.
     const uint64_t oldest      = m_totalWritten - (uint64_t) m_ringAvail;
-    const uint64_t searchStart = juce::jmax (m_searchFrom, oldest + 1);
+    // When throttled, skip ahead to recent audio rather than replaying the backlog.
+    const uint64_t recent      = searchEnd > (uint64_t) captureTarget * 4 ? searchEnd - (uint64_t) captureTarget * 4 : 0;
+    const uint64_t searchStart = std::max ({ m_searchFrom, oldest + 1 + (uint64_t) m_lag,
+                                               m_refresh == Refresh::Live ? (uint64_t) 0 : recent });
 
     if (searchStart >= searchEnd) return;
 
@@ -1743,12 +1681,15 @@ void OscilloscopeView::update()
         {
             for (int s = 0; s < captureTarget; ++s)
             {
-                m_displayPre [s] = ringGet (m_ringPre,  i + (uint64_t) s);
+                m_displayPre [s] = ringGet (m_ringPre,  i - (uint64_t) m_lag + (uint64_t) s);
                 m_displayPost[s] = ringGet (m_ringPost, i + (uint64_t) s);
             }
             m_displayCount = captureTarget;
             m_hasDisplay   = true;
             m_searchFrom   = i + (uint64_t) captureTarget;
+            m_lastCaptureMs = nowMs;
+            m_shapePre  = pns::analysis::measureShape (m_displayPre .data(), m_displayCount);
+            m_shapePost = pns::analysis::measureShape (m_displayPost.data(), m_displayCount);
             break;
         }
     }
@@ -1763,27 +1704,37 @@ void OscilloscopeView::paint (juce::Graphics& g)
     const float px = kML,          py = kMT;
     const float pw = W - kML - kMR, ph = H - kMT - kMB;
 
+    // Post's display gain: matched to Pre's loudness (RMS), or 1 = as played.
+    // Bounded to ±24 dB so a near-silent output isn't blown up into noise.
+    const float postGain = (m_matchLevels && m_shapePost.rms > 1.0e-6f && m_shapePre.rms > 1.0e-6f)
+                         ? juce::jlimit (1.0f / 16.0f, 16.0f, m_shapePre.rms / m_shapePost.rms) : 1.0f;
+    // Vertical range: the smallest of 1 / 0.5 / 0.25 / 0.125 that fits both
+    // traces, so quiet material still fills the height.
+    const float tallest = juce::jmax (m_shapePre.peak, m_shapePost.peak * postGain);
+    float range = 1.0f;
+    while (range > 0.125f && tallest > 0.0f && tallest < range * 0.45f) range *= 0.5f;
+
     const float midY = py + ph * 0.5f;
     auto ampToY = [&] (float a) -> float {
-        return midY - juce::jlimit (-1.0f, 1.0f, a) * ph * 0.5f;
+        return midY - juce::jlimit (-1.0f, 1.0f, a / range) * ph * 0.5f;
     };
 
     // ── Background ────────────────────────────────────────────────────────
     g.fillAll (PnsTheme::kBgDark);
-    g.setColour (juce::Colour (0, 0, 0));    // pure black plot area
-    g.fillRect (px, py, pw, ph);
+    PnsTheme::drawPlotCard (g, { px, py, pw, ph });
 
     // ── Title ─────────────────────────────────────────────────────────────
     PnsTheme::drawPanelTitle (g, { px, 0.0f, pw, kMT }, "WAVEFORM CLOSE-UP", "oscilloscope");
 
     // ── Grid — solid for clip lines, dotted for sub-divisions ─────────────
-    g.setColour (PnsTheme::kClipLine);
-    g.drawHorizontalLine (juce::roundToInt (ampToY ( 1.0f)), px, px + pw);
-    g.drawHorizontalLine (juce::roundToInt (ampToY (-1.0f)), px, px + pw);
+    // 0 dBFS lines only when the full scale is showing — then they mean clipping.
+    g.setColour (range >= 1.0f ? PnsTheme::kClipLine : PnsTheme::kGridLine);
+    g.drawHorizontalLine (juce::roundToInt (ampToY ( range)), px, px + pw);
+    g.drawHorizontalLine (juce::roundToInt (ampToY (-range)), px, px + pw);
 
     g.setColour (PnsTheme::kGridLine);
-    PnsTheme::drawDottedHLine (g, ampToY ( 0.5f), px, px + pw);
-    PnsTheme::drawDottedHLine (g, ampToY (-0.5f), px, px + pw);
+    PnsTheme::drawDottedHLine (g, ampToY ( range * 0.5f), px, px + pw);
+    PnsTheme::drawDottedHLine (g, ampToY (-range * 0.5f), px, px + pw);
 
     g.setColour (PnsTheme::kZeroLine);
     g.drawHorizontalLine (juce::roundToInt (midY), px, px + pw);
@@ -1795,11 +1746,16 @@ void OscilloscopeView::paint (juce::Graphics& g)
     // ── Y axis labels ─────────────────────────────────────────────────────
     g.setFont (PnsTheme::fontLabel());
     g.setColour (PnsTheme::kGridLabel);
-    g.drawText ("+1",  0, juce::roundToInt (ampToY ( 1.0f)) - 6, juce::roundToInt (kML) - 4, 12, juce::Justification::centredRight);
-    g.drawText ("+.5", 0, juce::roundToInt (ampToY ( 0.5f)) - 6, juce::roundToInt (kML) - 4, 12, juce::Justification::centredRight);
-    g.drawText ("0",   0, juce::roundToInt (midY)           - 6, juce::roundToInt (kML) - 4, 12, juce::Justification::centredRight);
-    g.drawText ("-.5", 0, juce::roundToInt (ampToY (-0.5f)) - 6, juce::roundToInt (kML) - 4, 12, juce::Justification::centredRight);
-    g.drawText ("-1",  0, juce::roundToInt (ampToY (-1.0f)) - 6, juce::roundToInt (kML) - 4, 12, juce::Justification::centredRight);
+    {
+        auto lbl = [] (float v)
+        {
+            const juce::String t = juce::String (std::abs (v), 3).trimCharactersAtEnd ("0").trimCharactersAtEnd (".");
+            return (v > 0.0f ? "+" : v < 0.0f ? "-" : "") + (t.startsWith ("0.") ? t.substring (1) : t);
+        };
+        for (float v : { range, range * 0.5f, 0.0f, -range * 0.5f, -range })
+            g.drawText (lbl (v), 0, juce::roundToInt (ampToY (v)) - 6, juce::roundToInt (kML) - 4, 12,
+                        juce::Justification::centredRight);
+    }
 
     // ── Waveforms ─────────────────────────────────────────────────────────
     if (m_hasDisplay && m_displayCount > 1)
@@ -1807,7 +1763,7 @@ void OscilloscopeView::paint (juce::Graphics& g)
         const int drawPts = juce::jmin (m_displayCount, juce::jmax (2, (int) pw));
         const float step  = (float) m_displayCount / (float) drawPts;
 
-        auto buildPath = [&] (const std::array<float, kMaxCapture>& buf) -> juce::Path
+        auto buildPath = [&] (const std::array<float, kMaxCapture>& buf, float gain) -> juce::Path
         {
             juce::Path p;
             for (int i = 0; i < drawPts; ++i)
@@ -1816,7 +1772,7 @@ void OscilloscopeView::paint (juce::Graphics& g)
                 const int   lo   = (int) fIdx;
                 const int   hi   = juce::jmin (lo + 1, m_displayCount - 1);
                 const float t    = fIdx - (float) lo;
-                const float val  = buf[lo] + t * (buf[hi] - buf[lo]);
+                const float val  = (buf[lo] + t * (buf[hi] - buf[lo])) * gain;
                 const float x    = px + pw * (float) i / (float) (drawPts - 1);
                 const float y    = ampToY (val);
                 if (i == 0) p.startNewSubPath (x, y);
@@ -1825,12 +1781,11 @@ void OscilloscopeView::paint (juce::Graphics& g)
             return p;
         };
 
-        // PRE — ghosted lavender at 40%, no glow, thin
-        g.setColour (PnsTheme::kColorPre.withAlpha (0.40f));
-        g.strokePath (buildPath (m_displayPre), juce::PathStrokeType (1.0f));
-
-        // POST — teal with glow (on top)
-        PnsTheme::drawGlowLine (g, buildPath (m_displayPost), PnsTheme::kColorPost, 1.5f);
+        // Pre — the reference, grey and a little heavier than before so it
+        // reads under Post; Post on top, level-matched unless "As played".
+        g.setColour (PnsTheme::kColorPre.withAlpha (0.75f));
+        g.strokePath (buildPath (m_displayPre, 1.0f), juce::PathStrokeType (1.4f));
+        PnsTheme::drawGlowLine (g, buildPath (m_displayPost, postGain), PnsTheme::kColorPost, 1.6f);
     }
     else
     {
@@ -1841,62 +1796,25 @@ void OscilloscopeView::paint (juce::Graphics& g)
                     juce::roundToInt (pw), 16, juce::Justification::centred);
     }
 
-    // ── Legend ────────────────────────────────────────────────────────────
+    // ── Key ───────────────────────────────────────────────────────────────
     {
-        constexpr float sw = 9.0f, sh = 7.0f, rowH = 12.0f;
-        const float lx = px + 6.0f,  ly = py + 6.0f;
-        // Frosted panel: 52px wide, 31px tall (sw+gap+text=40 + 12 padding; 2*rowH+sh-rowH+12=31)
-        PnsTheme::drawFrostedPanel (g, juce::Rectangle<float> (px, py + 2.0f, 52.0f, 31.0f));
+        const juce::String postLabel = m_matchLevels && std::abs (postGain - 1.0f) > 0.01f
+            ? "Out of your plugin (level-matched)" : "Out of your plugin";
+        const float kx = px + 10.0f, ky = py + 8.0f;
+        PnsTheme::drawFrostedPanel (g, { px + 4.0f, py + 4.0f, 228.0f, 36.0f });
         g.setFont (PnsTheme::fontLabel());
-
-        g.setColour (PnsTheme::kColorPreAvg);
-        g.fillRect (lx, ly, sw, sh);
+        g.setColour (PnsTheme::kColorPre);
+        g.fillRoundedRectangle (kx, ky + 4.0f, 14.0f, 3.0f, 1.5f);
         g.setColour (PnsTheme::kTextPrimary);
-        g.drawText ("Pre",  juce::roundToInt (lx + sw + 3), juce::roundToInt (ly - 1), 28, 10, juce::Justification::centredLeft);
-
+        g.drawText ("Into your plugin", juce::roundToInt (kx + 20.0f), juce::roundToInt (ky), 190, 12,
+                    juce::Justification::centredLeft);
         g.setColour (PnsTheme::kColorPost);
-        g.fillRect (lx, ly + rowH, sw, sh);
+        g.fillRoundedRectangle (kx, ky + 18.0f, 14.0f, 3.0f, 1.5f);
         g.setColour (PnsTheme::kTextPrimary);
-        g.drawText ("Post", juce::roundToInt (lx + sw + 3), juce::roundToInt (ly + rowH - 1), 28, 10, juce::Justification::centredLeft);
+        g.drawText (postLabel, juce::roundToInt (kx + 20.0f), juce::roundToInt (ky + 14.0f), 200, 12,
+                    juce::Justification::centredLeft);
     }
 
-    // ── SR readout — sits 8px below the time buttons (button bottom = 28px) ─
-    {
-        const double sr = m_proc.getSampleRate();
-        juce::String srStr = "SR: --";
-        if (sr > 0.0)
-        {
-            if (sr >= 1000.0)
-            {
-                const double srKhz = sr / 1000.0;
-                // Show one decimal only when needed (e.g. 44.1, 88.2; suppress for 48, 96)
-                const bool needDecimal = (std::fmod (srKhz, 1.0) > 0.05);
-                srStr = "SR: " + juce::String (srKhz, needDecimal ? 1 : 0) + " kHz";
-            }
-            else
-            {
-                srStr = "SR: " + juce::String ((int) sr) + " Hz";
-            }
-        }
-        constexpr int kPanelW  = 104;
-        constexpr int kPanelH  = 23;
-        constexpr int kPanelT  = PnsTheme::kPaddingSmall + PnsTheme::kButtonHeight + 8;   // 36
-        const int panelRight = juce::roundToInt (W) - PnsTheme::kPaddingMid;
-        PnsTheme::drawFrostedPanel (g, juce::Rectangle<float> (
-            (float) (panelRight - kPanelW), (float) kPanelT,
-            (float) kPanelW, (float) kPanelH));
-        g.setFont (PnsTheme::fontLabel());
-        g.setColour (PnsTheme::kTextAccent);
-        g.drawText (srStr,
-                    panelRight - kPanelW + PnsTheme::kPaddingSmall,
-                    kPanelT + PnsTheme::kPaddingSmall,
-                    kPanelW - PnsTheme::kPaddingSmall * 2, 11,
-                    juce::Justification::centredRight);
-    }
-
-    // ── Border ────────────────────────────────────────────────────────────
-    g.setColour (PnsTheme::kBorderSubtle);
-    g.drawRect (px, py, pw, ph, 1.0f);
 }
 
 //==============================================================================
@@ -1909,17 +1827,14 @@ static void drawCursorChip (juce::Graphics& g, juce::Rectangle<float> plot, floa
 
 StereoView::StereoView (PlugNspectrPostProcessor& p) : m_proc (p)
 {
-    m_reset.setTooltip ("Clear the stereo averages and the goniometer trail and "
-                        "start over (after tweaking the plugin chain)");
-    m_reset.onClick = [this] { reset(); };
-    addAndMakeVisible (m_reset);
+    m_options.setResetAction ("Clears the averages and the stereo-field trail.", [this] { reset(); });
+    addAndMakeVisible (m_options);
     setInterceptsMouseClicks (true, false);
 }
 
 void StereoView::resized()
 {
-    constexpr int bw = 28, marginR = PnsTheme::kPaddingSmall, marginT = PnsTheme::kPaddingSmall;
-    m_reset.setBounds (getWidth() - marginR - bw, marginT, bw, PnsTheme::kButtonHeight);
+    m_options.place (getWidth() - PnsTheme::kPaddingMid, PnsTheme::kPaddingSmall);
 }
 
 void StereoView::reset()
@@ -2068,8 +1983,7 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
         key (PnsTheme::kColorPost,                  "Post", 28);
     }
 
-    g.setColour (PnsTheme::kBgPanel);
-    g.fillRect (plot);
+    PnsTheme::drawPlotCard (g, plot);
 
     // 2 px inset so a curve sitting exactly at vMin/vMax (a mono signal reads
     // correlation 1.0 and width at the floor) is drawn just inside the frame
@@ -2091,7 +2005,7 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
         const auto zone = spec.cautionAbove
             ? juce::Rectangle<float> (plot.getX(), plot.getY(), plot.getWidth(), y0 - plot.getY())
             : juce::Rectangle<float> (plot.getX(), y0, plot.getWidth(), plot.getBottom() - y0);
-        g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.06f));
+        g.setColour (PnsTheme::kTextSecondary.withAlpha (0.05f));
         g.fillRect (zone);
     }
 
@@ -2125,7 +2039,7 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
     if (spec.cautionTag != nullptr && hasZero)
     {
         const float y0 = valToY (0.0f);
-        g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.50f));
+        g.setColour (PnsTheme::kTextSecondary.withAlpha (0.75f));
         constexpr int kTagW = 170;   // wide enough for the longest tag, unclipped
         g.drawText (spec.cautionTag, (int) plot.getRight() - (kTagW + 6),
                     spec.cautionAbove ? (int) plot.getY() + 2 : (int) y0 + 3,
@@ -2189,7 +2103,7 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
         for (size_t i = 1; i < ptsPost.size(); ++i) band.lineTo (ptsPost[i]);
         for (size_t i = ptsPre.size(); i-- > 0; )   band.lineTo (ptsPre[i]);
         band.closeSubPath();
-        g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.18f));
+        g.setColour (PnsTheme::kColorPost.withAlpha (0.10f));   // the change, in the Post colour
         g.fillPath (band);
     }
 
@@ -2233,8 +2147,7 @@ void StereoView::drawGonio (juce::Graphics& g, juce::Rectangle<float> area) cons
     const juce::Rectangle<float> sq =
         juce::Rectangle<float> (d, d).withCentre ({ area.getCentreX(),
                                                     area.getY() + 16.0f + (area.getHeight() - 16.0f) * 0.5f });
-    g.setColour (PnsTheme::kBgPanel);
-    g.fillRect (sq);
+    PnsTheme::drawPlotCard (g, sq);
 
     const float cx = sq.getCentreX(), cy = sq.getCentreY(), half = d * 0.5f;
 
@@ -2339,11 +2252,11 @@ void StereoView::drawReadouts (juce::Graphics& g, juce::Rectangle<float> area) c
 
     row ("Width", dbStr (m_st.bbWidthPre), dbStr (m_st.bbWidthPost), PnsTheme::kAccentPrimary);
     row ("Phase", juce::String (m_st.bbCorrPre, 2), juce::String (m_st.bbCorrPost, 2),
-         m_st.bbCorrPost < 0.0f ? PnsTheme::kColorPostAvg : PnsTheme::kAccentPrimary);
+         m_st.bbCorrPost < 0.0f ? PnsTheme::kWarn : PnsTheme::kAccentPrimary);
     // Mono-sum loss: how much level disappears when summed. Amber once it bites.
     row ("In mono", juce::String (m_st.monoLossPre, 1) + " dB",
                   juce::String (m_st.monoLossPost, 1) + " dB",
-         m_st.monoLossPost < -3.0f ? PnsTheme::kColorPostAvg : PnsTheme::kAccentPrimary);
+         m_st.monoLossPost < -3.0f ? PnsTheme::kWarn : PnsTheme::kAccentPrimary);
 }
 
 void StereoView::paint (juce::Graphics& g)
@@ -2578,8 +2491,7 @@ void HarmonicsView::drawSpectrumArea (juce::Graphics& g, juce::Rectangle<float> 
     auto magToDb = [] (float m) { return 20.0f * std::log10 (juce::jmax (m, 1.0e-6f)); };
 
     // Background
-    g.setColour (PnsTheme::kBgPanel);
-    g.fillRect (px, py, pw, ph);
+    PnsTheme::drawPlotCard (g, { px, py, pw, ph });
 
     // Title
     PnsTheme::drawPanelTitle (g, area.withHeight (kMT), "WHAT IT ADDS", "harmonic spectrum");
@@ -2600,13 +2512,13 @@ void HarmonicsView::drawSpectrumArea (juce::Graphics& g, juce::Rectangle<float> 
     // Harmonic marker lines and labels (H1-H8)
     const juce::Colour kHarmCols[8] = {
         PnsTheme::kColorPost,
-        PnsTheme::kColorPost.interpolatedWith (PnsTheme::kColorPostAvg, 1.0f/6.0f),
-        PnsTheme::kColorPost.interpolatedWith (PnsTheme::kColorPostAvg, 2.0f/6.0f),
-        PnsTheme::kColorPost.interpolatedWith (PnsTheme::kColorPostAvg, 3.0f/6.0f),
-        PnsTheme::kColorPost.interpolatedWith (PnsTheme::kColorPostAvg, 4.0f/6.0f),
-        PnsTheme::kColorPost.interpolatedWith (PnsTheme::kColorPostAvg, 5.0f/6.0f),
-        PnsTheme::kColorPostAvg,
-        PnsTheme::kColorPostAvg,
+        PnsTheme::kColorPost.interpolatedWith (PnsTheme::kTextPrimary, 1.0f/6.0f),
+        PnsTheme::kColorPost.interpolatedWith (PnsTheme::kTextPrimary, 2.0f/6.0f),
+        PnsTheme::kColorPost.interpolatedWith (PnsTheme::kTextPrimary, 3.0f/6.0f),
+        PnsTheme::kColorPost.interpolatedWith (PnsTheme::kTextPrimary, 4.0f/6.0f),
+        PnsTheme::kColorPost.interpolatedWith (PnsTheme::kTextPrimary, 5.0f/6.0f),
+        PnsTheme::kTextPrimary,
+        PnsTheme::kTextPrimary,
     };
 
     for (int h = 0; h < kNumH; ++h)
@@ -2946,8 +2858,7 @@ void LinearView::drawPanel (juce::Graphics& g, juce::Rectangle<float> r, const c
     const float pw = r.getWidth() - kML - kMR, ph = r.getHeight() - kMT - kMB;
     if (pw <= 0 || ph <= 0) return;
 
-    g.setColour (PnsTheme::kBgPanel);
-    g.fillRect (px, py, pw, ph);
+    PnsTheme::drawPlotCard (g, { px, py, pw, ph });
 
     {   // "PLAIN|technical" — plain name first, engineering term after it
         const juce::String t (title);
@@ -3030,9 +2941,9 @@ void LinearView::paint (juce::Graphics& g)
 
     drawPanel (g, magR, "LEVEL CHANGE|magnitude, dB",   m_meas.magDb, -48.0f,  12.0f, "dB",  PnsTheme::kColorPost,
                m_hasFrozen ? &m_frozenMag   : nullptr);
-    drawPanel (g, phR,  "PHASE SHIFT|phase, deg",      m_phaseDeg,  -180.0f, 180.0f, "deg", PnsTheme::kColorPostAvg,
+    drawPanel (g, phR,  "PHASE SHIFT|phase, deg",      m_phaseDeg,  -180.0f, 180.0f, "deg", PnsTheme::kColorPost,
                m_hasFrozen ? &m_frozenPhase : nullptr);
-    drawPanel (g, gdR,  "DELAY BY FREQUENCY|group delay, ms", m_groupMs,    m_gdLo,  m_gdHi, "ms",  PnsTheme::kColorGainRed,
+    drawPanel (g, gdR,  "DELAY BY FREQUENCY|group delay, ms", m_groupMs,    m_gdLo,  m_gdHi, "ms",  PnsTheme::kColorPost,
                m_hasFrozen ? &m_frozenGroup : nullptr);
 
     // ── Cursor readout — hairline across all panels + dot + value chip ─────
@@ -3051,8 +2962,8 @@ void LinearView::paint (juce::Graphics& g)
         struct P { juce::Rectangle<float> r; float v, vMin, vMax; juce::Colour col; };
         const P panels[3] = {
             { magR, m_meas.magDb[k], -48.0f,  12.0f, PnsTheme::kColorPost    },
-            { phR,  m_phaseDeg[k],  -180.0f, 180.0f, PnsTheme::kColorPostAvg },
-            { gdR,  m_groupMs[k],    m_gdLo,  m_gdHi, PnsTheme::kColorGainRed },
+            { phR,  m_phaseDeg[k],  -180.0f, 180.0f, PnsTheme::kColorPost },
+            { gdR,  m_groupMs[k],    m_gdLo,  m_gdHi, PnsTheme::kColorPost },
         };
         for (const auto& p : panels)
         {
@@ -3075,8 +2986,8 @@ void LinearView::paint (juce::Graphics& g)
         float bx = cx + 10.0f;
         if (bx + boxW > magR.getRight()) bx = cx - 10.0f - boxW;
         const float by = magR.getY() + kMT + 4.0f;
-        g.setColour (juce::Colour (10, 10, 10));
-        g.fillRect (bx, by, boxW, boxH);
+        g.setColour (PnsTheme::kBgDark.withAlpha (0.92f));
+        g.fillRoundedRectangle (bx, by, boxW, boxH, 6.0f);
         g.setColour (PnsTheme::kAccentPrimary.withAlpha (0.7f));
         g.drawRect (bx, by, boxW, boxH, 1.0f);
         g.setFont (PnsTheme::fontLabel());
@@ -3130,8 +3041,8 @@ static void drawCursorChip (juce::Graphics& g, juce::Rectangle<float> plot, floa
     if (bx + boxW > plot.getRight()) bx = cx - 10.0f - boxW;
     bx = juce::jmax (plot.getX(), bx);
     const float by = plot.getY() + 6.0f;
-    g.setColour (juce::Colour (10, 10, 10));
-    g.fillRect (bx, by, boxW, boxH);
+    g.setColour (PnsTheme::kBgDark.withAlpha (0.92f));
+    g.fillRoundedRectangle (bx, by, boxW, boxH, 6.0f);
     g.setColour (PnsTheme::kAccentPrimary.withAlpha (0.7f));
     g.drawRect (bx, by, boxW, boxH, 1.0f);
     g.setFont (PnsTheme::fontLabel());
@@ -3252,8 +3163,7 @@ void TransferView::paint (juce::Graphics& g)
 
     PnsTheme::drawPanelTitle (g, r.withHeight (13.0f), "OUTPUT LEVEL vs INPUT LEVEL", "transfer curve, dB");
 
-    g.setColour (PnsTheme::kBgPanel);
-    g.fillRect (px, py, pw, ph);
+    PnsTheme::drawPlotCard (g, { px, py, pw, ph });
 
     for (int v = -60; v <= 0; v += 10)
     {
@@ -3402,8 +3312,7 @@ void EnvelopeView::paint (juce::Graphics& g)
     PnsTheme::drawPanelTitle (g, area.withHeight (13.0f), "HOW FAST IT GRABS AND LETS GO",
                               "gain reduction vs time, ms");
 
-    g.setColour (PnsTheme::kBgPanel);
-    g.fillRect (px, py, pw, ph);
+    PnsTheme::drawPlotCard (g, { px, py, pw, ph });
 
     for (int i = 0; i <= 4; ++i)
     {
@@ -3426,10 +3335,10 @@ void EnvelopeView::paint (juce::Graphics& g)
     }
 
     // Step markers: attack onset at 0 ms, release onset at 500 ms.
-    g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.6f));
+    g.setColour (PnsTheme::kAccentPrimary.withAlpha (0.6f));
     g.drawVerticalLine (juce::roundToInt (X (0.0f)),   py, py + ph);
     g.drawVerticalLine (juce::roundToInt (X (500.0f)), py, py + ph);
-    g.setColour (PnsTheme::kColorPostAvg);
+    g.setColour (PnsTheme::kAccentPrimary);
     g.setFont (PnsTheme::fontLabel());
     g.drawText ("attack",  juce::roundToInt (X (4.0f)),   (int) py + 2, 60, 11, juce::Justification::centredLeft);
     g.drawText ("release", juce::roundToInt (X (504.0f)), (int) py + 2, 60, 11, juce::Justification::centredLeft);
@@ -3448,7 +3357,7 @@ void EnvelopeView::paint (juce::Graphics& g)
         ++nValid;
     }
     if (nValid > 1)
-        PnsTheme::drawGlowLine (g, path, PnsTheme::kColorGainRed, 1.5f);
+        PnsTheme::drawGlowLine (g, path, PnsTheme::kColorPost, 1.5f);
 
     // Cursor readout — time → gain reduction.
     if (nValid > 1 && m_cursorX >= 0.0f)
@@ -3463,7 +3372,7 @@ void EnvelopeView::paint (juce::Graphics& g)
             rows.add (juce::String (juce::roundToInt (ms)) + " ms");
             rows.add ("GR " + juce::String (gr, 2) + " dB");
             drawCursorChip (g, { px, py, pw, ph }, cx, Y (juce::jlimit (0.0f, m_grHi, gr)),
-                            PnsTheme::kColorGainRed, rows, m_cursorLocked);
+                            PnsTheme::kColorPost, rows, m_cursorLocked);
         }
     }
 
@@ -3550,7 +3459,7 @@ void ThdSweepView::paint (juce::Graphics& g)
     auto area = getLocalBounds().toFloat().reduced (8.0f);
     area.removeFromTop ((float) PnsTheme::kButtonHeight + 4.0f);
 
-    constexpr float kML = 46.0f, kMR = 12.0f, kMT = 16.0f, kMB = 20.0f;
+    constexpr float kML = 54.0f, kMR = 12.0f, kMT = 16.0f, kMB = 20.0f;
     const float px = area.getX() + kML, py = area.getY() + kMT;
     const float pw = area.getWidth() - kML - kMR, ph = area.getHeight() - kMT - kMB;
     if (pw <= 0 || ph <= 0) return;
@@ -3558,19 +3467,27 @@ void ThdSweepView::paint (juce::Graphics& g)
     const float lo = PlugNspectrPostProcessor::kThdLoHz, hi = PlugNspectrPostProcessor::kThdHiHz;
     auto X = [&] (double f) { return px + pw * (float) (std::log (juce::jlimit ((double) lo, (double) hi, f) / lo)
                                                         / std::log ((double) hi / lo)); };
-    // Log-% Y axis: 0.001% (bottom) .. 100% (top), 5 decades.
-    constexpr float yHi = 2.0f, yLo = -3.0f;
+    // Log-% Y axis, three decades, topped one decade above the highest reading
+    // (live or frozen) so the curve uses the height: 0.01..10% for a typical
+    // saturator, 0.001..1% for a clean EQ. Never above 100%.
+    float peak = 0.0f;
+    for (int b = 0; b < kBins; ++b)
+    {
+        if (m_thd.valid[(size_t) b])                   peak = juce::jmax (peak, m_thd.thdPct[(size_t) b]);
+        if (m_hasFrozen && m_frozenValid[(size_t) b]) peak = juce::jmax (peak, m_frozenThd[(size_t) b]);
+    }
+    const float yHi = juce::jlimit (0.0f, 2.0f, std::ceil (std::log10 (juce::jmax (peak, 1.0e-3f) * 1.5f)));
+    const float yLo = yHi - 3.0f;
     auto Y = [&] (float pct) { const float lv = juce::jlimit (yLo, yHi, std::log10 (juce::jmax (pct, 1.0e-4f)));
                                return py + ph * (yHi - lv) / (yHi - yLo); };
 
     PnsTheme::drawPanelTitle (g, area.withHeight (13.0f), "DISTORTION BY FREQUENCY", "THD, %");
 
-    g.setColour (PnsTheme::kBgPanel);
-    g.fillRect (px, py, pw, ph);
+    PnsTheme::drawPlotCard (g, { px, py, pw, ph });
 
-    const float decades[] = { 100.0f, 10.0f, 1.0f, 0.1f, 0.01f, 0.001f };
-    for (float d : decades)
+    for (int e = (int) yLo; e <= (int) yHi; ++e)
     {
+        const float d  = std::pow (10.0f, (float) e);
         const float gy = Y (d);
         g.setColour (PnsTheme::kGridLine);
         g.drawHorizontalLine (juce::roundToInt (gy), px, px + pw);
@@ -3639,13 +3556,13 @@ void ThdSweepView::paint (juce::Graphics& g)
 
         int gc = 0;
         const juce::Path ghost = buildPath (m_thd.thdPct, ghostMask, gc);
-        if (gc > 1) { g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.25f));
+        if (gc > 1) { g.setColour (PnsTheme::kColorPost.withAlpha (0.25f));
                       g.strokePath (ghost, juce::PathStrokeType (1.0f)); }
 
         int nFresh = 0;
         const juce::Path path = buildPath (m_thd.thdPct, freshMask, nFresh);
         if (nFresh > 1)
-            PnsTheme::drawGlowLine (g, path, PnsTheme::kColorPostAvg, 1.5f);
+            PnsTheme::drawGlowLine (g, path, PnsTheme::kColorPost, 1.5f);
     }
 
     // Cursor readout — frequency → THD %.
@@ -3663,7 +3580,7 @@ void ThdSweepView::paint (juce::Graphics& g)
             juce::StringArray rows;
             rows.add (fStr);
             rows.add ("THD " + juce::String (pct, pct < 1.0f ? 2 : 1) + " %");
-            drawCursorChip (g, { px, py, pw, ph }, cx, Y (pct), PnsTheme::kColorPostAvg, rows, m_cursorLocked);
+            drawCursorChip (g, { px, py, pw, ph }, cx, Y (pct), PnsTheme::kColorPost, rows, m_cursorLocked);
         }
     }
 
@@ -3683,6 +3600,7 @@ void ThdSweepView::paint (juce::Graphics& g)
 PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     : AudioProcessorEditor (&p),
       audioProcessor (p),
+      m_lagTracker (p),
       m_specView (p),
       m_dynView  (p),
       m_oscView  (p),
@@ -3697,30 +3615,22 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
 
     m_pnsLogo = juce::ImageCache::getFromMemory (kPnsLogoPng, kPnsLogoPngSize);
 
-    for (auto* btn : { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope, &m_tabStereo,
-                       &m_tabHarmonics, &m_tabLinear, &m_tabTransfer, &m_tabEnvelope,
-                       &m_tabThd })
     {
-        btn->getProperties().set ("tabButton", true);
-        addAndMakeVisible (btn);
-    }
-    {
-        juce::TextButton* tabs[TabCount] = { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope,
-                                             &m_tabStereo, &m_tabHarmonics, &m_tabLinear, &m_tabTransfer,
-                                             &m_tabEnvelope, &m_tabThd };
+        struct Def { const char* label; DockTab::Icon icon; };
+        const Def defs[TabCount] = {
+            { "Tone",       DockTab::Tone        }, { "Dynamics",   DockTab::Dynamics      },
+            { "Waveform",   DockTab::Waveform    }, { "Stereo",     DockTab::Stereo        },
+            { "Harmonics",  DockTab::Harmonics   }, { "EQ curve",   DockTab::EqCurve       },
+            { "Compression",DockTab::Compression }, { "Attack/Rel", DockTab::AttackRelease },
+            { "Distortion", DockTab::Distortion  } };
         for (int i = 0; i < TabCount; ++i)
-            tabs[i]->setTooltip (tabQuestion (i));
+        {
+            auto* t = m_tabs.add (new DockTab (defs[i].label, defs[i].icon));
+            t->setTooltip (tabQuestion (i));
+            t->onClick = [this, i] { switchTab (i); };
+            addAndMakeVisible (t);
+        }
     }
-
-    m_tabSpectrum    .onClick = [this] { switchTab (TabSpectrum);     };
-    m_tabDynamics    .onClick = [this] { switchTab (TabDynamics);     };
-    m_tabOscilloscope.onClick = [this] { switchTab (TabOscilloscope); };
-    m_tabStereo      .onClick = [this] { switchTab (TabStereo);       };
-    m_tabHarmonics   .onClick = [this] { switchTab (TabHarmonics);    };
-    m_tabLinear      .onClick = [this] { switchTab (TabLinear);       };
-    m_tabTransfer    .onClick = [this] { switchTab (TabTransfer);     };
-    m_tabEnvelope    .onClick = [this] { switchTab (TabEnvelope);     };
-    m_tabThd         .onClick = [this] { switchTab (TabThd);          };
 
     addAndMakeVisible (m_specView);
     addAndMakeVisible (m_dynView);
@@ -3738,47 +3648,47 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
     m_envelopeView.onMeasureChanged = [this] { writeCmdBlock(); repaint(); };
     m_thdView.onMeasureChanged      = [this] { writeCmdBlock(); repaint(); };
 
-    // ── Global footer — frequency knob ────────────────────────────────────
-    m_footerFreqSlider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-    m_footerFreqSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-    m_footerFreqSlider.setRange (100.0, 8000.0, 1.0);
-    m_footerFreqSlider.setSkewFactorFromMidPoint (1000.0);
-    m_footerFreqSlider.setValue (1000.0, juce::dontSendNotification);
-    m_footerFreqSlider.onValueChange = [this]
+    // ── Dock — test-tone frequency knob ────────────────────────────────────
+    m_toneFreqSlider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    m_toneFreqSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    m_toneFreqSlider.setRange (100.0, 8000.0, 1.0);
+    m_toneFreqSlider.setSkewFactorFromMidPoint (1000.0);
+    m_toneFreqSlider.setValue (1000.0, juce::dontSendNotification);
+    m_toneFreqSlider.onValueChange = [this]
     {
-        m_toneFreq = m_footerFreqSlider.getValue();
+        m_toneFreq = m_toneFreqSlider.getValue();
         writeCmdBlock();
         m_harmView.setToneFreq (m_toneFreq);
-        repaint();   // update footer freq label
+        repaint();   // update the tone readout
     };
-    addAndMakeVisible (m_footerFreqSlider);
+    addAndMakeVisible (m_toneFreqSlider);
 
-    // ── Global footer — test tone level ───────────────────────────────────
-    m_footerLevelSlider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-    m_footerLevelSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-    m_footerLevelSlider.setRange (-48.0, 0.0, 0.5);
-    m_footerLevelSlider.setValue (m_toneLevel, juce::dontSendNotification);
-    m_footerLevelSlider.onValueChange = [this]
+    // ── Dock — test-tone level ───────────────────────────────────
+    m_toneLevelSlider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    m_toneLevelSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    m_toneLevelSlider.setRange (-48.0, 0.0, 0.5);
+    m_toneLevelSlider.setValue (m_toneLevel, juce::dontSendNotification);
+    m_toneLevelSlider.onValueChange = [this]
     {
-        m_toneLevel = m_footerLevelSlider.getValue();
+        m_toneLevel = m_toneLevelSlider.getValue();
         writeCmdBlock();
         repaint();
     };
-    addAndMakeVisible (m_footerLevelSlider);
+    addAndMakeVisible (m_toneLevelSlider);
 
-    // ── Global footer — test tone button ──────────────────────────────────
-    m_footerToneBtn.setToggleable (true);
-    m_footerToneBtn.getProperties().set ("armed", true);
-    m_footerToneBtn.setToggleState (false, juce::dontSendNotification);
-    m_footerToneBtn.onClick = [this]
+    // ── Dock — test-tone button ──────────────────────────────────
+    m_toneBtn.setToggleable (true);
+    m_toneBtn.getProperties().set ("armed", true);
+    m_toneBtn.setToggleState (false, juce::dontSendNotification);
+    m_toneBtn.onClick = [this]
     {
         m_toneActive = !m_toneActive;
-        m_footerToneBtn.setToggleState (m_toneActive, juce::dontSendNotification);
+        m_toneBtn.setToggleState (m_toneActive, juce::dontSendNotification);
         writeCmdBlock();
         m_harmView.setToneActive (m_toneActive);
         repaint();   // show/hide warning label
     };
-    addAndMakeVisible (m_footerToneBtn);
+    addAndMakeVisible (m_toneBtn);
 
     // ── Header — L+R / Side segmented channel selector (all analysis) ──────
     {
@@ -3811,9 +3721,9 @@ PlugNspectrPostEditor::PlugNspectrPostEditor (PlugNspectrPostProcessor& p)
 
     switchTab (0);
 
-    setSize (900, 576);   // wider for the renamed tabs; +36px footer
+    setSize (1280, 800);
     setResizable (true, true);
-    setResizeLimits (820, 486, 2000, 1436);   // 820 fits the renamed 8-tab bar
+    setResizeLimits (960, 600, 2560, 1600);   // 960 still fits the nine dock tabs + tone controls
     startTimerHz (60);
 }
 
@@ -3866,7 +3776,7 @@ bool PlugNspectrPostEditor::disarmAllStimuli()
     if (m_toneActive)
     {
         m_toneActive = false;
-        m_footerToneBtn.setToggleState (false, juce::dontSendNotification);
+        m_toneBtn.setToggleState (false, juce::dontSendNotification);
         m_harmView.setToneActive (false);
         changed = true;
     }
@@ -3909,6 +3819,8 @@ void PlugNspectrPostEditor::timerCallback()
         m_pulsePhase -= juce::MathConstants<float>::twoPi;
 
     // ── Views ──────────────────────────────────────────────────────────────
+    m_lagTracker.update();
+    m_dynView.setLagSamples (m_lagTracker.lagSamples());
     m_dynView.update();
     if (m_activeTab == TabDynamics) m_dynView.repaint();
 
@@ -3917,6 +3829,8 @@ void PlugNspectrPostEditor::timerCallback()
         m_specView.update();
         if (m_activeTab == TabSpectrum) m_specView.repaint();
 
+        m_oscView.setLagSamples (m_lagTracker.lagSamples());
+        m_oscView.setToneActive (m_toneActive);
         m_oscView.update();
         if (m_activeTab == TabOscilloscope) m_oscView.repaint();
 
@@ -3939,11 +3853,10 @@ void PlugNspectrPostEditor::timerCallback()
         if (m_activeTab == TabThd) m_thdView.repaint();
 
         const auto sm = currentSummary();
-        if (sm.text != m_summary.text || sm.warn != m_summary.warn)
+        if (sm != m_summary)
         {
             m_summary = sm;
-            repaint (0, PnsTheme::kHeaderHeight + PnsTheme::kTabBarHeight,
-                     getWidth(), PnsTheme::kBannerHeight);
+            repaint (0, 0, getWidth(), PnsTheme::kHeroHeight);
         }
     }
 }
@@ -3959,19 +3872,16 @@ void PlugNspectrPostEditor::paintOverChildren (juce::Graphics& g)
     // is being emitted — an unmissable cue that the audio is being replaced.
     if (isStimulusActive())
     {
-        g.setColour (PnsTheme::kColorPostAvg);
+        g.setColour (PnsTheme::kWarn);
         g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (1.5f), 6.0f, 3.0f);
     }
 
     if (m_overlayAlpha < 0.005f) return;
 
     const float alpha = m_overlayAlpha;
-    constexpr int hH  = PnsTheme::kHeaderHeight;
-    constexpr int tbH = PnsTheme::kTabBarHeight;
     const int W = getWidth(), H = getHeight();
-    const int cY = hH + tbH;
-    constexpr int kFooterH = 36;
-    const int cH = H - cY - kFooterH;
+    const int cY = PnsTheme::kHeroHeight;
+    const int cH = H - cY - PnsTheme::kDockHeight;
 
     // ── Dim overlay over content area ──────────────────────────────────────
     g.setColour (PnsTheme::kBgDark.withAlpha (0.92f * alpha));
@@ -4056,11 +3966,11 @@ void PlugNspectrPostEditor::paintOverChildren (juce::Graphics& g)
         g.fillPath (head);
     };
 
-    drawBlock (chainX,                              bW1, PnsTheme::kColorPost,    "PlugNspectr Pre");
+    drawBlock (chainX,                              bW1, PnsTheme::kColorPre,     "PlugNspectr Pre");
     drawArrow (chainX + bW1);
     drawBlock (chainX + bW1 + arrW,                 bW2, PnsTheme::kBorderActive, "Plugin to Analyze");
     drawArrow (chainX + bW1 + arrW + bW2);
-    drawBlock (chainX + bW1 + arrW + bW2 + arrW,    bW3, PnsTheme::kColorPostAvg, "PlugNspectr Post");
+    drawBlock (chainX + bW1 + arrW + bW2 + arrW,    bW3, PnsTheme::kColorPost,    "PlugNspectr Post");
     cy += bH + 10.0f;
 
     // ── Note ───────────────────────────────────────────────────────────────
@@ -4092,21 +4002,20 @@ void PlugNspectrPostEditor::paintOverChildren (juce::Graphics& g)
 }
 
 //==============================================================================
-// Each tab answers one question; this is its headline in the summary banner
-// and its tooltip.
+// Each tab answers one question: shown above the headline and as its tooltip.
 const char* PlugNspectrPostEditor::tabQuestion (int tab)
 {
     switch (tab)
     {
-        case TabSpectrum:     return "What it does to the tone";
-        case TabDynamics:     return "How much it turns the level down";
-        case TabOscilloscope: return "The waveform up close";
-        case TabStereo:       return "What it does to the stereo image";
-        case TabHarmonics:    return "What it adds as harmonics";
-        case TabLinear:       return "Its EQ curve";
-        case TabTransfer:     return "How hard it compresses";
-        case TabEnvelope:     return "How fast it reacts";
-        case TabThd:          return "Distortion at every frequency";
+        case TabSpectrum:     return "What does it do to the tone?";
+        case TabDynamics:     return "How much does it turn the level down?";
+        case TabOscilloscope: return "Does it change the shape of the wave?";
+        case TabStereo:       return "Does it make the sound wider or narrower?";
+        case TabHarmonics:    return "What does it add to a pure tone?";
+        case TabLinear:       return "Which frequencies does it change?";
+        case TabTransfer:     return "How hard does it squash loud sounds?";
+        case TabEnvelope:     return "How fast does it grab and let go?";
+        case TabThd:          return "Is it clean at every pitch?";
         default:              return "";
     }
 }
@@ -4128,16 +4037,16 @@ PnsTheme::Summary PlugNspectrPostEditor::currentSummary() const
     }
 }
 
-// Footer relevance. FREQ + Test Tone belong to the single-tone tabs (live tabs
+// Tone-control relevance. FREQ + Test Tone belong to the single-tone tabs (live tabs
 // + Harmonics); LEVEL also drives the Distortion sweep. Stereo is excluded even
 // though it's live: every Pre generator is mono, so a tone reads as zero side.
-bool PlugNspectrPostEditor::footerFreqOn (int tab)
+bool PlugNspectrPostEditor::toneFreqOn (int tab)
 {
     return (tab <= TabOscilloscope || tab == TabHarmonics);
 }
-bool PlugNspectrPostEditor::footerLevelOn (int tab)
+bool PlugNspectrPostEditor::toneLevelOn (int tab)
 {
-    return footerFreqOn (tab) || tab == TabThd;
+    return toneFreqOn (tab) || tab == TabThd;
 }
 
 //==============================================================================
@@ -4145,17 +4054,8 @@ void PlugNspectrPostEditor::switchTab (int index)
 {
     m_activeTab = index;
 
-    juce::TextButton* tabs[TabCount] = { &m_tabSpectrum, &m_tabDynamics, &m_tabOscilloscope,
-                                         &m_tabStereo, &m_tabHarmonics, &m_tabLinear, &m_tabTransfer,
-                                         &m_tabEnvelope, &m_tabThd };
     for (int i = 0; i < TabCount; ++i)
-    {
-        const bool active = (i == index);
-        tabs[i]->setColour (juce::TextButton::textColourOffId,
-                            active ? PnsTheme::kTextPrimary : PnsTheme::kTextSecondary);
-        tabs[i]->getProperties().set ("tabActive", active);
-        tabs[i]->repaint();
-    }
+        m_tabs[i]->setActive (i == index);
 
     m_specView    .setVisible (index == TabSpectrum);
     m_dynView     .setVisible (index == TabDynamics);
@@ -4167,9 +4067,9 @@ void PlugNspectrPostEditor::switchTab (int index)
     m_envelopeView.setVisible (index == TabEnvelope);
     m_thdView     .setVisible (index == TabThd);
 
-    // ── Footer relevance per tab (see footerFreqOn) ────────────────────────
-    const bool freqOn  = footerFreqOn (index);
-    const bool levelOn = footerLevelOn (index);
+    // ── Tone-control relevance per tab (see toneFreqOn) ────────────────────────
+    const bool freqOn  = toneFreqOn (index);
+    const bool levelOn = toneLevelOn (index);
     const bool toneOn  = freqOn;
 
     // Four extra FFTs — only run them while the Stereo tab is actually showing.
@@ -4186,14 +4086,14 @@ void PlugNspectrPostEditor::switchTab (int index)
     if (! toneOn && m_toneActive)
     {
         m_toneActive = false;
-        m_footerToneBtn.setToggleState (false, juce::dontSendNotification);
+        m_toneBtn.setToggleState (false, juce::dontSendNotification);
         m_harmView.setToneActive (false);
     }
 
     // Hide rather than grey out: a dimmed control still asks "should I touch this?"
-    m_footerFreqSlider .setVisible (freqOn);
-    m_footerLevelSlider.setVisible (levelOn);
-    m_footerToneBtn    .setVisible (toneOn);
+    m_toneFreqSlider .setVisible (freqOn);
+    m_toneLevelSlider.setVisible (levelOn);
+    m_toneBtn    .setVisible (toneOn);
     m_summary = currentSummary();
 
     writeCmdBlock();   // start/stop the measurement noise with the tab
@@ -4204,244 +4104,199 @@ void PlugNspectrPostEditor::switchTab (int index)
 void PlugNspectrPostEditor::paint (juce::Graphics& g)
 {
     g.fillAll (PnsTheme::kBgDark);
+    const int W = getWidth(), H = getHeight();
+    constexpr int kPadX = 28;
 
-    // ── Header bar ────────────────────────────────────────────────────────
-    constexpr int hH = PnsTheme::kHeaderHeight;
-    g.setColour (juce::Colour (10, 10, 10));   // #0A0A0A — slightly darker than panel
-    g.fillRect (0, 0, getWidth(), hH);
-    g.setColour (PnsTheme::kBorderSubtle);
-    g.drawHorizontalLine (hH - 1, 0.0f, (float) getWidth());
-
-    // Header logo — the PlugNspectr wordmark + mark, scaled to fit the bar.
-    if (m_pnsLogo.isValid())
+    auto textW = [] (const juce::Font& f, const juce::String& t)
     {
-        const float logoH = (float) hH - 4.0f;                        // nearly fills the 36px bar
-        const float logoW = logoH * ((float) m_pnsLogo.getWidth()
-                                   / (float) m_pnsLogo.getHeight());
-        const int   ly    = juce::roundToInt (((float) hH - logoH) * 0.5f);
-        g.drawImage (m_pnsLogo,
-                     PnsTheme::kPaddingMid, ly, (int) logoW, (int) logoH,
-                     0, 0, m_pnsLogo.getWidth(), m_pnsLogo.getHeight());
-    }
+        juce::GlyphArrangement ga;
+        ga.addLineOfText (f, t, 0.0f, 0.0f);
+        return (int) std::ceil (ga.getBoundingBox (0, -1, true).getWidth());
+    };
 
-    // (The version now lives in the About modal, opened by the info icon at the
-    //  top-right corner — positioned in resized(), drawn as a child component.)
-
-    // Label left of the L+R / Side selector
-    g.setFont (PnsTheme::fontLabel());
-    g.setColour (PnsTheme::kTextSecondary);
-    g.drawText ("Analyze", m_chLR.getX() - 54, (hH - 12) / 2, 48, 12, juce::Justification::centredRight);
-
-    // ── Test-signal tray — recessed amber group behind the test-signal tabs ─
+    // ── Headline block ─────────────────────────────────────────────────────
+    //    Question (small, accent) → what it found (large) → the detail; the one
+    //    number that answers it sits large at the right. While a test signal is
+    //    playing the question line turns amber and says so: it's the one thing
+    //    you must not miss.
     {
-        const auto tray = m_trayBounds.toFloat();
-        g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.07f));
-        g.fillRoundedRectangle (tray, 5.0f);
-        g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.55f));
-        g.fillRect (tray.getX(), tray.getY(), tray.getWidth(), 2.0f);
-        // Group caption: these tabs play a test signal instead of listening.
-        g.setColour (PnsTheme::kColorPostAvg);
-        g.setFont (PnsTheme::fontLabel().boldened());
-        g.drawText ("TEST", juce::Rectangle<float> (tray.getX() + 8.0f, tray.getY(), 30.0f, tray.getHeight()),
-                    juce::Justification::centredLeft);
-    }
-
-    // ── Tab bar bottom border ─────────────────────────────────────────────
-    constexpr int tbBottom = hH + PnsTheme::kTabBarHeight;
-    g.setColour (PnsTheme::kBorderSubtle);
-    g.drawHorizontalLine (tbBottom - 1, 0.0f, (float) getWidth());
-
-    // ── Summary banner — the tab's question, then what it found ────────────
-    //    While a test signal is playing the strip turns amber and leads with
-    //    that, since it's the one thing you must not miss.
-    {
-        constexpr int kBannerH = PnsTheme::kBannerHeight;
-        const bool measuring = isStimulusActive();
-        const juce::Rectangle<int> strip (0, tbBottom, getWidth(), kBannerH);
-
-        g.setColour (measuring ? PnsTheme::kColorPostAvg.withAlpha (0.14f) : PnsTheme::kBgPanel);
-        g.fillRect (strip);
-        g.setColour (PnsTheme::kBorderSubtle);
-        g.drawHorizontalLine (strip.getBottom() - 1, 0.0f, (float) getWidth());
-
-        auto row = strip.reduced (PnsTheme::kPaddingMid, 0);
-        auto textW = [] (const juce::Font& f, const juce::String& t)
+        // The big number, right-aligned under the header controls.
+        int heroLeft = W - kPadX;
+        if (m_summary.heroValue.isNotEmpty())
         {
-            juce::GlyphArrangement ga;
-            ga.addLineOfText (f, t, 0.0f, 0.0f);
-            return (int) std::ceil (ga.getBoundingBox (0, -1, true).getWidth());
-        };
+            const auto fv = PnsTheme::fontSized (44.0f, true);
+            const auto fu = PnsTheme::fontSized (18.0f);
+            const int wu = m_summary.heroUnit.isEmpty() ? 0 : textW (fu, m_summary.heroUnit) + 6;
+            const int wv = textW (fv, m_summary.heroValue);
+            const int right = W - kPadX;
+            heroLeft = right - wu - wv;
 
+            g.setFont (fu);
+            g.setColour (PnsTheme::kTextSecondary);
+            g.drawText (m_summary.heroUnit, right - wu + 6, 64, wu, 30, juce::Justification::bottomLeft);
+            g.setFont (fv);
+            g.setColour (PnsTheme::kTextPrimary);
+            g.drawText (m_summary.heroValue, heroLeft, 50, wv + 2, 46, juce::Justification::bottomLeft);
+
+            g.setFont (PnsTheme::fontSized (11.0f, true));
+            g.setColour (PnsTheme::kTextSecondary);
+            g.drawText (m_summary.heroLabel.toUpperCase(), right - 220, 42, 220, 14,
+                        juce::Justification::centredRight);
+            heroLeft = juce::jmin (heroLeft, right - textW (PnsTheme::fontSized (11.0f, true),
+                                                            m_summary.heroLabel.toUpperCase()));
+        }
+        const int textRight = juce::jmin (heroLeft, m_logoX) - 32;
+
+        // Question line
+        const bool measuring = isStimulusActive();
+        const bool isTest    = m_activeTab >= kFirstMeasTab;
+        g.setFont (PnsTheme::fontSized (12.0f, true));
         if (measuring)
         {
-            g.setColour (PnsTheme::kColorPostAvg);
-            g.fillRect (0, tbBottom, 4, kBannerH);
-            g.fillEllipse ((float) row.getX(), (float) row.getCentreY() - 3.0f, 6.0f, 6.0f);
-            row.removeFromLeft (12);
-            const juce::String warn ("Test signal playing - your audio is replaced until you stop playback or leave this tab.");
-            g.setFont (PnsTheme::fontLabel());
-            g.drawText (warn, row.removeFromLeft (textW (PnsTheme::fontLabel(), warn) + 16),
-                        juce::Justification::centredLeft);
+            g.setColour (PnsTheme::kWarn);
+            g.drawText (juce::CharPointer_UTF8 ("\xe2\x97\x8f  TEST SIGNAL PLAYING  \xc2\xb7  your audio is replaced until you stop playback or leave this tab"),
+                        kPadX, 18, textRight - kPadX, 16, juce::Justification::centredLeft, true);
         }
         else
         {
-            const auto f = PnsTheme::fontTitle();
-            g.setFont (f);
-            g.setColour (PnsTheme::kTextPrimary);
-            const juce::String q (tabQuestion (m_activeTab));
-            g.drawText (q, row.removeFromLeft (textW (f, q) + 14), juce::Justification::centredLeft);
+            g.setColour (PnsTheme::kAccentPrimary);
+            const juce::String q = juce::String (isTest ? "TEST" : "LISTEN")
+                                 + juce::String::fromUTF8 ("  \xc2\xb7  ") + tabQuestion (m_activeTab);
+            g.drawText (q, kPadX, 18, textRight - kPadX, 16, juce::Justification::centredLeft, true);
         }
 
-        g.setFont (PnsTheme::fontPrimary());
-        g.setColour (m_summary.warn ? PnsTheme::kColorPostAvg : PnsTheme::kTextSecondary.brighter (0.5f));
-        g.drawText (m_summary.text, row, juce::Justification::centredLeft, true);
+        // Headline + detail: the verdict's first clause is the headline, the
+        // rest ("  -  output is 4 dB quieter") is the supporting line.
+        const juce::String sep ("  -  ");
+        const juce::String head   = m_summary.text.upToFirstOccurrenceOf (sep, false, false);
+        const juce::String detail = m_summary.text.fromFirstOccurrenceOf (sep, false, false)
+                                                  .replace (sep, juce::String::fromUTF8 ("  \xc2\xb7  "));
+        g.setFont (PnsTheme::fontSized (26.0f, true));
+        g.setColour (m_summary.warn ? PnsTheme::kWarn : PnsTheme::kTextPrimary);
+        g.drawFittedText (head, kPadX, 40, textRight - kPadX, 34, juce::Justification::centredLeft, 1, 0.8f);
+        g.setFont (PnsTheme::fontSized (14.0f));
+        g.setColour (PnsTheme::kTextSecondary);
+        g.drawText (detail, kPadX, 76, textRight - kPadX, 20, juce::Justification::centredLeft, true);
     }
 
-    // ── Footer bar ────────────────────────────────────────────────────────
-    constexpr int kFooterH = 36;
-    const int H2 = getHeight(), W2 = getWidth();
-    const int footerY = H2 - kFooterH;
+    // Header controls' caption, and the logo at the far left of them.
+    if (m_pnsLogo.isValid())
+    {
+        const float logoH = 20.0f;
+        const float logoW = logoH * ((float) m_pnsLogo.getWidth() / (float) m_pnsLogo.getHeight());
+        g.setOpacity (0.85f);
+        g.drawImage (m_pnsLogo, { (float) m_logoX, 12.0f, logoW, logoH });
+        g.setOpacity (1.0f);
+    }
 
+    // ── Dock ───────────────────────────────────────────────────────────────
+    const int dockY = H - PnsTheme::kDockHeight;
     g.setColour (PnsTheme::kBgPanel);
-    g.fillRect (0, footerY, W2, kFooterH);
+    g.fillRect (0, dockY, W, PnsTheme::kDockHeight);
     g.setColour (PnsTheme::kBorderSubtle);
-    g.drawHorizontalLine (footerY, 0.0f, (float) W2);
+    g.drawHorizontalLine (dockY, 0.0f, (float) W);
 
-    // Footer controls are only relevant on some tabs (see switchTab) — dim the
-    // FREQ/LEVEL labels to match the enabled/disabled state of their knobs.
-    const bool freqOn  = footerFreqOn (m_activeTab);
-    const bool levelOn = footerLevelOn (m_activeTab);
-    const auto dim      = [] (juce::Colour c, bool on) { return on ? c : c.withAlpha (0.0f); };
-
-    if (! levelOn)
+    // Group captions, set vertically just left of each group.
+    auto caption = [&] (const char* text, int rightX)
     {
-        g.setFont (PnsTheme::fontLabel());
-        g.setColour (PnsTheme::kGridLabel.brighter (0.3f));
-        g.drawText (m_activeTab == TabStereo
-                        ? "Stereo listens to your real audio - the test tone is mono, so it is off here."
-                        : "This test is run by the Measure button (top right). Keep playback running while it measures.",
-                    juce::Rectangle<int> (0, footerY, W2, kFooterH), juce::Justification::centred);
-    }
+        g.saveState();
+        const float cx = (float) rightX - 9.0f, cy = (float) dockY + PnsTheme::kDockHeight * 0.5f;
+        g.addTransform (juce::AffineTransform::rotation (-juce::MathConstants<float>::halfPi, cx, cy));
+        g.setFont (PnsTheme::fontSized (9.5f, true));
+        g.setColour (PnsTheme::kGridLabel);
+        g.drawText (text, juce::Rectangle<float> (60.0f, 12.0f).withCentre ({ cx, cy }),
+                    juce::Justification::centred);
+        g.restoreState();
+    };
+    caption ("LISTEN", m_tabs[0]->getX());
+    caption ("TEST",   m_tabs[kFirstMeasTab]->getX());
+    g.setColour (PnsTheme::kBorderSubtle);
+    g.fillRect (m_dockDividerX, dockY + 16, 1, PnsTheme::kDockHeight - 32);
 
-    // "FREQ" label — to the right of the knob (knob is 28px wide at kPaddingLarge)
-    constexpr int knobX = PnsTheme::kPaddingLarge;
-    constexpr int knobW = 28;
-    const int freqLabelX = knobX + knobW + 4;
-    g.setFont (PnsTheme::fontLabel());
-    g.setColour (dim (PnsTheme::kTextSecondary, freqOn));
-    g.drawText ("FREQ", freqLabelX, footerY, 36, kFooterH, juce::Justification::centredLeft);
-
-    // Frequency value display
-    const double freq = m_toneFreq;
-    juce::String freqStr;
-    if (freq < 1000.0)
-        freqStr = juce::String (juce::roundToInt (freq)) + " Hz";
-    else
-        freqStr = juce::String (freq / 1000.0, 2) + " kHz";
-
-    g.setColour (dim (m_toneActive ? PnsTheme::kTextAccent : PnsTheme::kTextSecondary, freqOn));
-    g.drawText (freqStr, freqLabelX + 36, footerY, 64, kFooterH, juce::Justification::centredLeft);
-
-    // "LEVEL" label + value — knob is positioned in resized() just before this.
-    // (Hidden labels on tabs that don't use them: dim() above returns transparent.)
-    const int lvlLabelX = freqLabelX + 100 + 28 + 6;
-    g.setColour (dim (PnsTheme::kTextSecondary, levelOn));
-    g.drawText ("LEVEL", lvlLabelX, footerY, 40, kFooterH, juce::Justification::centredLeft);
-    g.setColour (dim (m_toneActive ? PnsTheme::kTextAccent : PnsTheme::kTextSecondary, levelOn));
-    g.drawText (juce::String (m_toneLevel, 1) + " dB", lvlLabelX + 40, footerY, 64, kFooterH,
-                juce::Justification::centredLeft);
-
-    // Warning label — only when test tone is active
-    if (m_toneActive)
+    // Tone readouts beside their knobs (hidden with the knobs on tabs that
+    // don't use them — see toneFreqOn / toneLevelOn).
+    auto readout = [&] (juce::Rectangle<int> r, const char* label, const juce::String& value)
     {
-        // Position warning 8px right of the "Test Tone" button
-        // Button center is W2/2, button width is 80, so right edge is W2/2 + 40
-        const int warnX = W2 / 2 + 48;
-        g.setFont (PnsTheme::fontLabel());
-        g.setColour (PnsTheme::kColorGainRed);
-        g.drawText (juce::CharPointer_UTF8 ("\xe2\x9a\xa0 Replaces audio output"),
-                    warnX, footerY, W2 - warnX - PnsTheme::kPaddingMid, kFooterH,
-                    juce::Justification::centredLeft);
-    }
+        g.setFont (PnsTheme::fontSized (10.0f, true));
+        g.setColour (PnsTheme::kTextSecondary);
+        g.drawText (label, r.removeFromTop (r.getHeight() / 2), juce::Justification::bottomLeft);
+        g.setFont (PnsTheme::fontPrimary());
+        g.setColour (m_toneActive ? PnsTheme::kTextAccent : PnsTheme::kTextPrimary);
+        g.drawText (value, r, juce::Justification::topLeft);
+    };
+    if (toneFreqOn (m_activeTab))
+        readout (m_freqText, "TONE", PnsTheme::fmtHz (m_toneFreq));
+    if (toneLevelOn (m_activeTab))
+        readout (m_levelText, "LEVEL", juce::String (m_toneLevel, 1) + " dB");
 }
 
 //==============================================================================
 void PlugNspectrPostEditor::resized()
 {
-    constexpr int hH     = PnsTheme::kHeaderHeight;
-    constexpr int tbH    = PnsTheme::kTabBarHeight;
-    constexpr int kBannerH = PnsTheme::kBannerHeight;   // summary / measuring strip under the tabs
+    const int W = getWidth(), H = getHeight();
+    constexpr int kPadX = 28;
 
-    // Variable-width tabs: live group (left), then test-signal group on the
-    // amber tray. Width = label width + padding so the renamed tabs all fit.
-    auto tabW = [] (juce::TextButton& b)
-    {
-        juce::GlyphArrangement ga;
-        ga.addLineOfText (PnsTheme::fontPrimary(), b.getButtonText(), 0.0f, 0.0f);
-        return (int) std::ceil (ga.getBoundingBox (0, -1, true).getWidth()) + 22;
-    };
-    int x = 8;
-    auto place = [&] (juce::TextButton& b) { const int w = tabW (b); b.setBounds (x, hH, w, tbH); x += w; };
+    // ── Header controls, top right: logo · L+R/Side · info ─────────────────
+    constexpr int infoSz = 18, segW = 46, segH = 24, rowY = 10;
+    m_infoBtn.setBounds (W - kPadX + 4 - infoSz, rowY + (segH - infoSz) / 2, infoSz, infoSz);
+    const int segRight = m_infoBtn.getX() - 12;
+    m_chLR  .setBounds (segRight - segW * 2, rowY, segW, segH);
+    m_chSide.setBounds (segRight - segW,     rowY, segW, segH);
+    m_logoX = m_pnsLogo.isValid()
+                ? m_chLR.getX() - 16 - juce::roundToInt (20.0f * (float) m_pnsLogo.getWidth()
+                                                               / (float) m_pnsLogo.getHeight())
+                : m_chLR.getX();
 
-    place (m_tabSpectrum); place (m_tabDynamics); place (m_tabOscilloscope);
-    place (m_tabStereo);
-
-    constexpr int trayGap = 12, trayPadL = 34, trayPadR = 10;
-    x += trayGap;
-    const int trayLeft = x;
-    x += trayPadL;
-    place (m_tabHarmonics); place (m_tabLinear); place (m_tabTransfer);
-    place (m_tabEnvelope);  place (m_tabThd);
-    m_trayBounds = { trayLeft, hH, (x + trayPadR) - trayLeft, tbH };
-
-    // Info icon at the far-right corner (where the version used to sit).
-    constexpr int infoSz = 18;
-    m_infoBtn.setBounds (getWidth() - PnsTheme::kPaddingMid - infoSz, (hH - infoSz) / 2, infoSz, infoSz);
-
-    // Segmented L+R / Side selector in the header, left of the info icon.
-    {
-        constexpr int segW = 44, segH = 22;
-        const int segRight = m_infoBtn.getX() - 8;
-        const int segTop   = (hH - segH) / 2;
-        m_chLR  .setBounds (segRight - segW * 2, segTop, segW, segH);
-        m_chSide.setBounds (segRight - segW,     segTop, segW, segH);
-    }
-
-    // The About modal covers the whole editor when shown.
     m_about.setBounds (getLocalBounds());
 
-    constexpr int kFooterH = 36;
-    const int W = getWidth(), H = getHeight();
+    // ── View area between the headline block and the dock ──────────────────
+    // Same side margins as the headline, so graphs line up under the text.
+    const auto content = getLocalBounds().withTrimmedTop (PnsTheme::kHeroHeight)
+                                         .withTrimmedBottom (PnsTheme::kDockHeight + 14)
+                                         .withTrimmedLeft (kPadX - 10).withTrimmedRight (kPadX - 16);
+    for (auto* v : std::initializer_list<juce::Component*> { &m_specView, &m_dynView, &m_oscView, &m_stereoView,
+                                                             &m_harmView, &m_linearView, &m_transferView,
+                                                             &m_envelopeView, &m_thdView })
+        v->setBounds (content);
 
-    const auto content = getLocalBounds().withTrimmedTop (hH + tbH + kBannerH).withTrimmedBottom (kFooterH);
-    m_specView  .setBounds (content);
-    m_dynView   .setBounds (content);
-    m_oscView   .setBounds (content);
-    m_stereoView.setBounds (content);
-    m_harmView    .setBounds (content);
-    m_linearView  .setBounds (content);
-    m_transferView.setBounds (content);
-    m_envelopeView.setBounds (content);
-    m_thdView     .setBounds (content);
+    // ── Dock: tone controls take a fixed block at the right, tabs share the rest
+    const int dockY = H - PnsTheme::kDockHeight;
+    constexpr int kKnob = 32, kText = 70, kToneBtnW = 104;
+    const int toneW = kKnob + 6 + kText + 10 + kKnob + 6 + kText + 14 + kToneBtnW;
+    int x = W - 18 - toneW;
+    const int knobY = dockY + (PnsTheme::kDockHeight - kKnob) / 2;
+    m_toneFreqSlider .setBounds (x, knobY, kKnob, kKnob);            x += kKnob + 6;
+    m_freqText = { x, knobY - 2, kText, kKnob + 4 };                    x += kText + 10;
+    m_toneLevelSlider.setBounds (x, knobY, kKnob, kKnob);            x += kKnob + 6;
+    m_levelText = { x, knobY - 2, kText, kKnob + 4 };                   x += kText + 14;
+    m_toneBtn    .setBounds (x, dockY + (PnsTheme::kDockHeight - 32) / 2, kToneBtnW, 32);
 
-    // Footer controls
-    m_footerFreqSlider.setBounds (PnsTheme::kPaddingLarge, H - kFooterH + 4, 28, 28);
-    // Level knob sits after the FREQ knob + label + value (~100px of text).
-    const int lvlKnobX = PnsTheme::kPaddingLarge + 28 + 4 + 100;
-    m_footerLevelSlider.setBounds (lvlKnobX, H - kFooterH + 4, 28, 28);
-    m_footerToneBtn   .setBounds ((W - 80) / 2, H - kFooterH + 7, 80, 22);
+    constexpr int kCaptionW = 20, kDividerW = 17;
+    const int tabsLeft = 14, tabsRight = W - 18 - toneW - 16;
+    const int tabW = juce::jlimit (56, 88, (tabsRight - tabsLeft - 2 * kCaptionW - kDividerW) / TabCount);
+    x = tabsLeft + kCaptionW;
+    for (int i = 0; i < TabCount; ++i)
+    {
+        if (i == kFirstMeasTab)
+        {
+            m_dockDividerX = x + kDividerW / 2 - 1;
+            x += kDividerW + kCaptionW;
+        }
+        m_tabs[i]->setBounds (x, dockY + 2, tabW, PnsTheme::kDockHeight - 4);
+        x += tabW;
+    }
 }
 
 //==============================================================================
 // Plain-language summaries — what each tab found, in one sentence, for the
-// banner under the tab bar. Thresholds are "would a listener notice": ~1 dB for
+// headline above the view. Thresholds are "would a listener notice": ~1 dB for
 // level, 0.5 dB of gain reduction, 0.01% THD. Below them the plugin is reported
 // as leaving that property alone rather than quoting noise.
 //==============================================================================
 PnsTheme::Summary SpectrumView::summary() const
 {
     if (m_warmupN < kWarmupFrames)
-        return { "Play some audio - this compares the tone going in with the tone coming out." };
+        return { "Play some audio  -  this compares the tone going in with the tone coming out." };
 
     const double sr = m_proc.getSampleRate();
     if (sr <= 0.0) return {};
@@ -4451,6 +4306,7 @@ PnsTheme::Summary SpectrumView::summary() const
     static constexpr Band bands[] = { { "Lows", 20.0, 250.0 }, { "Mids", 250.0, 4000.0 },
                                       { "Highs", 4000.0, 20000.0 } };
     juce::StringArray parts;
+    float biggest = 0.0f;
     for (const auto& b : bands)
     {
         double ePre = 0.0, ePost = 0.0;
@@ -4465,20 +4321,24 @@ PnsTheme::Summary SpectrumView::summary() const
         const float d = (float) (10.0 * std::log10 (ePost / ePre));
         if (std::abs (d) >= 1.0f)
             parts.add (juce::String (b.name) + " " + PnsTheme::fmtDb (d));
+        if (std::abs (d) > std::abs (biggest)) biggest = d;
     }
+    const juce::String hero = (biggest >= 0.0f ? "+" : "") + juce::String (biggest, 1);
     if (parts.isEmpty())
-        return { "No real change to the tone - every band within 1 dB." };
-    return { "Tone change:  " + parts.joinIntoString (",  ") };
+        return { "No real change to the tone  -  every band within 1 dB", false, "Biggest change", hero, "dB" };
+    return { "Tone change:  " + parts.joinIntoString (",  "), false, "Biggest change", hero, "dB" };
 }
 
 PnsTheme::Summary DynamicsView::summary() const
 {
     if (m_smoothPreDb <= -89.0f)
-        return { "Play some audio - this shows how much the plugin turns the level down." };
+        return { "Play some audio  -  this shows how much the plugin turns the level down." };
 
     juce::String s;
+    // GR is measured as "how much quieter Post is than Pre", so a compressor
+    // with matching make-up gain looks like no cut. Say what was measured.
     if (m_avgGr > -0.5f && m_grPeakHold > -1.0f)
-        s = "Not turning the level down";
+        s = "No drop in level measured  -  make-up gain can hide compression; the Compression test shows it";
     else
         s = "Turning down about " + juce::String (-m_avgGr, 1) + " dB on average, up to "
           + juce::String (-m_grPeakHold, 1) + " dB on peaks";
@@ -4487,35 +4347,51 @@ PnsTheme::Summary DynamicsView::summary() const
     if (std::abs (delta) >= 0.5f)
         s << "  -  output is " << juce::String (std::abs (delta), 1) << " dB "
           << (delta > 0.0f ? "louder" : "quieter");
-    return { s };
+    return { s, false, "Average cut", juce::String (juce::jmax (0.0f, -m_avgGr), 1), "dB" };
 }
 
 PnsTheme::Summary OscilloscopeView::summary() const
 {
     if (! m_hasDisplay)
-        return { "Play some audio - this zooms in on a few cycles of the waveform." };
+        return { "Play some audio  -  or turn on Test Tone for the clearest picture" };
 
-    float pkPre = 0.0f, pkPost = 0.0f;
-    for (int i = 0; i < m_displayCount; ++i)
+    const juce::String outPk (juce::Decibels::gainToDecibels (m_shapePost.peak, -90.0f), 1);
+    // With music, a snapshot is a few random milliseconds; a steady tone makes
+    // any change to the shape unmistakable, so say so until the tone is on.
+    const juce::String advice = m_toneOn ? juce::String()
+        : juce::String ("  -  for a clear picture, turn on Test Tone (bottom right)");
+
+    if (m_shapePost.peak >= 0.999f)
+        return { "Hitting 0 dBFS  -  the tops are being cut off (clipping)" + advice, true,
+                 "Output peak", outPk, "dBFS" };
+
+    using pns::analysis::ShapeChange;
+    const float levelDb = (m_shapePre.rms > 1.0e-6f && m_shapePost.rms > 1.0e-6f)
+                        ? 20.0f * std::log10 (m_shapePost.rms / m_shapePre.rms) : 0.0f;
+    juce::String head;
+    switch (pns::analysis::classifyShape (m_shapePre, m_shapePost))
     {
-        pkPre  = juce::jmax (pkPre,  std::abs (m_displayPre [(size_t) i]));
-        pkPost = juce::jmax (pkPost, std::abs (m_displayPost[(size_t) i]));
+        case ShapeChange::HardClip: head = "Flat tops  -  hard clipping squares off the peaks"; break;
+        case ShapeChange::Rounded:  head = "Rounds off the peaks  -  soft clipping or saturation"; break;
+        case ShapeChange::Sharper:  head = "Sharper peaks than the input  -  adds edges or transients"; break;
+        case ShapeChange::Unchanged:
+            head = std::abs (levelDb) >= 0.5f
+                 ? "Shape unchanged  -  just " + juce::String (std::abs (levelDb), 1) + " dB "
+                   + (levelDb < 0.0f ? "quieter" : "louder")
+                 : juce::String ("Shape unchanged");
+            break;
     }
-    if (pkPost >= 0.999f)
-        return { "Output is hitting 0 dBFS - look for flattened tops (clipping).", true };
 
-    auto dbfs = [] (float a) { return juce::String (juce::Decibels::gainToDecibels (a, -90.0f), 1) + " dBFS"; };
-    return { "Peaks: in " + dbfs (pkPre) + ",  out " + dbfs (pkPost)
-             + "  -  compare the shapes for added edges or rounding." };
+    return { head + advice, false, "Output peak", outPk, "dBFS" };
 }
 
 PnsTheme::Summary StereoView::summary() const
 {
     if (! m_st.stereoSource)
-        return { "This track is mono - there is no stereo image to compare." };
+        return { "This track is mono  -  there is no stereo image to compare." };
 
     const float floor = PlugNspectrPostProcessor::kStereoFloorDb + 0.01f;
-    juce::String s;
+    juce::String s, hero;
     const bool preMono = m_st.bbWidthPre <= floor, postMono = m_st.bbWidthPost <= floor;
     if (preMono && postMono)
         s = "Both sides identical (mono)";
@@ -4526,6 +4402,7 @@ PnsTheme::Summary StereoView::summary() const
     else
     {
         const float d = m_st.bbWidthPost - m_st.bbWidthPre;
+        hero = (d >= 0.0f ? "+" : "") + juce::String (d, 1);
         s = std::abs (d) < 1.0f ? juce::String ("Stereo width unchanged")
           : juce::String (d > 0.0f ? "Wider by " : "Narrower by ") + juce::String (std::abs (d), 1) + " dB";
     }
@@ -4533,18 +4410,19 @@ PnsTheme::Summary StereoView::summary() const
     const float monoDrop = m_st.monoLossPre - m_st.monoLossPost;   // extra dB lost when summed
     if (m_st.bbCorrPost < 0.0f || (m_st.monoLossPost < -3.0f && monoDrop > 1.0f))
         return { s + "  -  careful: loses " + juce::String (-m_st.monoLossPost, 1)
-                   + " dB when played in mono", true };
-    return { s + "  -  safe in mono" };
+                   + " dB when played in mono", true, "Width change", hero, hero.isEmpty() ? "" : "dB" };
+    return { s + "  -  safe in mono", false, "Width change", hero, hero.isEmpty() ? "" : "dB" };
 }
 
 PnsTheme::Summary HarmonicsView::summary() const
 {
     if (! m_toneActive && ! m_harmonicsPaused)
-        return { "Turn on Test Tone below - Pre plays a pure tone through your plugin." };
+        return { "Turn on Test Tone  -  Pre plays a pure tone through your plugin." };
 
     const float added = m_thdPost - m_thdPre;
+    const juce::String hero = PnsTheme::fmtPct (m_thdPost).dropLastCharacters (1);
     if (m_thdPost < 0.01f || added < 0.005f)
-        return { "Clean - no measurable harmonics added (" + PnsTheme::fmtPct (m_thdPost) + ")." };
+        return { "Clean  -  no measurable harmonics added", false, "Distortion", hero, "%" };
 
     int dom = 1;                                 // loudest of H2..H8 at the output
     for (int h = 2; h < kNumH; ++h)
@@ -4553,14 +4431,13 @@ PnsTheme::Summary HarmonicsView::summary() const
     const juce::String which = n == 2 ? juce::String ("2nd") : n == 3 ? juce::String ("3rd")
                                                              : juce::String (n) + "th";
     const juce::String flavour = (n % 2 == 0) ? "even - smooth, warm" : "odd - edgier, brighter";
-    return { "Adds " + PnsTheme::fmtPct (m_thdPost) + " distortion, mostly the " + which
-             + " harmonic (" + flavour + ")." };
+    return { "Adds mostly the " + which + " harmonic  -  " + flavour, false, "Distortion", hero, "%" };
 }
 
 PnsTheme::Summary LinearView::summary() const
 {
     if (m_meas.frames == 0)
-        return { "Press Measure - Pre plays noise through your plugin to map its EQ curve." };
+        return { "Press Measure  -  Pre plays noise through your plugin to map its EQ curve." };
 
     const double sr = m_meas.sampleRate;
     const int    N  = PlugNspectrPostProcessor::kMeasFftSize;
@@ -4579,12 +4456,15 @@ PnsTheme::Summary LinearView::summary() const
     juce::StringArray parts;
     if (hiV >=  0.5f) parts.add ("boosts up to " + juce::String (hiV, 1) + " dB near " + PnsTheme::fmtHz (hiF));
     if (loV <= -0.5f) parts.add ("cuts up to "   + juce::String (-loV, 1) + " dB near " + PnsTheme::fmtHz (loF));
-    juce::String s = parts.isEmpty() ? juce::String ("flat - within 0.5 dB everywhere")
+    juce::String s = parts.isEmpty() ? juce::String ("flat  -  within 0.5 dB everywhere")
                                      : parts.joinIntoString (",  ");
     s = s.substring (0, 1).toUpperCase() + s.substring (1);
     if (m_latSamples != 0)
         s << "  -  delays audio by " << m_latSamples << " samples";
-    return { s };
+    const bool boost = std::abs (hiV) >= std::abs (loV);
+    const float v = boost ? hiV : loV;
+    return { s, false, boost ? "Biggest boost" : "Biggest cut",
+             (v >= 0.0f ? "+" : "") + juce::String (v, 1), "dB" };
 }
 
 PnsTheme::Summary TransferView::summary() const
@@ -4594,7 +4474,7 @@ PnsTheme::Summary TransferView::summary() const
     for (int b = 0; b < kBins; ++b)
         if (m_dyn.valid[(size_t) b]) { if (first < 0) first = b; last = b; }
     if (first < 0 || last - first < 2)
-        return { "Press Measure - Pre ramps a tone up in level to map how hard your plugin compresses." };
+        return { "Press Measure  -  Pre ramps a tone up in level to map how hard your plugin compresses." };
 
     auto inDb = [] (int b) { return P::kDynMinDb + (float) b * P::kDynBinW; };
     // Gain reduction relative to the quietest point, so make-up gain doesn't read as compression.
@@ -4605,14 +4485,16 @@ PnsTheme::Summary TransferView::summary() const
     for (int b = first; b <= last; ++b)
         if (m_dyn.valid[(size_t) b] && grAt (b) > 1.0f) { knee = juce::jmax (first, b - 1); break; }
     if (knee < 0)
-        return { "No compression across the measured range (" + juce::String (juce::roundToInt (inDb (first)))
-                 + " to " + juce::String (juce::roundToInt (inDb (last))) + " dB)." };
+        return { "No compression across the measured range  -  " + juce::String (juce::roundToInt (inDb (first)))
+                 + " to " + juce::String (juce::roundToInt (inDb (last))) + " dB", false, "Ratio", "1.0", ":1" };
 
     const float dIn  = inDb (last) - inDb (knee);
     const float dOut = m_dyn.outDb[(size_t) last] - m_dyn.outDb[(size_t) knee];
     const juce::String ratio = dOut <= 0.1f ? juce::String ("limiting (output stops rising)")
                                             : "ratio about " + juce::String (dIn / dOut, 1) + ":1";
-    return { "Starts compressing near " + juce::String (juce::roundToInt (inDb (knee))) + " dB,  " + ratio };
+    return { "Starts compressing near " + juce::String (juce::roundToInt (inDb (knee))) + " dB  -  " + ratio,
+             false, "Ratio", dOut <= 0.1f ? juce::String ("Limit") : juce::String (dIn / dOut, 1),
+             dOut <= 0.1f ? "" : ":1" };
 }
 
 PnsTheme::Summary EnvelopeView::summary() const
@@ -4623,9 +4505,9 @@ PnsTheme::Summary EnvelopeView::summary() const
     for (int b = 0; b < half; ++b)
         if (m_env.valid[(size_t) b]) { peak = juce::jmax (peak, m_env.grDb[(size_t) b]); ++nValid; }
     if (nValid < 2)
-        return { "Press Measure - Pre steps the level up and down to time how fast your plugin reacts." };
+        return { "Press Measure  -  Pre steps the level up and down to time how fast your plugin reacts." };
     if (peak < 0.5f)
-        return { "The test step didn't trigger any gain reduction - try a lower threshold." };
+        return { "The test step didn't trigger any gain reduction  -  try a lower threshold." };
 
     int att = 0;                                   // 90% of the full reduction
     for (int b = 0; b < half; ++b)
@@ -4638,7 +4520,7 @@ PnsTheme::Summary EnvelopeView::summary() const
     juce::String s = "Grabs in about " + juce::String (juce::roundToInt (ms (att))) + " ms";
     s << ",  lets go in " << (rel < 0 ? juce::String ("more than 500 ms")
                                       : "about " + juce::String (juce::roundToInt (ms (rel) - 500.0f)) + " ms");
-    return { s };
+    return { s, false, "Attack", juce::String (juce::roundToInt (ms (att))), "ms" };
 }
 
 PnsTheme::Summary ThdSweepView::summary() const
@@ -4652,12 +4534,13 @@ PnsTheme::Summary ThdSweepView::summary() const
         if (m_thd.thdPct[(size_t) b] > hi) { hi = m_thd.thdPct[(size_t) b]; hiB = b; }
     }
     if (n < 2)
-        return { "Press Measure - Pre sweeps a tone from low to high to map distortion at every frequency." };
+        return { "Press Measure  -  Pre sweeps a tone from low to high to map distortion at every frequency." };
     if (hi < 0.01f)
-        return { "Clean at every frequency - under 0.01% distortion." };
+        return { "Clean at every frequency  -  under 0.01% distortion", false, "Worst",
+                 PnsTheme::fmtPct (hi).dropLastCharacters (1), "%" };
 
     const float  avg = (float) (sum / n);
     const double f   = P::kThdLoHz * std::pow ((double) P::kThdHiHz / P::kThdLoHz, (double) hiB / (kBins - 1));
-    return { "Averages " + PnsTheme::fmtPct (avg) + " distortion,  most (" + PnsTheme::fmtPct (hi)
-             + ") near " + PnsTheme::fmtHz (f) };
+    return { "Most distortion near " + PnsTheme::fmtHz (f) + "  -  averages " + PnsTheme::fmtPct (avg)
+             + " across the sweep", false, "Worst", PnsTheme::fmtPct (hi).dropLastCharacters (1), "%" };
 }

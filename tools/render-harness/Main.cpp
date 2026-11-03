@@ -276,6 +276,166 @@ void runThdTest (PlugNspectrPostProcessor& proc)
 }
 }
 
+//==============================================================================
+// program-render — README screenshots from real recordings.
+//
+//   RenderHarness program-render <tab> <audio file> <effect> <seconds> <start s> <out.png>
+//
+// Reads a WAV / FLAC as Pre, runs it through a small built-in "plugin" to make
+// Post (with 128 samples of latency, as real plugins add), and drives the real
+// analysis path (injectProgramBlock) and editor for <seconds> of audio before
+// writing one PNG of the final state.
+//
+//   tab:    tone | dynamics | waveform | stereo | harmonics
+//   effect: comp  4:1 compressor, -16 dBFS threshold, 5 / 150 ms
+//           sat   tanh saturation (rounded peaks)
+//           eq    +5 dB high shelf at 6 kHz, -4 dB bell at 350 Hz
+//           wide  mid/side widener, side x1.4
+//           tone  ignores the file: 1 kHz test tone through asymmetric saturation
+//==============================================================================
+namespace
+{
+struct Biquad
+{
+    double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0;
+    float process (float x)
+    {
+        const double y = b0 * x + z1;
+        z1 = b1 * x - a1 * y + z2;
+        z2 = b2 * x - a2 * y;
+        return (float) y;
+    }
+    // RBJ cookbook.
+    static Biquad peak (double sr, double f, double q, double db)
+    {
+        const double A = std::pow (10.0, db / 40.0), w = juce::MathConstants<double>::twoPi * f / sr;
+        const double al = std::sin (w) / (2.0 * q), c = std::cos (w), a0 = 1.0 + al / A;
+        return { (1.0 + al * A) / a0, -2.0 * c / a0, (1.0 - al * A) / a0, -2.0 * c / a0, (1.0 - al / A) / a0 };
+    }
+    static Biquad highShelf (double sr, double f, double db)
+    {
+        const double A = std::pow (10.0, db / 40.0), w = juce::MathConstants<double>::twoPi * f / sr;
+        const double c = std::cos (w), al = std::sin (w) / 2.0 * std::sqrt (2.0), sA = 2.0 * std::sqrt (A) * al;
+        const double a0 = (A + 1) - (A - 1) * c + sA;
+        return { A * ((A + 1) + (A - 1) * c + sA) / a0, -2 * A * ((A - 1) + (A + 1) * c) / a0,
+                 A * ((A + 1) + (A - 1) * c - sA) / a0, 2 * ((A - 1) - (A + 1) * c) / a0,
+                 ((A + 1) - (A - 1) * c - sA) / a0 };
+    }
+};
+
+void applyEffect (const juce::String& fx, juce::AudioBuffer<float>& b, double sr)
+{
+    const int n = b.getNumSamples();
+    float* l = b.getWritePointer (0);
+    float* r = b.getWritePointer (1);
+    if (fx == "comp")
+    {
+        const double atk = 1.0 - std::exp (-1.0 / (0.005 * sr)), rel = 1.0 - std::exp (-1.0 / (0.150 * sr));
+        double env = 0.0;
+        for (int i = 0; i < n; ++i)
+        {
+            const double lvl = juce::Decibels::gainToDecibels ((double) juce::jmax (std::abs (l[i]), std::abs (r[i])), -120.0);
+            const double over = juce::jmax (0.0, lvl + 16.0);
+            const double target = over * (1.0 - 1.0 / 4.0);          // dB of cut
+            env += (target - env) * (target > env ? atk : rel);
+            const float g = (float) std::pow (10.0, -env / 20.0);
+            l[i] *= g; r[i] *= g;
+        }
+    }
+    else if (fx == "sat" || fx == "tone")
+    {
+        // Asymmetric bias adds even harmonics, as tape / tube emulations do.
+        // The tone gets gentle, biased drive (a few % THD, mostly 2nd, like a
+        // warm tape emulation); programme material gets enough to round peaks.
+        const float bias  = fx == "tone" ? 0.35f : 0.0f;
+        const float drive = fx == "tone" ? 0.7f  : 3.0f;
+        for (float* ch : { l, r })
+            for (int i = 0; i < n; ++i)
+                ch[i] = (std::tanh (drive * ch[i] + bias) - std::tanh (bias)) / drive;
+    }
+    else if (fx == "eq")
+    {
+        for (float* ch : { l, r })
+        {
+            auto shelf = Biquad::highShelf (sr, 6000.0, 5.0);
+            auto bell  = Biquad::peak (sr, 350.0, 1.0, -4.0);
+            for (int i = 0; i < n; ++i) ch[i] = bell.process (shelf.process (ch[i]));
+        }
+    }
+    else if (fx == "wide")
+    {
+        for (int i = 0; i < n; ++i)
+        {
+            const float m = 0.5f * (l[i] + r[i]), s = 0.7f * (l[i] - r[i]);
+            l[i] = m + s; r[i] = m - s;
+        }
+    }
+}
+
+int runProgramRender (PlugNspectrPostProcessor& proc, const juce::StringArray& a)
+{
+    if (a.size() < 8) { std::cerr << "usage: program-render <tab> <file> <effect> <seconds> <start> <out.png>\n"; return 1; }
+    const juce::String tab = a[2], fx = a[4];
+    juce::AudioFormatManager fm;
+    fm.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (juce::File (a[3])));
+    if (rd == nullptr) { std::cerr << "cannot read " << a[3] << "\n"; return 1; }
+
+    const double sr    = rd->sampleRate;
+    const int    total = (int) (a[5].getDoubleValue() * sr);
+    juce::AudioBuffer<float> pre (2, total);
+    pre.clear();
+    rd->read (&pre, 0, total, (juce::int64) (a[6].getDoubleValue() * sr), true, true);
+    if (fx == "tone")
+        for (int c = 0; c < 2; ++c)
+            for (int i = 0; i < total; ++i)
+                pre.setSample (c, i, 0.5f * (float) std::sin (juce::MathConstants<double>::twoPi * 1000.0 * i / sr));
+
+    juce::AudioBuffer<float> post (pre);
+    applyEffect (fx, post, sr);
+    constexpr int kLatency = 128;
+    for (int c = 0; c < 2; ++c)
+    {
+        float* p = post.getWritePointer (c);
+        std::memmove (p + kLatency, p, sizeof (float) * (size_t) (total - kLatency));
+        std::fill (p, p + kLatency, 0.0f);
+    }
+
+    proc.setRateAndBufferSizeDetails (sr, 1024);
+    proc.prepareToPlay (sr, 1024);
+    proc.setTestPreActive (true);
+    std::unique_ptr<juce::AudioProcessorEditor> base (proc.createEditor());
+    auto* editor = dynamic_cast<PlugNspectrPostEditor*> (base.get());
+    using T = PlugNspectrPostEditor;
+    editor->setSize (1280, 800);
+    editor->selectTabForTest (tab == "dynamics"  ? T::TabDynamics
+                            : tab == "waveform"  ? T::TabOscilloscope
+                            : tab == "stereo"    ? T::TabStereo
+                            : tab == "harmonics" ? T::TabHarmonics
+                                                 : T::TabSpectrum);
+    if (fx == "tone") editor->setToneActiveForTest (true);
+
+    // ~50 ms of audio per step, then let the editor's 60 Hz timer run for as
+    // long — roughly real time, so every view's smoothing behaves as in a DAW.
+    const int step = (int) (sr * 0.05);
+    for (int pos = 0; pos + step <= total; pos += step)
+    {
+        juce::AudioBuffer<float> preChunk  (pre.getArrayOfWritePointers(),  2, pos, step);
+        juce::AudioBuffer<float> postChunk (post.getArrayOfWritePointers(), 2, pos, step);
+        proc.injectProgramBlock (preChunk, postChunk);
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
+    }
+
+    const auto img = editor->createComponentSnapshot (editor->getLocalBounds());
+    juce::File out (a[7]);
+    out.deleteFile();
+    juce::FileOutputStream os (out);
+    juce::PNGImageFormat().writeImageToStream (img, os);
+    std::cout << "wrote " << out.getFullPathName() << "\n";
+    return 0;
+}
+}
+
 int main (int argc, char* argv[])
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
@@ -285,10 +445,19 @@ int main (int argc, char* argv[])
     const float grDb     = (argc > 3) ? juce::String (argv[3]).getFloatValue() : 1.4f;
     const float postGain = std::pow (10.0f, -grDb / 20.0f);
 
+    if (argc > 1 && juce::String (argv[1]) == "program-render")
+    {
+        PlugNspectrPostProcessor proc;
+        juce::StringArray a;
+        for (int i = 0; i < argc; ++i) a.add (argv[i]);
+        return runProgramRender (proc, a);
+    }
+
     juce::File outDir = juce::File::getCurrentWorkingDirectory().getChildFile ("frames");
     outDir.createDirectory();
 
     PlugNspectrPostProcessor proc;
+    proc.setRateAndBufferSizeDetails (kSampleRate, kBlock);   // as a host would, so getSampleRate() is real
     proc.prepareToPlay (kSampleRate, kBlock);
     proc.setTestPreActive (true);
 
@@ -322,7 +491,7 @@ int main (int argc, char* argv[])
     // transport is "playing", then stop it and confirm the stimulus auto-disarms.
     if (argc > 1 && juce::String (argv[1]) == "transport-test")
     {
-        editor->setSize (1000, 640);
+        editor->setSize (1280, 800);
         editor->selectTabForTest (4);
         editor->armMeasureForTest();                                      // transport defaults to playing
         juce::MessageManager::getInstance()->runDispatchLoopUntil (60);   // settle (no edge yet)
@@ -344,15 +513,25 @@ int main (int argc, char* argv[])
     const bool transferRender = (argc > 1 && juce::String (argv[1]) == "transfer-render");
     const bool envelopeRender = (argc > 1 && juce::String (argv[1]) == "envelope-render");
     const bool thdRender      = (argc > 1 && juce::String (argv[1]) == "thd-render");
+    // Transparent chain with latency: Post is Pre delayed 2048 samples, unity
+    // gain, on drum-like hits. Dynamics must read 0 dB of cut.
+    const bool bypassRender   = (argc > 1 && juce::String (argv[1]) == "dynamics-bypass");
+    // 220 Hz sine through a soft clipper, 6 dB down: the Waveform tab should
+    // call it rounded peaks, with the traces level-matched.
+    // Post 6 dB down for the first half, then unity (a plugin switched off):
+    // Dynamics should restart its readings and settle at 0 dB of cut.
+    const bool switchRender   = (argc > 1 && juce::String (argv[1]) == "dynamics-switch");
+    const bool oscRender      = (argc > 1 && juce::String (argv[1]) == "osc-render");
 
     using Tabs = PlugNspectrPostEditor;
-    editor->setSize (1000, 640);
+    editor->setSize (1280, 800);
     editor->selectTabForTest (stereoRender   ? Tabs::TabStereo
                             : spectrumRender ? Tabs::TabSpectrum
                             : linearRender   ? Tabs::TabLinear
                             : transferRender ? Tabs::TabTransfer
                             : envelopeRender ? Tabs::TabEnvelope
                             : thdRender      ? Tabs::TabThd
+                            : oscRender      ? Tabs::TabOscilloscope
                                              : Tabs::TabDynamics);
     if (linearRender) editor->armMeasureForTest();   // show the measuring border/banner
     if (linearRender)   editor->setLinearCursorForTest (700);    // hairline ~3 kHz
@@ -360,6 +539,7 @@ int main (int argc, char* argv[])
     if (envelopeRender) editor->setEnvelopeCursorForTest (560);  // ~mid attack
     if (thdRender)      editor->setThdCursorForTest (560);       // ~1 kHz
     if (argc > 1 && juce::String (argv[1]) == "about-render") editor->showAboutForTest();
+    if (argc > 1 && juce::String (argv[1]) == "options-render") editor->openDynamicsOptionsForTest();
 
     juce::PNGImageFormat png;
     double phase = 0.0;
@@ -372,6 +552,8 @@ int main (int argc, char* argv[])
     double enPhase = 0.0, enGr = 0.0; uint32_t enPos = 0;   // envelope step + compressor state
     double thdPh = 0.0; int thdStep = 0;       // THD sweep state (5% 2nd-harmonic plugin)
     double stLpS = 0.0, stLpM = 0.0;           // stereo widener crossover / mono-bed state
+    constexpr int kBypassLag = 2048;
+    std::vector<float> byLine ((size_t) kBypassLag, 0.0f); int byPos = 0; uint32_t byClock = 0;
 
     for (int f = 0; f < numFrames; ++f)
     {
@@ -502,11 +684,44 @@ int main (int argc, char* argv[])
             }
             proc.injectMeasurementBlock (pre.data(), post.data(), kBlock);
         }
+        else if (oscRender)
+        {
+            juce::AudioBuffer<float> pre (1, kBlock), post (1, kBlock);
+            for (int i = 0; i < kBlock; ++i)
+            {
+                const float x = 0.7f * (float) std::sin (phase);
+                phase += juce::MathConstants<double>::twoPi * 220.0 / kSampleRate;
+                pre.setSample (0, i, x);
+                post.setSample (0, i, 0.5f * std::tanh (2.5f * x));
+            }
+            proc.injectTestCapture (pre, post, -6.0f, -9.0f);
+        }
+        else if (bypassRender)
+        {
+            juce::AudioBuffer<float> pre (1, kBlock), post (1, kBlock);
+            double preSq = 0.0, postSq = 0.0;
+            for (int i = 0; i < kBlock; ++i, ++byClock)
+            {
+                // A decaying noise hit every 250 ms over a quiet bed.
+                const float t   = (float) (byClock % 12000) / (float) kSampleRate;
+                const float hit = 0.6f * std::exp (-t * 30.0f) * (rng.nextFloat() * 2.0f - 1.0f);
+                const float x   = hit + 0.02f * (rng.nextFloat() * 2.0f - 1.0f);
+                const float y   = byLine[(size_t) byPos];
+                byLine[(size_t) byPos] = x;
+                byPos = (byPos + 1) % kBypassLag;
+                pre.setSample (0, i, x); post.setSample (0, i, y);
+                preSq += (double) x * x; postSq += (double) y * y;
+            }
+            proc.injectTestCapture (pre, post,
+                                    20.0f * std::log10 (juce::jmax ((float) std::sqrt (preSq / kBlock), 1.0e-6f)),
+                                    20.0f * std::log10 (juce::jmax ((float) std::sqrt (postSq / kBlock), 1.0e-6f)));
+        }
         else
         {
             juce::AudioBuffer<float> pre, post;
             float preDb = -90.0f, postDb = -90.0f;
-            makeFrame (pre, post, phase, f, postGain, preDb, postDb);
+            makeFrame (pre, post, phase, f,
+                       switchRender ? (f < numFrames / 2 ? 0.5f : 1.0f) : postGain, preDb, postDb);
             proc.injectTestCapture (pre, post, preDb, postDb);
         }
 
