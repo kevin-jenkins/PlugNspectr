@@ -1109,6 +1109,10 @@ public:
     void freezeThdForTest()               { m_thdView.freezeForTest(); }
     void showAboutForTest()               { m_about.setVisible (true); m_about.toFront (true); }
     void openDynamicsOptionsForTest()     { m_dynView.openOptionsForTest(); }
+    // The views that react to the test tone (Harmonics draws only while it's on),
+    // without sending a command to a Pre that isn't there.
+    void setToneActiveForTest (bool on)   { m_toneActive = on; m_toneBtn.setToggleState (on, juce::dontSendNotification);
+                                            m_harmView.setToneActive (on); repaint(); }
 
 private:
     void timerCallback      () override;

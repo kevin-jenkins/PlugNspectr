@@ -9,7 +9,7 @@
 > A two-plugin signal-chain analyzer for Windows (VST3) and macOS (VST3 + AU).
 > Insert Pre and Post around any plugin — or a whole chain — to see exactly what it's doing to your audio.
 
-<img src="docs/screenshots/spectrum-hero.png" width="900" alt="PlugNspectr Post — Spectrum tab analyzing live audio in Cubase" />
+<img src="docs/screenshots/spectrum-hero.png" width="900" alt="PlugNspectr Post — the Tone tab comparing a mix before and after an EQ" />
 
 ---
 
@@ -210,7 +210,7 @@ Throughout, the colour language is consistent: **grey = into your plugin**, **cy
 
 ### Tone Tab
 
-<img src="docs/screenshots/spectrum.png" width="820" alt="Spectrum tab" />
+<img src="docs/screenshots/spectrum.png" width="820" alt="Tone tab — spectrum before and after an EQ, with its long-term averages" />
 
 Real-time FFT frequency analysis showing how the plugin is shaping your audio's frequency content.
 
@@ -231,7 +231,7 @@ Real-time FFT frequency analysis showing how the plugin is shaping your audio's 
 
 ### Dynamics Tab
 
-<img src="docs/screenshots/dynamics.png" width="820" alt="Dynamics tab" />
+<img src="docs/screenshots/dynamics.png" width="820" alt="Dynamics tab — a compressor on a guitar track" />
 
 Reveals how the plugin is affecting dynamic range and level in real time.
 
@@ -257,7 +257,7 @@ Reveals how the plugin is affecting dynamic range and level in real time.
 
 ### Waveform Tab
 
-<img src="docs/screenshots/oscilloscope.png" width="820" alt="Oscilloscope tab" />
+<img src="docs/screenshots/oscilloscope.png" width="820" alt="Waveform tab — a guitar through soft saturation, level-matched" />
 
 A zero-crossing-triggered oscilloscope of both signals — useful for phase shifts, transient shaping, clipping, and saturation character.
 
@@ -332,7 +332,7 @@ The two lanes are mathematically linked — both derive from the same measuremen
 
 ### Harmonics Tab
 
-<img src="docs/screenshots/harmonics.png" width="820" alt="Harmonics tab — harmonic spectrum with the measuring-safety banner active" />
+<img src="docs/screenshots/harmonics.png" width="820" alt="Harmonics tab — a test tone through warm saturation, with the test-signal warning active" />
 
 Harmonic-distortion analysis using a pure sine test tone. Identifies the character and intensity of even and odd harmonics H2–H8.
 
@@ -451,6 +451,11 @@ The `.jucer` projects are kept for the existing local Windows workflow:
 `tools/render-harness/` builds, via CMake against your JUCE install, two extra targets that never touch the Projucer projects:
 
 - **`RenderHarness`** — a headless console app that drives the real Post editor with synthetic audio and dumps PNG frames (used to generate this README's screenshots and to eyeball UI changes without a DAW). Needs the plugin's `BinaryData` generated once first.
+  The README's screenshots are made with its **`program-render`** mode, which plays a real recording through a small built-in "plugin" (compressor, saturator, EQ, widener, or a test tone through a saturator) and drives the real analysis and editor:
+
+  ```bash
+  RenderHarness program-render <tab> <audio.wav|.flac> <comp|sat|eq|wide|tone> <seconds> <start-seconds> <out.png>
+  ```
 - **`PnsPostStandalone`** — the full Post UI as a launchable `.exe` with its own audio device, for instant manual iteration.
 
 ```bash
