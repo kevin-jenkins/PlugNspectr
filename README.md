@@ -249,6 +249,8 @@ Reveals how the plugin is affecting dynamic range and level in real time.
 
 > **Double-click** the chips for the same full reset as **Start over**.
 
+> **Auto-restart:** when the amount of cut changes for good — a plugin switched off or on, a big setting change — the readings restart by themselves instead of taking half a minute to forget the old state. It triggers when the last ~0.5 s differs from the 30 s average by more than 1.5 dB for 1.5 s, and the graph says *"Readings restarted"*. A big change in the music (quiet verse into a loud chorus through a compressor) can trigger it too; the waveform history is always kept.
+
 **Gain Reduction (bottom):** a scrolling GR history with a light-blue fill. The scale fits the cut actually happening — **3, 6, 12 or 24 dB** — so gentle compression is as readable as heavy limiting; X = last 3 seconds. Flat at 0 = dynamically transparent; deep consistent dips = heavy compression; brief dips = peak limiting.
 
 ---

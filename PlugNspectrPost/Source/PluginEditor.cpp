@@ -1188,6 +1188,26 @@ void DynamicsView::update()
                 if (m_avgGrBuf[i] <= 0.0f) { sum += m_avgGrBuf[i]; ++cnt; }
             m_avgGr = (cnt > 0) ? sum / (float) cnt : 0.0f;
 
+            // Auto-restart on a lasting change (see m_fastGr). Time-based, since
+            // ticks with audio arrive at the host's block rate, not 60 Hz.
+            if (audible)
+            {
+                const double nowMs = juce::Time::getMillisecondCounterHiRes();
+                const float  k     = (float) juce::jlimit (0.0, 1.0, (double) capN / (0.5 * sr));
+                m_fastGr += k * (currentGr - m_fastGr);
+                if (cnt > 20 && std::abs (m_fastGr - m_avgGr) > 1.5f)
+                {
+                    if (m_shiftSinceMs == 0.0) m_shiftSinceMs = nowMs;
+                    else if (nowMs - m_shiftSinceMs > 1500.0)
+                    {
+                        resetReadings();
+                        m_restartNoteEnd = nowMs + 4000.0;
+                    }
+                }
+                else
+                    m_shiftSinceMs = 0.0;
+            }
+
             // Smooth RMS volume (0.9 decay)
             constexpr float kSmooth = 0.9f;
             m_smoothPreDb  = m_smoothPreDb  * kSmooth + rms.preDb  * (1.0f - kSmooth);
@@ -1325,6 +1345,22 @@ void DynamicsView::mouseDoubleClick (const juce::MouseEvent& e)
         reset();
 }
 
+// Clear just the cut readings — used by the auto-restart when the plugin's
+// behaviour changes for good. The waveform history stays: it's still true.
+void DynamicsView::resetReadings()
+{
+    m_instantGr  = 0.0f;
+    m_avgGr      = 0.0f;
+    m_grPeakHold = 0.0f;
+    m_avgGrBuf.fill (0.0f);
+    m_avgGrPos   = 0;
+    m_avgGrFill  = 0;
+    m_gr.fill (0.0f);
+    m_grPos      = 0;
+    m_shiftSinceMs = 0.0;
+    // m_fastGr is kept: it already reflects the new state.
+}
+
 // Clear every accumulated reading and history so measurement starts over after a
 // tweak to the plugin chain. The auto-zoom is intentionally left untouched — it
 // already tracks the signal, and resetting it would just re-calibrate/flicker.
@@ -1348,6 +1384,8 @@ void DynamicsView::reset()
     m_avgGrBuf.fill (0.0f);
     m_avgGrPos   = 0;
     m_avgGrFill  = 0;
+    m_fastGr       = 0.0f;
+    m_shiftSinceMs = 0.0;
 
     // Smoothed In/Out levels and the scrolling GR history plot.
     m_smoothPreDb  = -90.0f;
@@ -1566,7 +1604,15 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
         }
         m_chipBounds = juce::Rectangle<float> (px + 10.0f, cy, cx - chipGap - (px + 10.0f), chipH).toNearestInt();
 
-        if (m_mouseOverReadout)
+        if (juce::Time::getMillisecondCounterHiRes() < m_restartNoteEnd)
+        {
+            g.setFont (PnsTheme::fontLabel());
+            g.setColour (PnsTheme::kAccentPrimary);
+            g.drawText ("Readings restarted - the plugin's behaviour changed",
+                        juce::roundToInt (cx + 4.0f), juce::roundToInt (cy), 320,
+                        juce::roundToInt (chipH), juce::Justification::centredLeft);
+        }
+        else if (m_mouseOverReadout)
         {
             g.setFont (PnsTheme::fontLabel());
             g.setColour (PnsTheme::kGridLabel);

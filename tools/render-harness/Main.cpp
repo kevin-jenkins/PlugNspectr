@@ -350,6 +350,9 @@ int main (int argc, char* argv[])
     const bool bypassRender   = (argc > 1 && juce::String (argv[1]) == "dynamics-bypass");
     // 220 Hz sine through a soft clipper, 6 dB down: the Waveform tab should
     // call it rounded peaks, with the traces level-matched.
+    // Post 6 dB down for the first half, then unity (a plugin switched off):
+    // Dynamics should restart its readings and settle at 0 dB of cut.
+    const bool switchRender   = (argc > 1 && juce::String (argv[1]) == "dynamics-switch");
     const bool oscRender      = (argc > 1 && juce::String (argv[1]) == "osc-render");
 
     using Tabs = PlugNspectrPostEditor;
@@ -549,7 +552,8 @@ int main (int argc, char* argv[])
         {
             juce::AudioBuffer<float> pre, post;
             float preDb = -90.0f, postDb = -90.0f;
-            makeFrame (pre, post, phase, f, postGain, preDb, postDb);
+            makeFrame (pre, post, phase, f,
+                       switchRender ? (f < numFrames / 2 ? 0.5f : 1.0f) : postGain, preDb, postDb);
             proc.injectTestCapture (pre, post, preDb, postDb);
         }
 

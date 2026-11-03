@@ -351,6 +351,7 @@ public:
     void update  ();
     PnsTheme::Summary summary() const;   // one-line plain-language verdict for the banner
     void reset   ();   // clear all accumulated readings and history (keeps the zoom)
+    void resetReadings();   // clear the cut readings only (average, peak hold, now); keeps the waveform
     void openOptionsForTest() { m_options.setOpen (true); }
     int  lagSamples() const   { return m_lagSamples; }   // Post-vs-Pre latency, shared with the scope
 
@@ -371,6 +372,14 @@ private:
     // them, which the host keeps even when those plugins are bypassed. Measured
     // from the audio (envelope cross-correlation) and used to line Pre up with
     // Post before comparing levels; without it every transient reads as a cut.
+    // Auto-restart: when the cut changes for good (a plugin switched off or
+    // on, a big setting change), the 30 s average and peak hold would take a
+    // minute or more to forget the old state. A fast average (~0.5 s) that
+    // stays > 1.5 dB away from the 30 s one for 1.5 s restarts the readings.
+    float  m_fastGr          = 0.0f;
+    double m_shiftSinceMs    = 0.0;   // when the fast/slow disagreement began; 0 = agreeing
+    double m_restartNoteEnd  = 0.0;   // show "readings restarted" until this time
+
     int m_lagSamples   = 0;
     int m_lagCountdown = 0;   // ticks until the next lag estimate
     void estimateLag (double sampleRate);
