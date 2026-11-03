@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(PlugNspectr VERSION 1.1.0 LANGUAGES C CXX)
+project(PlugNspectr VERSION 1.2.0 LANGUAGES C CXX)
 
 # ---------------------------------------------------------------------------
 # Cross-platform plugin build (Windows + macOS) for both PlugNspectr plugins.
