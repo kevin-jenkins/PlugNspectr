@@ -1006,7 +1006,8 @@ public:
         }
     }
 
-    int lagSamples() const { return m_lag; }
+    int  lagSamples() const { return m_lag; }
+    bool locked()     const { return m_locked; }
 
     // True once a confident estimate exists, or after 4 s of audio without
     // one: steady material (a held tone, a drone) gives no answer, and for it
@@ -1163,6 +1164,8 @@ private:
     float m_overlayAlpha  = 0.0f;   // current rendered alpha (0=hidden, 1=fully visible)
     float m_overlayTarget = 0.0f;   // desired alpha (animated toward each tick)
     juce::String m_setupWarning;    // a setup problem to fix (amber strip), or empty
+    juce::String m_delayNote;       // how Pre and Post are lined up, for the tabs that use it
+    juce::String delayNote() const;
     float m_pulsePhase    = 0.0f;   // 0–2π, for the pulsing search dot
 
     // ── Dock — test tone controls ────────────────────────────────

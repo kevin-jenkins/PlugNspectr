@@ -57,6 +57,8 @@ void PlugNspectrPostProcessor::prepareToPlay (double sampleRate, int samplesPerB
     }
     resetStereo();
     m_stPrePos = m_stPostPos = 0;
+    std::fill (m_alignRing.begin(), m_alignRing.end(), 0.0f);
+    m_alignWrite = 0;
 }
 
 void PlugNspectrPostProcessor::releaseResources()
@@ -198,6 +200,7 @@ void PlugNspectrPostProcessor::getMeasurement (MeasResult& out) const
         juce::ScopedLock sl (m_measLock);
         out.frames         = m_measFrames;
         out.latencySamples = m_latencySamples;
+        out.alignSamples   = m_alignLag.load();
         out.sampleRate     = (m_measSampleRate > 0.0) ? m_measSampleRate : getSampleRate();
         m_snapSxx  .assign (m_Sxx  .begin(), m_Sxx  .end());
         m_snapSyy  .assign (m_Syy  .begin(), m_Syy  .end());
@@ -585,6 +588,18 @@ void PlugNspectrPostProcessor::analyseBlock (juce::AudioBuffer<float>& buffer, b
     pushSamplesToAccum (m_anaPost.data(), numSmp,
                         m_postAccum, m_postAccumPos, m_postSpectrum);
 
+    // ── Pre aligned to Post for the measurement engines ──────────────────
+    // Written every block, Pre or not, so the ring stays on Post's clock.
+    const int alignLag = m_alignLag.load();
+    {
+        constexpr int mask = kAlignRingLen - 1;
+        for (int i = 0; i < numSmp; ++i)
+            m_alignRing[(size_t) ((m_alignWrite + (uint64_t) i) & mask)] = (i < preSmp) ? m_anaPre[(size_t) i] : 0.0f;
+        for (int i = 0; i < numSmp; ++i)
+            m_anaPreAligned[(size_t) i] = m_alignRing[(size_t) ((m_alignWrite + (uint64_t) i - (uint64_t) alignLag) & mask)];
+        m_alignWrite += (uint64_t) numSmp;
+    }
+
     if (preReady)
     {
         pushSamplesToAccum (m_anaPre.data(), preSmp,
@@ -595,16 +610,23 @@ void PlugNspectrPostProcessor::analyseBlock (juce::AudioBuffer<float>& buffer, b
         // last curve instead of drifting onto program material.
         const int measN = juce::jmin (preSmp, numSmp);
         if (m_linearMeasuring.load())
-            pushMeasurementSamples (m_anaPre.data(), m_anaPost.data(), measN);
+            pushMeasurementSamples (m_anaPreAligned.data(), m_anaPost.data(), measN);
 
         // ── Dynamics engines — gated by Pre's active stimulus mode so each
         //    only runs (and interprets dynEnvPos) when its stimulus is live ──
         const uint32_t dynMode = m_preIn.dynModeActive;
         if (dynMode == 1)
-            pushDynamicsSamples (m_anaPre.data(), m_anaPost.data(), measN);
+            pushDynamicsSamples (m_anaPreAligned.data(), m_anaPost.data(), measN);
         else if (dynMode == 2)
-            pushEnvelopeSamples (m_anaPre.data(), m_anaPost.data(), measN,
-                                 m_preIn.dynEnvPos + (uint32_t) preOffset);
+        {
+            // The aligned Pre is alignLag samples older, so it sits that much
+            // earlier in the 1 s step cycle.
+            const double   sr     = (m_measSampleRate > 0.0) ? m_measSampleRate : getSampleRate();
+            const uint32_t period = (uint32_t) juce::jmax (1.0, sr);   // as pushEnvelopeSamples
+            const uint32_t pos = (m_preIn.dynEnvPos + (uint32_t) preOffset) % period;
+            pushEnvelopeSamples (m_anaPreAligned.data(), m_anaPost.data(), measN,
+                                 (pos + period - (uint32_t) alignLag % period) % period);
+        }
         else if (dynMode == 3)
             pushThdSweepSamples (m_anaPost.data(), measN, (double) m_preIn.dynEnvPos);
     }

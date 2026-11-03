@@ -5,6 +5,7 @@
 #include "PluginProcessor.h"
 
 #include <array>
+#include <memory>
 #include <vector>
 
 using P = PlugNspectrPostProcessor;
@@ -118,4 +119,51 @@ TEST_CASE ("Linear: one-pole LP at fc=1k -> -3 dB / -45 deg at fc, ~-12 dB at 4k
     CHECK (std::abs (r.magDb[kc] - (-3.0f)) < 0.6f);
     CHECK (std::abs (pnst::radToDeg (r.phase[kc]) - (-45.0)) < 6.0);
     CHECK (std::abs (r.magDb[k4] - (-12.0f)) < 1.5f);
+}
+
+// A chain delay beyond half the FFT frame used to collapse the EQ curve: Pre
+// and Post frames barely overlapped. With the delay supplied (setAlignLag, as
+// the editor does from LagTracker), Pre is delayed to match.
+TEST_CASE ("Linear: 3000-sample chain delay measures cleanly once aligned")
+{
+    auto measure = [] (int alignLag)
+    {
+        auto proc = std::make_unique<P>();
+        proc->prepareToPlay (pnst::kSR, blk);
+        proc->setTestPreActive (true);
+        proc->setLinearMeasuring (true);
+        proc->setAlignLag (alignLag);
+
+        constexpr int kDelay = 3000;
+        juce::Random rng (3);
+        std::vector<float> hist ((size_t) kDelay, 0.0f);   // the "plugin": a pure delay
+        juce::AudioBuffer<float> pre (1, blk), post (1, blk);
+        for (int b = 0; b < 200; ++b)
+        {
+            for (int i = 0; i < blk; ++i)
+            {
+                const float x = rng.nextFloat() * 2.0f - 1.0f;
+                pre.setSample (0, i, x);
+                post.setSample (0, i, hist[(size_t) ((b * blk + i) % kDelay)]);
+                hist[(size_t) ((b * blk + i) % kDelay)] = x;
+            }
+            proc->injectProgramBlock (pre, post);
+        }
+        P::MeasResult r;
+        proc->getMeasurement (r);
+        return r;
+    };
+
+    const int k = pnst::binAt (1000.0, N);
+
+    const auto unaligned = measure (0);
+    INFO ("unaligned coh@1k=" << unaligned.coh[k]);
+    CHECK (unaligned.coh[k] < 0.5f);
+
+    const auto aligned = measure (3000);
+    INFO ("aligned mag@1k=" << aligned.magDb[k] << " coh@1k=" << aligned.coh[k]
+          << " latency=" << aligned.latencySamples << "+" << aligned.alignSamples);
+    CHECK (aligned.coh[k] > 0.98f);
+    CHECK (std::abs (aligned.magDb[k]) < 0.3f);
+    CHECK (aligned.latencySamples + aligned.alignSamples == 3000);
 }
