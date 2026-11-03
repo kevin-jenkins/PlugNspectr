@@ -111,6 +111,7 @@ public:
     void setResetAction (const juce::String& hint, std::function<void()> fn)
     {
         m_resetHint = hint; m_onReset = std::move (fn);
+        refresh();
     }
 
     // Size the component itself: the pill when closed, pill + panel when open.

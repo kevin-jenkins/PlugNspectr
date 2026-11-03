@@ -105,6 +105,17 @@ namespace PnsTheme
     }
 
     //──────────────────────────────────────────────────────────────────────────
+    // Plot card — every graph sits on one: a slightly lifted, rounded surface
+    // with a hairline edge, so plots read as objects rather than holes.
+    static inline void drawPlotCard (juce::Graphics& g, juce::Rectangle<float> r)
+    {
+        g.setColour (kBgPanel);
+        g.fillRoundedRectangle (r, 8.0f);
+        g.setColour (kBorderSubtle);
+        g.drawRoundedRectangle (r.reduced (0.5f), 8.0f, 1.0f);
+    }
+
+    //──────────────────────────────────────────────────────────────────────────
     // Dotted grid lines
     static inline void drawDottedHLine (juce::Graphics& g, float y, float x1, float x2)
     {
@@ -175,30 +186,31 @@ namespace PnsTheme
         }
     };
 
-    // Panel title: the plain name first, the engineering term after it, dimmer —
-    // "OUTPUT vs INPUT LEVEL · transfer curve, dB". Centred in r.
+    // Panel title: the plain name first, small caps and bright, the engineering
+    // term after it, dimmer — "OUTPUT vs INPUT LEVEL  transfer curve, dB".
+    // Left-aligned in r, like a label on the card it sits above.
     static inline void drawPanelTitle (juce::Graphics& g, juce::Rectangle<float> r,
                                        const juce::String& plain, const juce::String& tech)
     {
-        const auto font = fontLabel();
-        const juce::String techPart = tech.isEmpty() ? juce::String()
-                                                     : juce::String::fromUTF8 ("  \xc2\xb7  ") + tech;
-        auto width = [&] (const juce::String& s)
+        const auto fPlain = juce::Font (juce::FontOptions().withName (juce::Font::getDefaultSansSerifFontName())
+                                                           .withHeight (10.5f).withStyle ("Bold"));
+        const auto fTech  = fontLabel();
+        juce::GlyphArrangement ga;
+        ga.addLineOfText (fPlain, plain.toUpperCase(), 0.0f, 0.0f);
+        const float wPlain = ga.getBoundingBox (0, -1, true).getWidth();
+        const float x = r.getX() + 2.0f;
+        g.setFont (fPlain);
+        g.setColour (kTextSecondary.brighter (0.25f));
+        g.drawText (plain.toUpperCase(), juce::Rectangle<float> (x, r.getY(), wPlain + 2.0f, r.getHeight()),
+                    juce::Justification::centredLeft, false);
+        if (tech.isNotEmpty())
         {
-            juce::GlyphArrangement ga;
-            ga.addLineOfText (font, s, 0.0f, 0.0f);
-            return ga.getBoundingBox (0, -1, true).getWidth();
-        };
-        const float wPlain = width (plain), wTech = width (techPart);
-        float x = r.getCentreX() - (wPlain + wTech) * 0.5f;
-        g.setFont (font);
-        g.setColour (kTextPrimary.withAlpha (0.78f));
-        g.drawText (plain, juce::Rectangle<float> (x, r.getY(), wPlain + 2.0f, r.getHeight()),
-                    juce::Justification::centredLeft, false);
-        x += wPlain;
-        g.setColour (kGridLabel.brighter (0.25f));
-        g.drawText (techPart, juce::Rectangle<float> (x, r.getY(), wTech + 2.0f, r.getHeight()),
-                    juce::Justification::centredLeft, false);
+            g.setFont (fTech);
+            g.setColour (kGridLabel);
+            g.drawText (tech, juce::Rectangle<float> (x + wPlain + 8.0f, r.getY(),
+                                                      r.getRight() - (x + wPlain + 8.0f), r.getHeight()),
+                        juce::Justification::centredLeft, true);
+        }
     }
 
     static inline juce::String fmtHz (double f)

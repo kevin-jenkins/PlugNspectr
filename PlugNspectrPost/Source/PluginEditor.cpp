@@ -476,9 +476,7 @@ void SpectrumView::paint (juce::Graphics& g)
 
     // ── Background ────────────────────────────────────────────────────────
     g.fillAll (PnsTheme::kBgDark);
-    // Pure #0F0F0F plot area
-    g.setColour (juce::Colour (0xff0f0f0f));
-    g.fillRect (px, py, pw, ph);
+    PnsTheme::drawPlotCard (g, { px, py, pw, ph });
 
     // ── Dotted grid ───────────────────────────────────────────────────────
     g.setFont (PnsTheme::fontLabel());
@@ -1320,8 +1318,7 @@ void DynamicsView::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area)
     PnsTheme::drawPanelTitle (g, area.withHeight (16.0f), "LEVEL OVER TIME", "pre vs post waveform");
 
     // ── Background ────────────────────────────────────────────────────────
-    g.setColour (PnsTheme::kBgPanel);
-    g.fillRect (px, py, pw, ph);
+    PnsTheme::drawPlotCard (g, { px, py, pw, ph });
 
     // ── Clip lines ── only meaningful when not auto-zoomed (edges = ±1.0) ──
     if (scale < 1.05f)
@@ -1573,8 +1570,7 @@ void DynamicsView::drawGrMeter (juce::Graphics& g, juce::Rectangle<float> area)
 
     PnsTheme::drawPanelTitle (g, area.withHeight (16.0f), "HOW MUCH IT TURNS DOWN", "gain reduction, dB");
 
-    g.setColour (PnsTheme::kBgPanel);
-    g.fillRect (px, py, pw, ph);
+    PnsTheme::drawPlotCard (g, { px, py, pw, ph });
 
     const float grLines[] = { 0.0f, -3.0f, -6.0f, -9.0f, -12.0f, -15.0f, -18.0f, -21.0f, -24.0f };
     for (float gr : grLines)
@@ -1800,8 +1796,7 @@ void OscilloscopeView::paint (juce::Graphics& g)
 
     // ── Background ────────────────────────────────────────────────────────
     g.fillAll (PnsTheme::kBgDark);
-    g.setColour (juce::Colour (0, 0, 0));    // pure black plot area
-    g.fillRect (px, py, pw, ph);
+    PnsTheme::drawPlotCard (g, { px, py, pw, ph });
 
     // ── Title ─────────────────────────────────────────────────────────────
     PnsTheme::drawPanelTitle (g, { px, 0.0f, pw, kMT }, "WAVEFORM CLOSE-UP", "oscilloscope");
@@ -2102,8 +2097,7 @@ void StereoView::drawLane (juce::Graphics& g, juce::Rectangle<float> area, const
         key (PnsTheme::kColorPost,                  "Post", 28);
     }
 
-    g.setColour (PnsTheme::kBgPanel);
-    g.fillRect (plot);
+    PnsTheme::drawPlotCard (g, plot);
 
     // 2 px inset so a curve sitting exactly at vMin/vMax (a mono signal reads
     // correlation 1.0 and width at the floor) is drawn just inside the frame
@@ -2267,8 +2261,7 @@ void StereoView::drawGonio (juce::Graphics& g, juce::Rectangle<float> area) cons
     const juce::Rectangle<float> sq =
         juce::Rectangle<float> (d, d).withCentre ({ area.getCentreX(),
                                                     area.getY() + 16.0f + (area.getHeight() - 16.0f) * 0.5f });
-    g.setColour (PnsTheme::kBgPanel);
-    g.fillRect (sq);
+    PnsTheme::drawPlotCard (g, sq);
 
     const float cx = sq.getCentreX(), cy = sq.getCentreY(), half = d * 0.5f;
 
@@ -2612,8 +2605,7 @@ void HarmonicsView::drawSpectrumArea (juce::Graphics& g, juce::Rectangle<float> 
     auto magToDb = [] (float m) { return 20.0f * std::log10 (juce::jmax (m, 1.0e-6f)); };
 
     // Background
-    g.setColour (PnsTheme::kBgPanel);
-    g.fillRect (px, py, pw, ph);
+    PnsTheme::drawPlotCard (g, { px, py, pw, ph });
 
     // Title
     PnsTheme::drawPanelTitle (g, area.withHeight (kMT), "WHAT IT ADDS", "harmonic spectrum");
@@ -2980,8 +2972,7 @@ void LinearView::drawPanel (juce::Graphics& g, juce::Rectangle<float> r, const c
     const float pw = r.getWidth() - kML - kMR, ph = r.getHeight() - kMT - kMB;
     if (pw <= 0 || ph <= 0) return;
 
-    g.setColour (PnsTheme::kBgPanel);
-    g.fillRect (px, py, pw, ph);
+    PnsTheme::drawPlotCard (g, { px, py, pw, ph });
 
     {   // "PLAIN|technical" — plain name first, engineering term after it
         const juce::String t (title);
@@ -3064,9 +3055,9 @@ void LinearView::paint (juce::Graphics& g)
 
     drawPanel (g, magR, "LEVEL CHANGE|magnitude, dB",   m_meas.magDb, -48.0f,  12.0f, "dB",  PnsTheme::kColorPost,
                m_hasFrozen ? &m_frozenMag   : nullptr);
-    drawPanel (g, phR,  "PHASE SHIFT|phase, deg",      m_phaseDeg,  -180.0f, 180.0f, "deg", PnsTheme::kColorPostAvg,
+    drawPanel (g, phR,  "PHASE SHIFT|phase, deg",      m_phaseDeg,  -180.0f, 180.0f, "deg", PnsTheme::kColorPost,
                m_hasFrozen ? &m_frozenPhase : nullptr);
-    drawPanel (g, gdR,  "DELAY BY FREQUENCY|group delay, ms", m_groupMs,    m_gdLo,  m_gdHi, "ms",  PnsTheme::kColorGainRed,
+    drawPanel (g, gdR,  "DELAY BY FREQUENCY|group delay, ms", m_groupMs,    m_gdLo,  m_gdHi, "ms",  PnsTheme::kColorPost,
                m_hasFrozen ? &m_frozenGroup : nullptr);
 
     // ── Cursor readout — hairline across all panels + dot + value chip ─────
@@ -3085,8 +3076,8 @@ void LinearView::paint (juce::Graphics& g)
         struct P { juce::Rectangle<float> r; float v, vMin, vMax; juce::Colour col; };
         const P panels[3] = {
             { magR, m_meas.magDb[k], -48.0f,  12.0f, PnsTheme::kColorPost    },
-            { phR,  m_phaseDeg[k],  -180.0f, 180.0f, PnsTheme::kColorPostAvg },
-            { gdR,  m_groupMs[k],    m_gdLo,  m_gdHi, PnsTheme::kColorGainRed },
+            { phR,  m_phaseDeg[k],  -180.0f, 180.0f, PnsTheme::kColorPost },
+            { gdR,  m_groupMs[k],    m_gdLo,  m_gdHi, PnsTheme::kColorPost },
         };
         for (const auto& p : panels)
         {
@@ -3109,8 +3100,8 @@ void LinearView::paint (juce::Graphics& g)
         float bx = cx + 10.0f;
         if (bx + boxW > magR.getRight()) bx = cx - 10.0f - boxW;
         const float by = magR.getY() + kMT + 4.0f;
-        g.setColour (juce::Colour (10, 10, 10));
-        g.fillRect (bx, by, boxW, boxH);
+        g.setColour (PnsTheme::kBgDark.withAlpha (0.92f));
+        g.fillRoundedRectangle (bx, by, boxW, boxH, 6.0f);
         g.setColour (PnsTheme::kAccentPrimary.withAlpha (0.7f));
         g.drawRect (bx, by, boxW, boxH, 1.0f);
         g.setFont (PnsTheme::fontLabel());
@@ -3164,8 +3155,8 @@ static void drawCursorChip (juce::Graphics& g, juce::Rectangle<float> plot, floa
     if (bx + boxW > plot.getRight()) bx = cx - 10.0f - boxW;
     bx = juce::jmax (plot.getX(), bx);
     const float by = plot.getY() + 6.0f;
-    g.setColour (juce::Colour (10, 10, 10));
-    g.fillRect (bx, by, boxW, boxH);
+    g.setColour (PnsTheme::kBgDark.withAlpha (0.92f));
+    g.fillRoundedRectangle (bx, by, boxW, boxH, 6.0f);
     g.setColour (PnsTheme::kAccentPrimary.withAlpha (0.7f));
     g.drawRect (bx, by, boxW, boxH, 1.0f);
     g.setFont (PnsTheme::fontLabel());
@@ -3286,8 +3277,7 @@ void TransferView::paint (juce::Graphics& g)
 
     PnsTheme::drawPanelTitle (g, r.withHeight (13.0f), "OUTPUT LEVEL vs INPUT LEVEL", "transfer curve, dB");
 
-    g.setColour (PnsTheme::kBgPanel);
-    g.fillRect (px, py, pw, ph);
+    PnsTheme::drawPlotCard (g, { px, py, pw, ph });
 
     for (int v = -60; v <= 0; v += 10)
     {
@@ -3436,8 +3426,7 @@ void EnvelopeView::paint (juce::Graphics& g)
     PnsTheme::drawPanelTitle (g, area.withHeight (13.0f), "HOW FAST IT GRABS AND LETS GO",
                               "gain reduction vs time, ms");
 
-    g.setColour (PnsTheme::kBgPanel);
-    g.fillRect (px, py, pw, ph);
+    PnsTheme::drawPlotCard (g, { px, py, pw, ph });
 
     for (int i = 0; i <= 4; ++i)
     {
@@ -3460,10 +3449,10 @@ void EnvelopeView::paint (juce::Graphics& g)
     }
 
     // Step markers: attack onset at 0 ms, release onset at 500 ms.
-    g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.6f));
+    g.setColour (PnsTheme::kAccentPrimary.withAlpha (0.6f));
     g.drawVerticalLine (juce::roundToInt (X (0.0f)),   py, py + ph);
     g.drawVerticalLine (juce::roundToInt (X (500.0f)), py, py + ph);
-    g.setColour (PnsTheme::kColorPostAvg);
+    g.setColour (PnsTheme::kAccentPrimary);
     g.setFont (PnsTheme::fontLabel());
     g.drawText ("attack",  juce::roundToInt (X (4.0f)),   (int) py + 2, 60, 11, juce::Justification::centredLeft);
     g.drawText ("release", juce::roundToInt (X (504.0f)), (int) py + 2, 60, 11, juce::Justification::centredLeft);
@@ -3482,7 +3471,7 @@ void EnvelopeView::paint (juce::Graphics& g)
         ++nValid;
     }
     if (nValid > 1)
-        PnsTheme::drawGlowLine (g, path, PnsTheme::kColorGainRed, 1.5f);
+        PnsTheme::drawGlowLine (g, path, PnsTheme::kColorPost, 1.5f);
 
     // Cursor readout — time → gain reduction.
     if (nValid > 1 && m_cursorX >= 0.0f)
@@ -3497,7 +3486,7 @@ void EnvelopeView::paint (juce::Graphics& g)
             rows.add (juce::String (juce::roundToInt (ms)) + " ms");
             rows.add ("GR " + juce::String (gr, 2) + " dB");
             drawCursorChip (g, { px, py, pw, ph }, cx, Y (juce::jlimit (0.0f, m_grHi, gr)),
-                            PnsTheme::kColorGainRed, rows, m_cursorLocked);
+                            PnsTheme::kColorPost, rows, m_cursorLocked);
         }
     }
 
@@ -3599,8 +3588,7 @@ void ThdSweepView::paint (juce::Graphics& g)
 
     PnsTheme::drawPanelTitle (g, area.withHeight (13.0f), "DISTORTION BY FREQUENCY", "THD, %");
 
-    g.setColour (PnsTheme::kBgPanel);
-    g.fillRect (px, py, pw, ph);
+    PnsTheme::drawPlotCard (g, { px, py, pw, ph });
 
     const float decades[] = { 100.0f, 10.0f, 1.0f, 0.1f, 0.01f, 0.001f };
     for (float d : decades)
@@ -3673,13 +3661,13 @@ void ThdSweepView::paint (juce::Graphics& g)
 
         int gc = 0;
         const juce::Path ghost = buildPath (m_thd.thdPct, ghostMask, gc);
-        if (gc > 1) { g.setColour (PnsTheme::kColorPostAvg.withAlpha (0.25f));
+        if (gc > 1) { g.setColour (PnsTheme::kColorPost.withAlpha (0.25f));
                       g.strokePath (ghost, juce::PathStrokeType (1.0f)); }
 
         int nFresh = 0;
         const juce::Path path = buildPath (m_thd.thdPct, freshMask, nFresh);
         if (nFresh > 1)
-            PnsTheme::drawGlowLine (g, path, PnsTheme::kColorPostAvg, 1.5f);
+            PnsTheme::drawGlowLine (g, path, PnsTheme::kColorPost, 1.5f);
     }
 
     // Cursor readout — frequency → THD %.
@@ -3697,7 +3685,7 @@ void ThdSweepView::paint (juce::Graphics& g)
             juce::StringArray rows;
             rows.add (fStr);
             rows.add ("THD " + juce::String (pct, pct < 1.0f ? 2 : 1) + " %");
-            drawCursorChip (g, { px, py, pw, ph }, cx, Y (pct), PnsTheme::kColorPostAvg, rows, m_cursorLocked);
+            drawCursorChip (g, { px, py, pw, ph }, cx, Y (pct), PnsTheme::kColorPost, rows, m_cursorLocked);
         }
     }
 
@@ -4362,8 +4350,10 @@ void PlugNspectrPostEditor::resized()
     m_about.setBounds (getLocalBounds());
 
     // ── View area between the headline block and the dock ──────────────────
+    // Same side margins as the headline, so graphs line up under the text.
     const auto content = getLocalBounds().withTrimmedTop (PnsTheme::kHeroHeight)
-                                         .withTrimmedBottom (PnsTheme::kDockHeight);
+                                         .withTrimmedBottom (PnsTheme::kDockHeight + 14)
+                                         .withTrimmedLeft (kPadX - 10).withTrimmedRight (kPadX - 16);
     for (auto* v : std::initializer_list<juce::Component*> { &m_specView, &m_dynView, &m_oscView, &m_stereoView,
                                                              &m_harmView, &m_linearView, &m_transferView,
                                                              &m_envelopeView, &m_thdView })
