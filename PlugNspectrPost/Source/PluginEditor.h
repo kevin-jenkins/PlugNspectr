@@ -313,8 +313,14 @@ public:
     void reset   ();   // clear all accumulated readings and history (keeps the zoom)
     void resetReadings();   // clear the cut readings only (average, peak hold, now); keeps the waveform
     void openOptionsForTest() { m_options.setOpen (true); }
-    // Post-vs-Pre latency, measured once by the editor's LagTracker.
-    void setLagSamples (int lag) { m_lagSamples = juce::jlimit (0, kSampleBufLen / 2, lag); }
+    // Post-vs-Pre latency, measured once by the editor's LagTracker. Until it
+    // has settled, gain reduction isn't recorded: unaligned transients would
+    // read as cuts.
+    void setLagSamples (int lag, bool settled)
+    {
+        m_lagSamples = juce::jlimit (0, kSampleBufLen / 2, lag);
+        m_lagSettled = settled;
+    }
 
 private:
     //──────────────────────────────────────────────────────────────────────────
@@ -340,7 +346,8 @@ private:
     double m_shiftSinceMs    = 0.0;   // when the fast/slow disagreement began; 0 = agreeing
     double m_restartNoteEnd  = 0.0;   // show "readings restarted" until this time
 
-    int m_lagSamples = 0;
+    int  m_lagSamples = 0;
+    bool m_lagSettled = false;
     std::vector<float> m_alignPre, m_alignPost;   // delay-aligned copy of the newest audio
 
     // Zoom: visible window in seconds (6 / 12)
@@ -401,7 +408,11 @@ private:
     //──────────────────────────────────────────────────────────────────────────
     // GR scrolling history (circular buffer, 3 s @ 30 fps)
     //──────────────────────────────────────────────────────────────────────────
-    static constexpr int kGrLen = 90;
+    // 3 s at 30 points per second of AUDIO (not per UI tick, which varies with
+    // the host block size), so the lane's "-3s" axis is true at any buffer.
+    static constexpr int kGrLen = 90, kGrRateHz = 30;
+    int   m_grClock  = 0;         // samples since the last history point
+    float m_grDeepest = 0.0f;     // deepest cut since the last history point
 
     std::array<float, kGrLen> m_gr {};
     int                       m_grPos = 0;
@@ -959,6 +970,7 @@ public:
             m_pre.assign ((size_t) need, 0.0f);
             m_post.assign ((size_t) need, 0.0f);
             m_filled = m_sinceEstimate = 0;
+            m_locked = false; m_heardUnlocked = 0;
         }
 
         const int n = m_proc.readCaptureSince (m_capReadPos, m_capPre, m_capPost);
@@ -977,15 +989,21 @@ public:
         m_filled = juce::jmin (need, m_filled + n);
 
         m_sinceEstimate += n;
+        if (! m_locked) m_heardUnlocked += n;
         if (m_filled >= need && m_sinceEstimate >= (int) (sr * 0.5))
         {
             m_sinceEstimate = 0;
             const int lag = pns::analysis::estimateLag (m_pre.data(), m_post.data(), need, sr);
-            if (lag >= 0) m_lag = lag;
+            if (lag >= 0) { m_lag = lag; m_locked = true; }
         }
     }
 
     int lagSamples() const { return m_lag; }
+
+    // True once a confident estimate exists, or after 4 s of audio without
+    // one: steady material (a held tone, a drone) gives no answer, and for it
+    // alignment doesn't matter.
+    bool settled() const { return m_locked || m_heardUnlocked >= (juce::int64) (4.0 * m_sr); }
 
 private:
     PlugNspectrPostProcessor& m_proc;
@@ -994,6 +1012,8 @@ private:
     std::vector<float>        m_pre, m_post;
     double m_sr = 0.0;
     int    m_filled = 0, m_sinceEstimate = 0, m_lag = 0;
+    bool   m_locked = false;
+    juce::int64 m_heardUnlocked = 0;
 };
 
 //==============================================================================

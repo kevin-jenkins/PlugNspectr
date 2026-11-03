@@ -67,6 +67,20 @@ TEST_CASE ("Pre: sine test tone — level and frequency")
     CHECK (zeroCrossings (buf) <= 204);
 }
 
+TEST_CASE ("Pre: test tone at 0 dBFS plays at 0 dBFS, not the -6 dB default")
+{
+    Pre pre;
+    preparePre (pre);
+    pns::PNS_CmdBlock cmd {};
+    cmd.testToneActive = 1; cmd.testToneFrequency = 1000.0; cmd.testToneLevelDb = 0.0;
+    pre.setTestCommand (cmd);
+
+    juce::AudioBuffer<float> buf (1, pnst::kBlk);
+    pump (pre, buf);
+    INFO ("peak=" << peakAbs (buf));
+    CHECK (std::abs (peakAbs (buf) - 1.0f) < 0.02f);
+}
+
 TEST_CASE ("Pre: white-noise stimulus — level and bound")
 {
     Pre pre;

@@ -397,7 +397,7 @@ void PlugNspectrPostProcessor::pushThdSweepSamples (const float* post, int n, do
         const double binW = sr / kMeasFftSize;
         // Search radius must stay below half the harmonic spacing (f0 in bins),
         // or at low frequencies H2's window would grab the fundamental.
-        const int rad = juce::jlimit (1, 6, (int) (f0 / binW / 2.0) - 1);
+        const int rad = juce::jlimit (0, 6, (int) (f0 / binW / 2.0) - 1);   // 0: never reach into the fundamental's lobe
         auto peak = [&] (double freq) -> double
         {
             const int b  = (int) std::lround (freq / binW);
