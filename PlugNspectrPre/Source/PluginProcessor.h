@@ -3,9 +3,10 @@
     PlugNspectrPre  –  PluginProcessor.h
 
     Pass-through VST3 plugin inserted *before* the plugin under analysis.
-    On every processBlock it copies the audio into the Windows named shared
-    memory "BiltroyPlugNspectrShared" so PlugNspectrPost can compare the
-    pre-signal against the post-signal.
+    On every processBlock it publishes the audio to the "PlugNspectrIPC"
+    shared-memory segment (pns::Transport, SharedMemoryBlock.h) so
+    PlugNspectrPost can compare the pre-signal against the post-signal, and
+    plays any test stimulus Post requests over the same segment.
   ==============================================================================
 */
 

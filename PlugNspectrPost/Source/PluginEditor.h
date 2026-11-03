@@ -896,8 +896,7 @@ public:
         if (m_logo.isValid())
         {
             const float lw = 150.0f, lh = lw * (float) m_logo.getHeight() / (float) m_logo.getWidth();
-            g.drawImage (m_logo, (float) c.getCentreX() - lw * 0.5f, (float) c.getY(), lw, lh,
-                         0, 0, m_logo.getWidth(), m_logo.getHeight());
+            g.drawImage (m_logo, { (float) c.getCentreX() - lw * 0.5f, (float) c.getY(), lw, lh });
         }
 
         g.setColour (PnsTheme::kTextPrimary);
