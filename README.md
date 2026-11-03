@@ -34,6 +34,7 @@
   - [EQ Curve](#eq-curve-tab)
   - [Compression](#compression-tab)
   - [Attack / Release](#attack--release-tab)
+  - [Plugin Delay](#plugin-delay)
   - [Distortion](#distortion-tab)
 - [Test Tone Controls](#test-tone-controls)
 - [Tips and Best Practices](#tips-and-best-practices)
@@ -77,7 +78,7 @@ Two complementary kinds of analysis:
 
 ## Installation
 
-> **Download:** grab the latest build from the [**Releases**](https://github.com/kevin-jenkins/PlugNspectr/releases/latest) page — `PlugNspectr-1.0.0-Windows-x64.zip` contains both plugins. (Or [build from source](#building-from-source).)
+> **Download:** grab the latest build from the [**Releases**](https://github.com/kevin-jenkins/PlugNspectr/releases/latest) page. `PlugNspectr-1.2.0-Windows-x64.zip` has both plugins. (Or [build from source](#building-from-source).)
 
 1. Unzip and copy **both** plugins to your plugin folder:
 
@@ -101,6 +102,8 @@ Two complementary kinds of analysis:
 
 3. Both plugins will appear under **Biltroy Audio** in your plugin manager.
 
+> **Upgrading?** Replace both plugins at the same time. Pre and Post only connect when they're the same version, so a 1.2.0 Post won't talk to a 1.1.0 Pre.
+
 > **Both must be on the same track/bus** to communicate (see below). You can install both formats on macOS; use whichever your DAW prefers (AU for Logic, VST3 for Cubase/Reaper, etc.).
 
 ---
@@ -112,8 +115,11 @@ PlugNspectr uses a single **named shared-memory segment** (`PlugNspectrIPC`) to 
 - **PlugNspectrPre** captures each audio block in its `processBlock()` and writes it to shared memory with a heartbeat timestamp. When a measurement is armed, Pre replaces the signal with the requested stimulus so it passes through the plugin under analysis.
 - **PlugNspectrPost** reads the Pre signal each block alongside its own input (the processed signal), and performs all FFT analysis, dynamics measurement, and visualization using both.
 - If no Pre heartbeat is detected within 500 ms, Post shows a setup-guidance overlay.
+- Post only analyzes new Pre audio. If Pre stops writing (bypassed, or the track stops), Post doesn't reuse its last block.
+- Host buffers up to 32,768 samples go across whole, so large buffers and offline renders get the full signal. Anything bigger shows a setup warning in Post.
+- **One Pre/Post pair at a time.** The first Pre you load owns the connection. A second Pre goes idle: audio passes through it unchanged and it ignores the test tone. Its window says "PlugNspectr Pre is idle," and Post shows **● CHECK YOUR SETUP** above the headline until you remove one.
 
-> **Important:** Both plugins must be on the **same audio track or bus** — they cannot communicate across different tracks.
+> **Important:** Both plugins must be on the **same audio track or bus**, and you can only use one pair at a time. To analyze a different track, move the pair there.
 
 ---
 
@@ -353,7 +359,7 @@ The full **linear transfer function** of the plugin, measured with a white-noise
 - **Phase (deg)** — phase response, with bulk latency de-rotated out.
 - **Group Delay (ms)** — frequency-dependent delay.
 
-A **Latency** readout reports the measured Pre→Post delay in samples / ms. Hover for the cursor readout (frequency + magnitude/phase/group-delay at the hairline); **Freeze** to A/B against another plugin or setting.
+A **Latency** readout reports the measured Pre→Post delay in samples / ms. That includes any delay PlugNspectr has already lined up for (see [Plugin Delay](#plugin-delay)). Hover for the cursor readout (frequency + magnitude/phase/group-delay at the hairline); **Freeze** to A/B against another plugin or setting.
 
 ---
 
@@ -365,6 +371,7 @@ The **static transfer curve** (output level vs input level), measured by Pre swe
 
 - A straight 1:1 diagonal = no compression; a bend = the knee; a shallower slope above it = the ratio; downward expansion/gating shows as a steeper region below the knee.
 - Cursor readout shows **input → output + gain reduction** at the hairline. **Freeze** for A/B comparison.
+- Lined up for plugin delay, so a lookahead compressor or limiter reads correctly (see [Plugin Delay](#plugin-delay)).
 
 ---
 
@@ -372,7 +379,21 @@ The **static transfer curve** (output level vs input level), measured by Pre swe
 
 <img src="docs/screenshots/attack-release.png" width="820" alt="Attack / Release tab — gain reduction vs time" />
 
-The measured **time response** — gain reduction vs time — captured with a level-step stimulus (Pre alternates a loud/quiet 1-second cycle) and synchronously averaged. The curve shows the **attack** ramp when the level jumps up and the **release** decay when it drops, so you can read a compressor's real attack/release behavior. Cursor readout shows **time → gain reduction** at the hairline.
+The measured **time response** — gain reduction vs time — captured with a level-step stimulus (Pre alternates a loud/quiet 1-second cycle) and synchronously averaged. The curve shows the **attack** ramp when the level jumps up and the **release** decay when it drops, so you can read a compressor's attack/release behavior. Cursor readout shows **time → gain reduction** at the hairline.
+
+Lined up for plugin delay, so lookahead doesn't show up as a fake spike at each level change (see [Plugin Delay](#plugin-delay)).
+
+---
+
+### Plugin Delay
+
+Lots of plugins delay the audio: lookahead limiters, linear-phase EQs, oversampling saturators. Cubase keeps that delay even when the plugin is bypassed. If PlugNspectr compared Pre and Post sample for sample, a delayed Post would look like a different signal.
+
+So Post measures the delay from the audio itself, to the sample, and lines Pre up with Post before it compares them. That happens on **Dynamics**, **Waveform**, **EQ Curve**, **Compression** and **Attack / Release**. On Dynamics, Waveform, Compression and Attack / Release, the detail line under the headline tells you what it did:
+
+- *lined up for N samples (x ms) of plugin delay*: the delay is measured and compensated.
+- *measuring plugin delay...*: it's still working it out. Give it a few seconds of audio.
+- *plugin delay not measurable on this sound, assuming none*: steady sounds (a held tone, a drone) don't give a delay to measure. For those sounds the delay doesn't change the reading.
 
 ---
 
@@ -402,6 +423,7 @@ The right end of the dock holds the test-tone controls:
 
 ### General
 - Insert Pre **before** the plugin and Post **after** — order matters; both on the **same track/bus**.
+- Use **one Pre/Post pair** in the project. If Post says **● CHECK YOUR SETUP**, read the message: it's either a second Pre or a buffer bigger than 32,768 samples.
 - **Live** tabs need audio playing. **Measurement** tabs generate their own stimulus, but the transport must be running (audio has to flow through the chain) — and they auto-stop when you leave the tab or stop playback.
 - Use the **L+R / Side** selector to check the whole signal vs the stereo sides independently (works on every tab).
 - Save the Pre/Post pair as an **FX Chain Preset** to add both inserts at once.
@@ -486,6 +508,9 @@ A tracked **pre-push hook** runs the suites before every push; enable it once pe
 | Spectrum smoothing | Exponential moving average (0.6 / 0.85 / 0.95) |
 | Target frame rate | 60 fps |
 | Heartbeat timeout | 500 ms |
+| Largest host buffer | 32,768 samples (analyzed in 4096-sample pieces) |
+| Pre instances | One active Pre; extras go idle and pass audio through |
+| Plugin delay | Measured from the audio and compensated on Dynamics, Waveform, EQ Curve, Compression and Attack / Release |
 
 ---
 
@@ -538,6 +563,7 @@ A tracked **pre-push hook** runs the suites before every push; enable it once pe
 - Headless render harness + standalone build + unit-test suites
 - **Cross-platform: macOS (VST3 + AU, universal) via portable lock-free IPC** — building + pluginval-validated in CI (beta; see macOS status above)
 - First release — **v1.0.0** (Windows x64 VST3)
+- **v1.2.0**: plugin delay compensation on the test tabs, one-pair detection, buffers up to 32,768 samples
 
 ### Planned
 - IMD (two-tone intermodulation) and THD+N
