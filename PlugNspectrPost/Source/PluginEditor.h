@@ -80,6 +80,7 @@ public:
     void paint   (juce::Graphics& g) override;
     void resized ()                   override;
     void update  ();
+    PnsTheme::Summary summary() const;   // one-line plain-language verdict for the banner
     void reset   ();   // clear rolling averages, peak-hold, and fluctuation markers
 
     enum class SmoothPreset { Fast, Medium, Slow };
@@ -171,6 +172,7 @@ public:
     void paint   (juce::Graphics& g) override;
     void resized ()                   override;
     void update  ();
+    PnsTheme::Summary summary() const;   // one-line plain-language verdict for the banner
     void reset   ();   // clear all accumulated readings and history (keeps the zoom)
 
 private:
@@ -273,6 +275,7 @@ public:
     void paint   (juce::Graphics& g) override;
     void resized ()                   override;
     void update  ();
+    PnsTheme::Summary summary() const;   // one-line plain-language verdict for the banner
 
 private:
     // Ring buffer: ~1s at 48kHz, enough for trigger search + capture
@@ -322,6 +325,7 @@ public:
     void paint   (juce::Graphics& g) override;
     void resized ()                   override;
     void update  ();
+    PnsTheme::Summary summary() const;   // one-line plain-language verdict for the banner
     void reset   ();   // clear the averages and the goniometer trail
 
     void setCursorForTest (int x) { m_cursorX = (float) x; m_cursorLocked = true; }
@@ -402,6 +406,7 @@ public:
     void paint   (juce::Graphics& g) override;
     void resized ()                   override {}
     void update  ();
+    PnsTheme::Summary summary() const;   // one-line plain-language verdict for the banner
 
     // Called by the editor footer when the user changes the tone controls
     void setToneFreq   (double freq);
@@ -451,6 +456,7 @@ public:
     void paint   (juce::Graphics& g) override;
     void resized ()                   override;
     void update  ();
+    PnsTheme::Summary summary() const;   // one-line plain-language verdict for the banner
 
     bool isMeasureActive() const { return m_measureActive; }
     std::function<void()> onMeasureChanged;   // editor wires this to writeCmdBlock()
@@ -513,6 +519,7 @@ public:
     void paint   (juce::Graphics& g) override;
     void resized ()                   override;
     void update  ();
+    PnsTheme::Summary summary() const;   // one-line plain-language verdict for the banner
 
     bool isMeasureActive() const { return m_measureActive; }
     std::function<void()> onMeasureChanged;
@@ -557,6 +564,7 @@ public:
     void paint   (juce::Graphics& g) override;
     void resized ()                   override;
     void update  ();
+    PnsTheme::Summary summary() const;   // one-line plain-language verdict for the banner
 
     bool isMeasureActive() const { return m_measureActive; }
     std::function<void()> onMeasureChanged;
@@ -595,6 +603,7 @@ public:
     void paint   (juce::Graphics& g) override;
     void resized ()                   override;
     void update  ();
+    PnsTheme::Summary summary() const;   // one-line plain-language verdict for the banner
 
     bool isMeasureActive() const { return m_measureActive; }
     std::function<void()> onMeasureChanged;
@@ -837,6 +846,14 @@ private:
     bool m_wasTransportPlaying = true;   // edge-detect playing -> stopped
 
     void writeCmdBlock  ();
+
+    // Plain-language layer: each tab's question (banner headline + tooltip) and
+    // the active tab's one-line verdict, refreshed with the views.
+    static const char* tabQuestion (int tab);
+    PnsTheme::Summary  currentSummary() const;
+    PnsTheme::Summary  m_summary;
+    static bool footerFreqOn  (int tab);
+    static bool footerLevelOn (int tab);
 
     PnsLookAndFeel    m_laf;
     juce::Image       m_pnsLogo;

@@ -61,6 +61,7 @@ namespace PnsTheme
     // Spacing  (px)
     static constexpr int kHeaderHeight    = 36;
     static constexpr int kTabBarHeight    = 32;
+    static constexpr int kBannerHeight    = 26;   // summary strip under the tab bar
     static constexpr int kPaddingSmall    = 6;
     static constexpr int kPaddingMid      = 12;
     static constexpr int kPaddingLarge    = 20;
@@ -147,6 +148,58 @@ namespace PnsTheme
         g.strokePath (path, juce::PathStrokeType (lineThickness + 2.5f));
         g.setColour (colour.withAlpha (0.95f));
         g.strokePath (path, juce::PathStrokeType (lineThickness));
+    }
+
+    //──────────────────────────────────────────────────────────────────────────
+    // Plain-language layer. Every tab answers one question in the banner under
+    // the tab bar ("How hard it compresses") and states what it found in a
+    // sentence; warn turns the sentence amber for things worth acting on.
+    struct Summary
+    {
+        juce::String text;
+        bool         warn = false;
+    };
+
+    // Panel title: the plain name first, the engineering term after it, dimmer —
+    // "OUTPUT vs INPUT LEVEL · transfer curve, dB". Centred in r.
+    static inline void drawPanelTitle (juce::Graphics& g, juce::Rectangle<float> r,
+                                       const juce::String& plain, const juce::String& tech)
+    {
+        const auto font = fontLabel();
+        const juce::String techPart = tech.isEmpty() ? juce::String()
+                                                     : juce::String::fromUTF8 ("  \xc2\xb7  ") + tech;
+        auto width = [&] (const juce::String& s)
+        {
+            juce::GlyphArrangement ga;
+            ga.addLineOfText (font, s, 0.0f, 0.0f);
+            return ga.getBoundingBox (0, -1, true).getWidth();
+        };
+        const float wPlain = width (plain), wTech = width (techPart);
+        float x = r.getCentreX() - (wPlain + wTech) * 0.5f;
+        g.setFont (font);
+        g.setColour (kTextPrimary.withAlpha (0.78f));
+        g.drawText (plain, juce::Rectangle<float> (x, r.getY(), wPlain + 2.0f, r.getHeight()),
+                    juce::Justification::centredLeft, false);
+        x += wPlain;
+        g.setColour (kGridLabel.brighter (0.25f));
+        g.drawText (techPart, juce::Rectangle<float> (x, r.getY(), wTech + 2.0f, r.getHeight()),
+                    juce::Justification::centredLeft, false);
+    }
+
+    static inline juce::String fmtHz (double f)
+    {
+        // (String (x, 0) means "full precision" in JUCE, so round explicitly.)
+        if (f >= 10000.0) return juce::String (juce::roundToInt (f / 1000.0)) + " kHz";
+        return f >= 1000.0 ? juce::String (f / 1000.0, 1) + " kHz"
+                           : juce::String (juce::roundToInt (f)) + " Hz";
+    }
+    static inline juce::String fmtDb (float v, int dec = 1)    // signed: "+2.3 dB" / "-1.0 dB"
+    {
+        return (v >= 0.0f ? "+" : "") + juce::String (v, dec) + " dB";
+    }
+    static inline juce::String fmtPct (float v)
+    {
+        return juce::String (v, v < 0.1f ? 3 : (v < 1.0f ? 2 : 1)) + "%";
     }
 
 }  // namespace PnsTheme
