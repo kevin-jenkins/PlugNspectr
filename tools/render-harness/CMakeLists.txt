@@ -22,10 +22,14 @@ set(POST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../PlugNspectrPost")
 juce_add_console_app(RenderHarness PRODUCT_NAME "PnsRenderHarness")
 juce_generate_juce_header(RenderHarness)
 
+# Post's views, one file each (Source/Views).
+file(GLOB POST_VIEW_SOURCES CONFIGURE_DEPENDS "${POST_DIR}/Source/Views/*.cpp")
+
 target_sources(RenderHarness PRIVATE
     Main.cpp
     "${POST_DIR}/Source/PluginProcessor.cpp"
-    "${POST_DIR}/Source/PluginEditor.cpp")
+    "${POST_DIR}/Source/PluginEditor.cpp"
+    ${POST_VIEW_SOURCES})
 
 target_include_directories(RenderHarness PRIVATE
     "${POST_DIR}/Source"
@@ -63,7 +67,8 @@ juce_generate_juce_header(PnsPostStandalone)
 
 target_sources(PnsPostStandalone PRIVATE
     "${POST_DIR}/Source/PluginProcessor.cpp"
-    "${POST_DIR}/Source/PluginEditor.cpp")
+    "${POST_DIR}/Source/PluginEditor.cpp"
+    ${POST_VIEW_SOURCES})
 
 target_include_directories(PnsPostStandalone PRIVATE
     "${POST_DIR}/Source"

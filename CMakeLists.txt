@@ -49,6 +49,10 @@ function(pns_add_plugin target product code dir)
         "${dir}/Source/PluginProcessor.cpp"
         "${dir}/Source/PluginEditor.cpp")
 
+    # Post's views, one file each; Pre has no Views folder.
+    file(GLOB view_sources CONFIGURE_DEPENDS "${dir}/Source/Views/*.cpp")
+    target_sources(${target} PRIVATE ${view_sources})
+
     target_include_directories(${target} PRIVATE "${dir}/Source")
 
     target_compile_definitions(${target} PRIVATE

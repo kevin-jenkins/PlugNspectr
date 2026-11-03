@@ -2,6 +2,9 @@
 
 <Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
+    <Filter Include="PlugNspectrPost\Source\Views">
+      <UniqueIdentifier>{6B1E3A52-7C4D-4E8F-9A21-5D3C0B7E1F42}</UniqueIdentifier>
+    </Filter>
     <Filter Include="PlugNspectrPost\Source">
       <UniqueIdentifier>{60A0CD61-3AA3-7A84-C26F-9A403BF6E04D}</UniqueIdentifier>
     </Filter>
@@ -702,6 +705,33 @@
   <ItemGroup>
     <ClCompile Include="..\..\Source\PluginProcessor.cpp">
       <Filter>PlugNspectrPost\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\Views\SpectrumView.cpp">
+      <Filter>PlugNspectrPost\Source\Views</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\Views\DynamicsView.cpp">
+      <Filter>PlugNspectrPost\Source\Views</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\Views\OscilloscopeView.cpp">
+      <Filter>PlugNspectrPost\Source\Views</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\Views\StereoView.cpp">
+      <Filter>PlugNspectrPost\Source\Views</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\Views\HarmonicsView.cpp">
+      <Filter>PlugNspectrPost\Source\Views</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\Views\LinearView.cpp">
+      <Filter>PlugNspectrPost\Source\Views</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\Views\TransferView.cpp">
+      <Filter>PlugNspectrPost\Source\Views</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\Views\EnvelopeView.cpp">
+      <Filter>PlugNspectrPost\Source\Views</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\Views\ThdSweepView.cpp">
+      <Filter>PlugNspectrPost\Source\Views</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Source\PluginEditor.cpp">
       <Filter>PlugNspectrPost\Source</Filter>
@@ -3740,6 +3770,39 @@
     </ClInclude>
     <ClInclude Include="..\..\Source\PluginProcessor.h">
       <Filter>PlugNspectrPost\Source</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Views\ViewOptions.h">
+      <Filter>PlugNspectrPost\Source\Views</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Views\ViewCommon.h">
+      <Filter>PlugNspectrPost\Source\Views</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Views\SpectrumView.h">
+      <Filter>PlugNspectrPost\Source\Views</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Views\DynamicsView.h">
+      <Filter>PlugNspectrPost\Source\Views</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Views\OscilloscopeView.h">
+      <Filter>PlugNspectrPost\Source\Views</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Views\StereoView.h">
+      <Filter>PlugNspectrPost\Source\Views</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Views\HarmonicsView.h">
+      <Filter>PlugNspectrPost\Source\Views</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Views\LinearView.h">
+      <Filter>PlugNspectrPost\Source\Views</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Views\TransferView.h">
+      <Filter>PlugNspectrPost\Source\Views</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Views\EnvelopeView.h">
+      <Filter>PlugNspectrPost\Source\Views</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Views\ThdSweepView.h">
+      <Filter>PlugNspectrPost\Source\Views</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Source\PluginEditor.h">
       <Filter>PlugNspectrPost\Source</Filter>
