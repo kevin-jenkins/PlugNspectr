@@ -9,6 +9,7 @@
 #include <atomic>
 #include <memory>
 #include <thread>
+#include <vector>
 
 TEST_CASE ("Transport: command round-trips intact")
 {
@@ -101,4 +102,47 @@ TEST_CASE ("Transport: heartbeats drive Pre/Post liveness independently")
     juce::Thread::sleep (30);
     CHECK_FALSE (tx.isPreAlive (10));    // ~30 ms old, 10 ms window -> stale
     CHECK       (tx.isPreAlive (500));   // still within 500 ms
+}
+
+TEST_CASE ("Transport: block sequence tells a new block from a repeated one")
+{
+    auto mem = std::make_unique<pns::SharedHeader>();
+    pns::Transport tx;
+    tx.openForTest (mem.get());
+
+    std::vector<float> chan (300, 0.25f);
+    const float* chans[1] = { chan.data() };
+    auto out = std::make_unique<pns::AudioPayload>();
+
+    tx.writeBlock (chans, 1, 300, 48000.0, 0u, 0u);
+    uint32_t s1 = 0, s2 = 0, s3 = 0;
+    REQUIRE (tx.readBlock (*out, &s1));
+    CHECK (out->numSamples == 300);
+    CHECK (out->preData[0][299] == doctest::Approx (0.25f));
+
+    // Nothing written since: the same block, so the same sequence.
+    REQUIRE (tx.readBlock (*out, &s2));
+    CHECK (s2 == s1);
+
+    tx.writeBlock (chans, 1, 300, 48000.0, 0u, 0u);
+    REQUIRE (tx.readBlock (*out, &s3));
+    CHECK (s3 != s1);
+}
+
+TEST_CASE ("Transport: a block larger than 4096 samples arrives whole")
+{
+    auto mem = std::make_unique<pns::SharedHeader>();
+    pns::Transport tx;
+    tx.openForTest (mem.get());
+
+    constexpr int N = 8192;
+    std::vector<float> chan ((size_t) N);
+    for (int i = 0; i < N; ++i) chan[(size_t) i] = (float) i;
+    const float* chans[1] = { chan.data() };
+    tx.writeBlock (chans, 1, N, 48000.0, 0u, 0u);
+
+    auto out = std::make_unique<pns::AudioPayload>();
+    REQUIRE (tx.readBlock (*out));
+    CHECK (out->numSamples == N);
+    CHECK (out->preData[0][N - 1] == (float) (N - 1));
 }

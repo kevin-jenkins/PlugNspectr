@@ -487,9 +487,30 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         if (const auto pos = ph->getPosition())
             m_transportPlaying.store (pos->getIsPlaying());
 
-    // Pull the latest Pre block (torn-free via the seqlock); valid only if Pre is live.
-    const bool preReady = isPreActive() && m_ipc.readBlock (m_preIn);
-    analyseBlock (buffer, preReady);
+    // Pull the latest Pre block (torn-free via the seqlock). It counts only if
+    // Pre is live AND the block is new: when Pre stops writing (bypassed,
+    // removed) its last block stays in the segment, and comparing live output
+    // against that frozen input gives phantom readings until the heartbeat
+    // times out.
+    uint32_t seq = 0;
+    bool preReady = isPreActive() && m_ipc.readBlock (m_preIn, &seq);
+    if (preReady)
+    {
+        if (m_preSeqValid && seq == m_preSeq) preReady = false;
+        m_preSeq = seq;
+        m_preSeqValid = true;
+    }
+
+    // Analyse in pieces so a large host block is covered end to end. A block
+    // beyond the payload's capacity reaches Post with less Pre than Post audio.
+    const int n = buffer.getNumSamples();
+    m_hostBlockTooLarge.store (n > pns::kMaxSamples);
+    for (int start = 0; start < n; start += kAnaBlock)
+    {
+        const int len = juce::jmin (kAnaBlock, n - start);
+        juce::AudioBuffer<float> view (buffer.getArrayOfWritePointers(), buffer.getNumChannels(), start, len);
+        analyseBlock (view, preReady, start);
+    }
 
     // ── Post heartbeat — lets Pre editor detect that Post is running ──────
     m_ipc.postHeartbeat();
@@ -499,12 +520,15 @@ void PlugNspectrPostProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 // Everything processBlock does with a Post block and the matching Pre block in
 // m_preIn: analysis channel, stereo, capture ring, spectra, measurement engines,
 // RMS. Split out so the render harness can drive it with recorded audio.
-void PlugNspectrPostProcessor::analyseBlock (juce::AudioBuffer<float>& buffer, bool preReady)
+void PlugNspectrPostProcessor::analyseBlock (juce::AudioBuffer<float>& buffer, bool preReady, int preOffset)
 {
     const int numCh  = juce::jmin (buffer.getNumChannels(), pns::kMaxChannels);
-    const int numSmp = juce::jmin (buffer.getNumSamples(),  pns::kMaxSamples);
+    const int numSmp = juce::jmin (buffer.getNumSamples(),  kAnaBlock);
+    preReady = preReady && preOffset < m_preIn.numSamples;
     const int  preCh    = preReady ? juce::jmin (m_preIn.numChannels, pns::kMaxChannels) : 0;
-    const int  preSmp   = preReady ? juce::jmin (m_preIn.numSamples,  pns::kMaxSamples)  : 0;
+    const int  preSmp   = preReady ? juce::jlimit (0, kAnaBlock, m_preIn.numSamples - preOffset) : 0;
+    const float* preRaw0 = preReady ? m_preIn.preData[0] + preOffset : nullptr;
+    const float* preRaw1 = (preReady && preCh > 1) ? m_preIn.preData[1] + preOffset : preRaw0;
 
     // ── Derive the analysis channel (L / R / Mid / Side) once, then feed it
     //    to every downstream measurement and the capture display ───────────
@@ -521,8 +545,8 @@ void PlugNspectrPostProcessor::analyseBlock (juce::AudioBuffer<float>& buffer, b
         for (int i = 0; i < numSmp; ++i)
             m_anaPost[i] = (post0 != nullptr) ? derive (post0[i], post1[i]) : 0.0f;
 
-        const float* pre0 = preReady ? m_preIn.preData[0] : nullptr;
-        const float* pre1 = (preReady && preCh > 1) ? m_preIn.preData[1] : pre0;
+        const float* pre0 = preRaw0;
+        const float* pre1 = preRaw1;
         for (int i = 0; i < preSmp; ++i)
             m_anaPre[i] = (pre0 != nullptr) ? derive (pre0[i], pre1[i]) : 0.0f;
 
@@ -549,8 +573,8 @@ void PlugNspectrPostProcessor::analyseBlock (juce::AudioBuffer<float>& buffer, b
     {
         const float* post0 = (numCh > 0) ? buffer.getReadPointer (0) : nullptr;
         const float* post1 = (numCh > 1) ? buffer.getReadPointer (1) : post0;
-        const float* pre0  = (preSmp > 0) ? m_preIn.preData[0] : nullptr;
-        const float* pre1  = (preSmp > 0) ? ((preCh > 1) ? m_preIn.preData[1] : pre0) : nullptr;
+        const float* pre0  = (preSmp > 0) ? preRaw0 : nullptr;
+        const float* pre1  = (preSmp > 0) ? preRaw1 : nullptr;
 
         writeCaptureRing (m_anaPost.data(), post0, post1,
                           (preSmp > 0) ? m_anaPre.data() : nullptr, pre0, pre1,
@@ -579,7 +603,8 @@ void PlugNspectrPostProcessor::analyseBlock (juce::AudioBuffer<float>& buffer, b
         if (dynMode == 1)
             pushDynamicsSamples (m_anaPre.data(), m_anaPost.data(), measN);
         else if (dynMode == 2)
-            pushEnvelopeSamples (m_anaPre.data(), m_anaPost.data(), measN, m_preIn.dynEnvPos);
+            pushEnvelopeSamples (m_anaPre.data(), m_anaPost.data(), measN,
+                                 m_preIn.dynEnvPos + (uint32_t) preOffset);
         else if (dynMode == 3)
             pushThdSweepSamples (m_anaPost.data(), measN, (double) m_preIn.dynEnvPos);
     }
@@ -615,9 +640,9 @@ void PlugNspectrPostProcessor::injectProgramBlock (const juce::AudioBuffer<float
 {
     const int n  = juce::jmin (pre.getNumSamples(), post.getNumSamples());
     const int ch = juce::jmin (pre.getNumChannels(), pns::kMaxChannels);
-    for (int start = 0; start < n; start += pns::kMaxSamples)
+    for (int start = 0; start < n; start += kAnaBlock)
     {
-        const int len = juce::jmin (pns::kMaxSamples, n - start);
+        const int len = juce::jmin (kAnaBlock, n - start);
         m_preIn.numChannels   = ch;
         m_preIn.numSamples    = len;
         m_preIn.sampleRate    = getSampleRate();
@@ -625,7 +650,7 @@ void PlugNspectrPostProcessor::injectProgramBlock (const juce::AudioBuffer<float
         for (int c = 0; c < ch; ++c)
             std::copy_n (pre.getReadPointer (c, start), len, m_preIn.preData[c]);
         juce::AudioBuffer<float> view (post.getArrayOfWritePointers(), post.getNumChannels(), start, len);
-        analyseBlock (view, true);
+        analyseBlock (view, true, 0);
     }
 }
 
@@ -639,7 +664,7 @@ void PlugNspectrPostProcessor::writeCaptureRing (
     if (n <= 0) return;
 
     // A block larger than the ring would make `rest` exceed it and walk the
-    // second copy loop off the end. Unreachable while kMaxSamples (4096) is far
+    // second copy loop off the end. Unreachable while kAnaBlock (4096) is far
     // below kCaptureRingLen (65536), but the two live in different headers, so
     // fail loudly in debug and clamp in release rather than corrupt the heap.
     jassert (n <= kCaptureRingLen);

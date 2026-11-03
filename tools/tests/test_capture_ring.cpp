@@ -9,6 +9,8 @@
 #include "helpers.h"
 #include "PluginProcessor.h"
 
+#include <memory>
+
 
 using P = PlugNspectrPostProcessor;
 
@@ -271,4 +273,25 @@ TEST_CASE ("Capture ring: a stale cursor past the write position is clamped")
 
     CHECK (n == 0);                 // no bogus huge read
     CHECK (pos == 512);             // clamped to the real write position
+}
+
+TEST_CASE ("Capture ring: a host block larger than the analysis piece arrives whole")
+{
+    // 8192 samples in one processBlock used to be cut to the first 4096.
+    auto proc = std::make_unique<P>();
+    proc->prepareToPlay (pnst::kSR, 8192);
+
+    constexpr int N = 8192;
+    juce::AudioBuffer<float> buf (2, N);
+    for (int c = 0; c < 2; ++c)
+        for (int i = 0; i < N; ++i) buf.setSample (c, i, (float) i);
+    juce::MidiBuffer midi;
+    proc->processBlock (buf, midi);
+
+    uint64_t pos = 0;
+    juce::AudioBuffer<float> outPre, outPost;
+    REQUIRE (proc->readCaptureSince (pos, outPre, outPost) == N);
+    CHECK (outPost.getSample (0, 4095) == 4095.0f);
+    CHECK (outPost.getSample (0, 4096) == 4096.0f);
+    CHECK (outPost.getSample (0, N - 1) == (float) (N - 1));
 }

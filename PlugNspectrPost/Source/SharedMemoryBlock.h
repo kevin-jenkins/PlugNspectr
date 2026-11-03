@@ -44,8 +44,11 @@ namespace pns
 {
 
 inline constexpr int      kMaxChannels  = 2;
-inline constexpr int      kMaxSamples   = 4096;
-inline constexpr uint32_t kMagic        = 0x504E5332u;   // 'PNS2' — bump if layout changes
+// Largest host block carried whole. Hosts with big buffers (8192 in Reaper or
+// FL, offline renders) used to lose everything past 4096; Post analyses the
+// block in pieces, so only the payload needs room for it.
+inline constexpr int      kMaxSamples   = 32768;
+inline constexpr uint32_t kMagic        = 0x504E5333u;   // 'PNS3' — bump if layout changes
 inline constexpr char     kSegmentName[] = "PlugNspectrIPC";   // bare; wrapper adds platform prefix
 
 // Command slot — written by Post (UI), read by Pre. Level-based: Pre reacts to
@@ -70,6 +73,12 @@ struct AudioPayload
     float    preData[kMaxChannels][kMaxSamples] = {};
 };
 
+// MSVC warns (C4324) that alignas pads the struct's tail; that padding is
+// intended and identical in both plugins.
+#if defined (_MSC_VER)
+ #pragma warning (push)
+ #pragma warning (disable: 4324)
+#endif
 // The full mapped segment. Atomics are 4-byte, lock-free, and live in the shared
 // region; payloads are plain POD copied under the seqlocks.
 struct alignas (64) SharedHeader
@@ -82,6 +91,10 @@ struct alignas (64) SharedHeader
     AudioPayload          audio;
     PNS_CmdBlock          cmd;
 };
+
+#if defined (_MSC_VER)
+ #pragma warning (pop)
+#endif
 
 static_assert (std::atomic<uint32_t>::is_always_lock_free, "atomics must be lock-free in shared memory");
 static_assert (std::is_trivially_copyable<AudioPayload>::value, "AudioPayload must be POD");
@@ -234,7 +247,10 @@ public:
         h->audioSeq.store (s + 2, std::memory_order_relaxed);       // end (even)
     }
 
-    bool readBlock (AudioPayload& out)
+    // Copies the newest block. Only the samples in use are copied, not the
+    // whole payload. `seqOut` receives the block's sequence number, so the
+    // reader can tell a new block from one it has already seen.
+    bool readBlock (AudioPayload& out, uint32_t* seqOut = nullptr)
     {
         if (! m_ok) return false;
         auto* h = hdr();
@@ -243,9 +259,20 @@ public:
             const uint32_t s1 = h->audioSeq.load (std::memory_order_acquire);
             if (s1 & 1u) continue;                                  // writer mid-update
             std::atomic_thread_fence (std::memory_order_acquire);
-            std::memcpy (&out, &h->audio, sizeof (AudioPayload));
+            const auto& a = h->audio;
+            out.numChannels   = juce::jlimit (0, kMaxChannels, (int) a.numChannels);
+            out.numSamples    = juce::jlimit (0, kMaxSamples,  (int) a.numSamples);
+            out.sampleRate    = a.sampleRate;
+            out.dynEnvPos     = a.dynEnvPos;
+            out.dynModeActive = a.dynModeActive;
+            for (int ch = 0; ch < out.numChannels; ++ch)
+                std::memcpy (out.preData[ch], a.preData[ch], (size_t) out.numSamples * sizeof (float));
             std::atomic_thread_fence (std::memory_order_acquire);
-            if (h->audioSeq.load (std::memory_order_acquire) == s1) return true;
+            if (h->audioSeq.load (std::memory_order_acquire) == s1)
+            {
+                if (seqOut != nullptr) *seqOut = s1;
+                return true;
+            }
         }
         return false;
     }
