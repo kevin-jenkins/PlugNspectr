@@ -1721,6 +1721,9 @@ OscilloscopeView::OscilloscopeView (PlugNspectrPostProcessor& p) : m_proc (p)
     m_options.addRow ("Zoom", "How much time fits across the screen.",
                       { "10 ms", "50 ms", "100 ms" }, m_windowMs == 10 ? 0 : (m_windowMs == 50 ? 1 : 2),
                       [this] (int i) { (i == 0 ? m_btn10ms : i == 1 ? m_btn50ms : m_btn100ms).onClick(); });
+    m_options.addRow ("Levels", "Matched scales Post to Pre's loudness, so only shape differences show.",
+                      { "Matched", "As played" }, 0,
+                      [this] (int i) { m_matchLevels = (i == 0); repaint(); });
     m_options.addRow ("Update", "How often a new snapshot is drawn. Hold freezes it.",
                       { "4x a second", "Live", "Hold" }, 0,
                       [this] (int i) { m_refresh = i == 0 ? Refresh::Slow : i == 1 ? Refresh::Live : Refresh::Hold;
@@ -1743,6 +1746,34 @@ void OscilloscopeView::resized()
 }
 
 //──────────────────────────────────────────────────────────────────────────────
+void OscilloscopeView::measureSnapshot()
+{
+    const int n = m_displayCount;
+    if (n < 2) return;
+    double ePre = 0.0, ePost = 0.0;
+    float  pkPre = 0.0f, pkPost = 0.0f;
+    for (int i = 0; i < n; ++i)
+    {
+        const float a = m_displayPre[(size_t) i], b = m_displayPost[(size_t) i];
+        ePre  += (double) a * a;  ePost += (double) b * b;
+        pkPre  = juce::jmax (pkPre,  std::abs (a));
+        pkPost = juce::jmax (pkPost, std::abs (b));
+    }
+    int flatPre = 0, flatPost = 0;
+    for (int i = 0; i < n; ++i)
+    {
+        if (std::abs (m_displayPre [(size_t) i]) >= 0.999f * pkPre)  ++flatPre;
+        if (std::abs (m_displayPost[(size_t) i]) >= 0.999f * pkPost) ++flatPost;
+    }
+    m_pkPre  = pkPre;   m_pkPost  = pkPost;
+    m_rmsPre = (float) std::sqrt (ePre / n);  m_rmsPost = (float) std::sqrt (ePost / n);
+    auto crest = [] (float pk, float rms) { return rms > 1.0e-6f ? 20.0f * std::log10 (pk / rms) : 0.0f; };
+    m_crestPre  = crest (pkPre,  m_rmsPre);
+    m_crestPost = crest (pkPost, m_rmsPost);
+    m_flatPre   = (float) flatPre  / (float) n;
+    m_flatPost  = (float) flatPost / (float) n;
+}
+
 float OscilloscopeView::ringGet (const std::array<float, kRingLen>& buf,
                                  uint64_t idx) const
 {
@@ -1818,6 +1849,7 @@ void OscilloscopeView::update()
             m_hasDisplay   = true;
             m_searchFrom   = i + (uint64_t) captureTarget;
             m_lastCaptureMs = nowMs;
+            measureSnapshot();
             break;
         }
     }
@@ -1832,9 +1864,18 @@ void OscilloscopeView::paint (juce::Graphics& g)
     const float px = kML,          py = kMT;
     const float pw = W - kML - kMR, ph = H - kMT - kMB;
 
+    // Post's display gain: matched to Pre's loudness (RMS), or 1 = as played.
+    const float postGain = (m_matchLevels && m_rmsPost > 1.0e-6f && m_rmsPre > 1.0e-6f)
+                         ? m_rmsPre / m_rmsPost : 1.0f;
+    // Vertical range: the smallest of 1 / 0.5 / 0.25 / 0.125 that fits both
+    // traces, so quiet material still fills the height.
+    const float tallest = juce::jmax (m_pkPre, m_pkPost * postGain);
+    float range = 1.0f;
+    while (range > 0.125f && tallest > 0.0f && tallest < range * 0.45f) range *= 0.5f;
+
     const float midY = py + ph * 0.5f;
     auto ampToY = [&] (float a) -> float {
-        return midY - juce::jlimit (-1.0f, 1.0f, a) * ph * 0.5f;
+        return midY - juce::jlimit (-1.0f, 1.0f, a / range) * ph * 0.5f;
     };
 
     // ── Background ────────────────────────────────────────────────────────
@@ -1845,13 +1886,14 @@ void OscilloscopeView::paint (juce::Graphics& g)
     PnsTheme::drawPanelTitle (g, { px, 0.0f, pw, kMT }, "WAVEFORM CLOSE-UP", "oscilloscope");
 
     // ── Grid — solid for clip lines, dotted for sub-divisions ─────────────
-    g.setColour (PnsTheme::kClipLine);
-    g.drawHorizontalLine (juce::roundToInt (ampToY ( 1.0f)), px, px + pw);
-    g.drawHorizontalLine (juce::roundToInt (ampToY (-1.0f)), px, px + pw);
+    // 0 dBFS lines only when the full scale is showing — then they mean clipping.
+    g.setColour (range >= 1.0f ? PnsTheme::kClipLine : PnsTheme::kGridLine);
+    g.drawHorizontalLine (juce::roundToInt (ampToY ( range)), px, px + pw);
+    g.drawHorizontalLine (juce::roundToInt (ampToY (-range)), px, px + pw);
 
     g.setColour (PnsTheme::kGridLine);
-    PnsTheme::drawDottedHLine (g, ampToY ( 0.5f), px, px + pw);
-    PnsTheme::drawDottedHLine (g, ampToY (-0.5f), px, px + pw);
+    PnsTheme::drawDottedHLine (g, ampToY ( range * 0.5f), px, px + pw);
+    PnsTheme::drawDottedHLine (g, ampToY (-range * 0.5f), px, px + pw);
 
     g.setColour (PnsTheme::kZeroLine);
     g.drawHorizontalLine (juce::roundToInt (midY), px, px + pw);
@@ -1863,11 +1905,16 @@ void OscilloscopeView::paint (juce::Graphics& g)
     // ── Y axis labels ─────────────────────────────────────────────────────
     g.setFont (PnsTheme::fontLabel());
     g.setColour (PnsTheme::kGridLabel);
-    g.drawText ("+1",  0, juce::roundToInt (ampToY ( 1.0f)) - 6, juce::roundToInt (kML) - 4, 12, juce::Justification::centredRight);
-    g.drawText ("+.5", 0, juce::roundToInt (ampToY ( 0.5f)) - 6, juce::roundToInt (kML) - 4, 12, juce::Justification::centredRight);
-    g.drawText ("0",   0, juce::roundToInt (midY)           - 6, juce::roundToInt (kML) - 4, 12, juce::Justification::centredRight);
-    g.drawText ("-.5", 0, juce::roundToInt (ampToY (-0.5f)) - 6, juce::roundToInt (kML) - 4, 12, juce::Justification::centredRight);
-    g.drawText ("-1",  0, juce::roundToInt (ampToY (-1.0f)) - 6, juce::roundToInt (kML) - 4, 12, juce::Justification::centredRight);
+    {
+        auto lbl = [] (float v)
+        {
+            const juce::String t = juce::String (std::abs (v), 3).trimCharactersAtEnd ("0").trimCharactersAtEnd (".");
+            return (v > 0.0f ? "+" : v < 0.0f ? "-" : "") + (t.startsWith ("0.") ? t.substring (1) : t);
+        };
+        for (float v : { range, range * 0.5f, 0.0f, -range * 0.5f, -range })
+            g.drawText (lbl (v), 0, juce::roundToInt (ampToY (v)) - 6, juce::roundToInt (kML) - 4, 12,
+                        juce::Justification::centredRight);
+    }
 
     // ── Waveforms ─────────────────────────────────────────────────────────
     if (m_hasDisplay && m_displayCount > 1)
@@ -1875,7 +1922,7 @@ void OscilloscopeView::paint (juce::Graphics& g)
         const int drawPts = juce::jmin (m_displayCount, juce::jmax (2, (int) pw));
         const float step  = (float) m_displayCount / (float) drawPts;
 
-        auto buildPath = [&] (const std::array<float, kMaxCapture>& buf) -> juce::Path
+        auto buildPath = [&] (const std::array<float, kMaxCapture>& buf, float gain) -> juce::Path
         {
             juce::Path p;
             for (int i = 0; i < drawPts; ++i)
@@ -1884,7 +1931,7 @@ void OscilloscopeView::paint (juce::Graphics& g)
                 const int   lo   = (int) fIdx;
                 const int   hi   = juce::jmin (lo + 1, m_displayCount - 1);
                 const float t    = fIdx - (float) lo;
-                const float val  = buf[lo] + t * (buf[hi] - buf[lo]);
+                const float val  = (buf[lo] + t * (buf[hi] - buf[lo])) * gain;
                 const float x    = px + pw * (float) i / (float) (drawPts - 1);
                 const float y    = ampToY (val);
                 if (i == 0) p.startNewSubPath (x, y);
@@ -1893,12 +1940,11 @@ void OscilloscopeView::paint (juce::Graphics& g)
             return p;
         };
 
-        // PRE — ghosted lavender at 40%, no glow, thin
-        g.setColour (PnsTheme::kColorPre.withAlpha (0.40f));
-        g.strokePath (buildPath (m_displayPre), juce::PathStrokeType (1.0f));
-
-        // POST — teal with glow (on top)
-        PnsTheme::drawGlowLine (g, buildPath (m_displayPost), PnsTheme::kColorPost, 1.5f);
+        // Pre — the reference, grey and a little heavier than before so it
+        // reads under Post; Post on top, level-matched unless "As played".
+        g.setColour (PnsTheme::kColorPre.withAlpha (0.75f));
+        g.strokePath (buildPath (m_displayPre, 1.0f), juce::PathStrokeType (1.4f));
+        PnsTheme::drawGlowLine (g, buildPath (m_displayPost, postGain), PnsTheme::kColorPost, 1.6f);
     }
     else
     {
@@ -1909,62 +1955,25 @@ void OscilloscopeView::paint (juce::Graphics& g)
                     juce::roundToInt (pw), 16, juce::Justification::centred);
     }
 
-    // ── Legend ────────────────────────────────────────────────────────────
+    // ── Key ───────────────────────────────────────────────────────────────
     {
-        constexpr float sw = 9.0f, sh = 7.0f, rowH = 12.0f;
-        const float lx = px + 6.0f,  ly = py + 6.0f;
-        // Frosted panel: 52px wide, 31px tall (sw+gap+text=40 + 12 padding; 2*rowH+sh-rowH+12=31)
-        PnsTheme::drawFrostedPanel (g, juce::Rectangle<float> (px, py + 2.0f, 52.0f, 31.0f));
+        const juce::String postLabel = m_matchLevels && std::abs (postGain - 1.0f) > 0.01f
+            ? "Out of your plugin (level-matched)" : "Out of your plugin";
+        const float kx = px + 10.0f, ky = py + 8.0f;
+        PnsTheme::drawFrostedPanel (g, { px + 4.0f, py + 4.0f, 228.0f, 36.0f });
         g.setFont (PnsTheme::fontLabel());
-
-        g.setColour (PnsTheme::kColorPreAvg);
-        g.fillRect (lx, ly, sw, sh);
+        g.setColour (PnsTheme::kColorPre);
+        g.fillRoundedRectangle (kx, ky + 4.0f, 14.0f, 3.0f, 1.5f);
         g.setColour (PnsTheme::kTextPrimary);
-        g.drawText ("Pre",  juce::roundToInt (lx + sw + 3), juce::roundToInt (ly - 1), 28, 10, juce::Justification::centredLeft);
-
+        g.drawText ("Into your plugin", juce::roundToInt (kx + 20.0f), juce::roundToInt (ky), 190, 12,
+                    juce::Justification::centredLeft);
         g.setColour (PnsTheme::kColorPost);
-        g.fillRect (lx, ly + rowH, sw, sh);
+        g.fillRoundedRectangle (kx, ky + 18.0f, 14.0f, 3.0f, 1.5f);
         g.setColour (PnsTheme::kTextPrimary);
-        g.drawText ("Post", juce::roundToInt (lx + sw + 3), juce::roundToInt (ly + rowH - 1), 28, 10, juce::Justification::centredLeft);
+        g.drawText (postLabel, juce::roundToInt (kx + 20.0f), juce::roundToInt (ky + 14.0f), 200, 12,
+                    juce::Justification::centredLeft);
     }
 
-    // ── SR readout — sits 8px below the time buttons (button bottom = 28px) ─
-    {
-        const double sr = m_proc.getSampleRate();
-        juce::String srStr = "SR: --";
-        if (sr > 0.0)
-        {
-            if (sr >= 1000.0)
-            {
-                const double srKhz = sr / 1000.0;
-                // Show one decimal only when needed (e.g. 44.1, 88.2; suppress for 48, 96)
-                const bool needDecimal = (std::fmod (srKhz, 1.0) > 0.05);
-                srStr = "SR: " + juce::String (srKhz, needDecimal ? 1 : 0) + " kHz";
-            }
-            else
-            {
-                srStr = "SR: " + juce::String ((int) sr) + " Hz";
-            }
-        }
-        constexpr int kPanelW  = 104;
-        constexpr int kPanelH  = 23;
-        constexpr int kPanelT  = PnsTheme::kPaddingSmall + PnsTheme::kButtonHeight + 8;   // 36
-        const int panelRight = juce::roundToInt (W) - PnsTheme::kPaddingMid;
-        PnsTheme::drawFrostedPanel (g, juce::Rectangle<float> (
-            (float) (panelRight - kPanelW), (float) kPanelT,
-            (float) kPanelW, (float) kPanelH));
-        g.setFont (PnsTheme::fontLabel());
-        g.setColour (PnsTheme::kTextAccent);
-        g.drawText (srStr,
-                    panelRight - kPanelW + PnsTheme::kPaddingSmall,
-                    kPanelT + PnsTheme::kPaddingSmall,
-                    kPanelW - PnsTheme::kPaddingSmall * 2, 11,
-                    juce::Justification::centredRight);
-    }
-
-    // ── Border ────────────────────────────────────────────────────────────
-    g.setColour (PnsTheme::kBorderSubtle);
-    g.drawRect (px, py, pw, ph, 1.0f);
 }
 
 //==============================================================================
@@ -3984,6 +3993,7 @@ void PlugNspectrPostEditor::timerCallback()
         if (m_activeTab == TabSpectrum) m_specView.repaint();
 
         m_oscView.setLagSamples (m_dynView.lagSamples());
+        m_oscView.setToneActive (m_toneActive);
         m_oscView.update();
         if (m_activeTab == TabOscilloscope) m_oscView.repaint();
 
@@ -4504,21 +4514,40 @@ PnsTheme::Summary DynamicsView::summary() const
 PnsTheme::Summary OscilloscopeView::summary() const
 {
     if (! m_hasDisplay)
-        return { "Play some audio  -  this zooms in on a few cycles of the waveform." };
+        return { "Play some audio  -  or turn on Test Tone for the clearest picture" };
 
-    float pkPre = 0.0f, pkPost = 0.0f;
-    for (int i = 0; i < m_displayCount; ++i)
-    {
-        pkPre  = juce::jmax (pkPre,  std::abs (m_displayPre [(size_t) i]));
-        pkPost = juce::jmax (pkPost, std::abs (m_displayPost[(size_t) i]));
-    }
-    const juce::String outPk (juce::Decibels::gainToDecibels (pkPost, -90.0f), 1);
-    if (pkPost >= 0.999f)
-        return { "Output is hitting 0 dBFS  -  look for flattened tops (clipping)", true, "Output peak", outPk, "dBFS" };
+    const juce::String outPk (juce::Decibels::gainToDecibels (m_pkPost, -90.0f), 1);
+    // With music, a snapshot is a few random milliseconds; a steady tone makes
+    // any change to the shape unmistakable, so say so until the tone is on.
+    const juce::String advice = m_toneOn ? juce::String()
+        : juce::String ("  -  for a clear picture, turn on Test Tone (bottom right)");
 
-    auto dbfs = [] (float a) { return juce::String (juce::Decibels::gainToDecibels (a, -90.0f), 1) + " dBFS"; };
-    return { "Peaks: in " + dbfs (pkPre) + ",  out " + dbfs (pkPost)
-             + "  -  compare the shapes for added edges or rounding", false, "Output peak", outPk, "dBFS" };
+    if (m_pkPost >= 0.999f)
+        return { "Hitting 0 dBFS  -  the tops are being cut off (clipping)" + advice, true,
+                 "Output peak", outPk, "dBFS" };
+
+    const float crestDelta = m_crestPost - m_crestPre;     // dB; negative = flatter peaks
+    const float flatDelta  = m_flatPost  - m_flatPre;      // share of samples sitting at the peak
+    const float levelDb    = (m_rmsPre > 1.0e-6f && m_rmsPost > 1.0e-6f)
+                           ? 20.0f * std::log10 (m_rmsPost / m_rmsPre) : 0.0f;
+
+    juce::String head;
+    // Tuned on a sine: a hard clip of even 1 dB holds 20%+ of the cycle at
+    // exactly the peak; tanh saturation only approaches it (~3% at moderate
+    // drive), so the share within 0.1% of the peak separates the two.
+    if (flatDelta > 0.15f)
+        head = "Flat tops  -  hard clipping squares off the peaks";
+    else if (crestDelta < -0.4f)
+        head = "Rounds off the peaks  -  soft clipping or saturation";
+    else if (crestDelta > 1.0f)
+        head = "Sharper peaks than the input  -  adds edges or transients";
+    else if (std::abs (levelDb) >= 0.5f)
+        head = "Shape unchanged  -  just " + juce::String (std::abs (levelDb), 1) + " dB "
+             + (levelDb < 0.0f ? "quieter" : "louder");
+    else
+        head = "Shape unchanged";
+
+    return { head + advice, false, "Output peak", outPk, "dBFS" };
 }
 
 PnsTheme::Summary StereoView::summary() const

@@ -468,6 +468,7 @@ public:
     // Post-vs-Pre latency (measured by the Dynamics view): Pre is drawn this
     // many samples earlier so both traces show the same moment of audio.
     void setLagSamples (int lag) { m_lag = juce::jlimit (0, kRingLen / 2, lag); }
+    void setToneActive (bool on) { m_toneOn = on; }   // steers the headline's advice
     PnsTheme::Summary summary() const;   // one-line plain-language verdict for the banner
 
 private:
@@ -501,6 +502,19 @@ private:
     Refresh m_refresh = Refresh::Slow;
     double  m_lastCaptureMs = 0.0;
     int     m_lag = 0;
+    bool    m_toneOn = false;
+
+    // Level matching: Post is drawn scaled to Pre's loudness so only the shape
+    // difference is left to see. Off shows the real levels.
+    bool  m_matchLevels = true;
+
+    // Per-snapshot shape statistics (set when a snapshot is taken), behind the
+    // headline's verdict. Crest = peak / RMS in dB: lower = rounder, flatter
+    // peaks. "Flat" = share of samples within 0.1% of the peak: ~0 for a sine or
+    // soft saturation, 20%+ once a hard clip holds the wave at the ceiling.
+    float m_pkPre = 0.0f, m_pkPost = 0.0f, m_rmsPre = 0.0f, m_rmsPost = 0.0f;
+    float m_crestPre = 0.0f, m_crestPost = 0.0f, m_flatPre = 0.0f, m_flatPost = 0.0f;
+    void  measureSnapshot();
 
     juce::TextButton m_btn10ms  { "10ms"  };
     juce::TextButton m_btn50ms  { "50ms"  };

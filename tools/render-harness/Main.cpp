@@ -348,6 +348,9 @@ int main (int argc, char* argv[])
     // Transparent chain with latency: Post is Pre delayed 2048 samples, unity
     // gain, on drum-like hits. Dynamics must read 0 dB of cut.
     const bool bypassRender   = (argc > 1 && juce::String (argv[1]) == "dynamics-bypass");
+    // 220 Hz sine through a soft clipper, 6 dB down: the Waveform tab should
+    // call it rounded peaks, with the traces level-matched.
+    const bool oscRender      = (argc > 1 && juce::String (argv[1]) == "osc-render");
 
     using Tabs = PlugNspectrPostEditor;
     editor->setSize (1280, 800);
@@ -357,6 +360,7 @@ int main (int argc, char* argv[])
                             : transferRender ? Tabs::TabTransfer
                             : envelopeRender ? Tabs::TabEnvelope
                             : thdRender      ? Tabs::TabThd
+                            : oscRender      ? Tabs::TabOscilloscope
                                              : Tabs::TabDynamics);
     if (linearRender) editor->armMeasureForTest();   // show the measuring border/banner
     if (linearRender)   editor->setLinearCursorForTest (700);    // hairline ~3 kHz
@@ -508,6 +512,18 @@ int main (int argc, char* argv[])
                 pre[(size_t) i] = x;
             }
             proc.injectMeasurementBlock (pre.data(), post.data(), kBlock);
+        }
+        else if (oscRender)
+        {
+            juce::AudioBuffer<float> pre (1, kBlock), post (1, kBlock);
+            for (int i = 0; i < kBlock; ++i)
+            {
+                const float x = 0.7f * (float) std::sin (phase);
+                phase += juce::MathConstants<double>::twoPi * 220.0 / kSampleRate;
+                pre.setSample (0, i, x);
+                post.setSample (0, i, 0.5f * std::tanh (2.5f * x));
+            }
+            proc.injectTestCapture (pre, post, -6.0f, -9.0f);
         }
         else if (bypassRender)
         {

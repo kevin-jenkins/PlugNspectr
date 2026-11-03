@@ -261,6 +261,8 @@ A zero-crossing-triggered oscilloscope of both signals — useful for phase shif
 
 - **Pre** (grey, receding) vs **Post** (cyan) overlaid; triggering locks to a rising zero-crossing in the Post signal (auto-trigger style, non-swimming).
 - Zoom (settings pill): **10 ms** (individual cycles / transients), **50 ms** (default, attack/release), **100 ms** (slower events).
+- **Levels** (settings pill): **Matched** (default) scales Post to Pre's loudness so only *shape* differences show; **As played** shows the real levels. The vertical scale zooms to fit the signal.
+- **The headline names the shape change:** *Flat tops* (hard clipping), *Rounds off the peaks* (soft clipping / saturation), *Sharper peaks* (added edges or transients), or *Shape unchanged — just N dB quieter*. With music a snapshot is only a few milliseconds, so until **Test Tone** is on the headline suggests it — a steady tone makes any shape change unmistakable.
 - Update (settings pill): **4x a second** (default — slow enough to read on real music), **Live** (every frame), or **Hold** to freeze the current snapshot and study it.
 - Pre is drawn shifted by the measured latency of the plugins between Pre and Post, so both traces show the same moment of audio even when the chain adds delay.
 - Look for: lines overlaid = transparent; smaller Post = gain reduction; shifted Post = latency/phase; different shape = harmonic coloration; flat tops = clipping.
