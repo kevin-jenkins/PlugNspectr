@@ -1721,6 +1721,10 @@ OscilloscopeView::OscilloscopeView (PlugNspectrPostProcessor& p) : m_proc (p)
     m_options.addRow ("Zoom", "How much time fits across the screen.",
                       { "10 ms", "50 ms", "100 ms" }, m_windowMs == 10 ? 0 : (m_windowMs == 50 ? 1 : 2),
                       [this] (int i) { (i == 0 ? m_btn10ms : i == 1 ? m_btn50ms : m_btn100ms).onClick(); });
+    m_options.addRow ("Update", "How often a new snapshot is drawn. Hold freezes it.",
+                      { "4x a second", "Live", "Hold" }, 0,
+                      [this] (int i) { m_refresh = i == 0 ? Refresh::Slow : i == 1 ? Refresh::Live : Refresh::Hold;
+                                       m_lastCaptureMs = 0.0; repaint(); });
     addAndMakeVisible (m_options);
 }
 
@@ -1777,14 +1781,23 @@ void OscilloscopeView::update()
     const double sr = m_proc.getSampleRate();
     if (sr <= 0.0 || m_ringAvail == 0) return;
 
+    // Throttle: keep the current picture until it is time for a new one.
+    const double nowMs = juce::Time::getMillisecondCounterHiRes();
+    if (m_refresh == Refresh::Hold && m_hasDisplay) return;
+    if (m_refresh == Refresh::Slow && m_hasDisplay && nowMs - m_lastCaptureMs < 250.0) return;
+
     const int captureTarget = juce::jmin ((int) (sr * m_windowMs / 1000.0), kMaxCapture);
     if (captureTarget <= 1) return;
 
     if (m_totalWritten < (uint64_t) captureTarget) return;
     const uint64_t searchEnd = m_totalWritten - (uint64_t) captureTarget;
 
+    // Leave room behind the trigger for Pre, which is read m_lag samples earlier.
     const uint64_t oldest      = m_totalWritten - (uint64_t) m_ringAvail;
-    const uint64_t searchStart = juce::jmax (m_searchFrom, oldest + 1);
+    // When throttled, skip ahead to recent audio rather than replaying the backlog.
+    const uint64_t recent      = searchEnd > (uint64_t) captureTarget * 4 ? searchEnd - (uint64_t) captureTarget * 4 : 0;
+    const uint64_t searchStart = std::max ({ m_searchFrom, oldest + 1 + (uint64_t) m_lag,
+                                               m_refresh == Refresh::Live ? (uint64_t) 0 : recent });
 
     if (searchStart >= searchEnd) return;
 
@@ -1798,12 +1811,13 @@ void OscilloscopeView::update()
         {
             for (int s = 0; s < captureTarget; ++s)
             {
-                m_displayPre [s] = ringGet (m_ringPre,  i + (uint64_t) s);
+                m_displayPre [s] = ringGet (m_ringPre,  i - (uint64_t) m_lag + (uint64_t) s);
                 m_displayPost[s] = ringGet (m_ringPost, i + (uint64_t) s);
             }
             m_displayCount = captureTarget;
             m_hasDisplay   = true;
             m_searchFrom   = i + (uint64_t) captureTarget;
+            m_lastCaptureMs = nowMs;
             break;
         }
     }
@@ -3969,6 +3983,7 @@ void PlugNspectrPostEditor::timerCallback()
         m_specView.update();
         if (m_activeTab == TabSpectrum) m_specView.repaint();
 
+        m_oscView.setLagSamples (m_dynView.lagSamples());
         m_oscView.update();
         if (m_activeTab == TabOscilloscope) m_oscView.repaint();
 

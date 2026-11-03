@@ -352,6 +352,7 @@ public:
     PnsTheme::Summary summary() const;   // one-line plain-language verdict for the banner
     void reset   ();   // clear all accumulated readings and history (keeps the zoom)
     void openOptionsForTest() { m_options.setOpen (true); }
+    int  lagSamples() const   { return m_lagSamples; }   // Post-vs-Pre latency, shared with the scope
 
 private:
     //──────────────────────────────────────────────────────────────────────────
@@ -464,6 +465,9 @@ public:
     void paint   (juce::Graphics& g) override;
     void resized ()                   override;
     void update  ();
+    // Post-vs-Pre latency (measured by the Dynamics view): Pre is drawn this
+    // many samples earlier so both traces show the same moment of audio.
+    void setLagSamples (int lag) { m_lag = juce::jlimit (0, kRingLen / 2, lag); }
     PnsTheme::Summary summary() const;   // one-line plain-language verdict for the banner
 
 private:
@@ -489,6 +493,14 @@ private:
 
     // Time window control
     int m_windowMs = 50;
+
+    // How often a new snapshot replaces the picture. Real program material is
+    // not periodic, so redrawing every frame shows a different snippet 60 times
+    // a second; a few per second is readable, and Hold freezes it to study.
+    enum class Refresh { Live, Slow, Hold };
+    Refresh m_refresh = Refresh::Slow;
+    double  m_lastCaptureMs = 0.0;
+    int     m_lag = 0;
 
     juce::TextButton m_btn10ms  { "10ms"  };
     juce::TextButton m_btn50ms  { "50ms"  };
