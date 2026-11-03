@@ -1,0 +1,276 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>PlugNspectr UI Directions</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+:root{--page:#1b1d21;--ink:#e8e8ea}
+*{box-sizing:border-box;margin:0}
+body{background:var(--page);color:var(--ink);font-family:Inter,system-ui,sans-serif;padding:16px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 auto 14px;max-width:1280px}
+.bar b{margin-right:8px}
+.bar button{background:#2a2d33;color:#ddd;border:1px solid #3a3e46;border-radius:6px;padding:7px 12px;font:500 13px Inter;cursor:pointer}
+.bar button.on{background:#e8e8ea;color:#111}
+.bar .sep{width:16px}
+.note{max-width:1280px;margin:0 auto 12px;color:#9aa0aa;font-size:13px;line-height:1.5}
+.stage{max-width:1280px;margin:0 auto;aspect-ratio:1280/800;position:relative}
+.frame{width:1280px;height:800px;transform-origin:0 0;position:absolute;left:0;top:0;overflow:hidden;border-radius:10px;box-shadow:0 20px 60px #0008}
+.num{font-family:"JetBrains Mono",monospace}
+
+/* ========== A: Studio Console ========== */
+.A{background:#0e1117;color:#e6e9ef;display:grid;grid-template-columns:200px 1fr;grid-template-rows:56px 1fr 44px}
+.A header{grid-column:1/3;display:flex;align-items:center;gap:14px;padding:0 20px;border-bottom:1px solid #1d2230;background:#0b0e13}
+.A .logo{font-weight:700;letter-spacing:.3px;font-size:16px}.A .logo span{color:#3fd0c0}
+.A .pill{font-size:12px;color:#8b93a5;border:1px solid #232a38;border-radius:20px;padding:4px 10px}
+.A .pill i{display:inline-block;width:7px;height:7px;border-radius:50%;background:#3fd0c0;margin-right:6px}
+.A .grow{flex:1}
+.A .btn{background:#3fd0c0;color:#062421;font-weight:600;font-size:13px;border-radius:8px;padding:8px 16px}
+.A .btn.ghost{background:none;color:#c7cdd8;border:1px solid #2a3242}
+.A nav{border-right:1px solid #1d2230;padding:18px 12px;background:#0b0e13}
+.A nav h6{font-size:10.5px;letter-spacing:1.4px;color:#5d6678;margin:14px 10px 8px;font-weight:600}
+.A nav a{display:flex;flex-direction:column;padding:9px 12px;border-radius:8px;color:#aab2c0;font-size:14px;font-weight:500;margin-bottom:2px}
+.A nav a small{font-size:11px;color:#5d6678;font-weight:400;margin-top:2px}
+.A nav a.on{background:#172030;color:#fff;box-shadow:inset 3px 0 #3fd0c0}
+.A main{padding:22px 26px;display:grid;grid-template-rows:auto auto 1fr;gap:18px;min-height:0}
+.A .q h1{font-size:24px;font-weight:600}.A .q p{color:#8b93a5;margin-top:4px;font-size:14px}
+.A .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.A .kpi{background:#131924;border:1px solid #1d2433;border-radius:12px;padding:14px 16px}
+.A .kpi label{font-size:12px;color:#8b93a5}.A .kpi div{font-size:28px;font-weight:600;margin-top:4px}
+.A .kpi div small{font-size:14px;color:#8b93a5;margin-left:4px;font-weight:500}
+.A .kpi em{font-style:normal;font-size:11.5px;color:#5d6678}
+.A .kpi.hl{border-color:#2b5a57;background:linear-gradient(#13232a,#131924)}
+.A .cards{display:grid;grid-template-columns:2fr 1fr;grid-template-rows:1fr 1fr;gap:14px;min-height:0}
+.A .card{background:#131924;border:1px solid #1d2433;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;min-height:0}
+.A .card .t{display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-bottom:6px}
+.A .card .t span{color:#5d6678;font-weight:400;font-size:12px}
+.A .card .c{flex:1;min-height:0}
+.A .big{grid-row:1/3}
+.A footer{grid-column:1/3;border-top:1px solid #1d2230;display:flex;align-items:center;gap:18px;padding:0 20px;font-size:12px;color:#5d6678;background:#0b0e13}
+.A .lg i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+
+/* ========== B: Light Lab ========== */
+.B{background:#f3f2ef;color:#1d1f23;display:grid;grid-template-rows:64px 52px 1fr}
+.B header{display:flex;align-items:center;padding:0 28px;gap:16px;background:#fff;border-bottom:1px solid #e3e1dc}
+.B .logo{font-weight:700;font-size:17px}.B .logo span{color:#c2410c}
+.B .seg{display:flex;background:#efede8;border-radius:10px;padding:3px;margin-left:24px}
+.B .seg a{padding:7px 16px;border-radius:8px;font-size:13.5px;font-weight:500;color:#6b6e75}
+.B .seg a.on{background:#fff;color:#1d1f23;box-shadow:0 1px 3px #0002}
+.B .grow{flex:1}
+.B .btn{background:#1d1f23;color:#fff;font-weight:600;font-size:13px;border-radius:9px;padding:9px 18px}
+.B .tabs{display:flex;gap:26px;padding:0 28px;align-items:end;border-bottom:1px solid #e3e1dc;background:#faf9f7}
+.B .tabs a{padding:0 2px 14px;font-size:14px;color:#6b6e75;font-weight:500}
+.B .tabs a.on{color:#1d1f23;box-shadow:inset 0 -2px #c2410c}
+.B main{padding:24px 28px;display:grid;grid-template-columns:1fr 300px;gap:20px;min-height:0}
+.B .left{display:grid;grid-template-rows:auto 1.3fr 1fr;gap:16px;min-height:0}
+.B .verdict{background:#fff;border:1px solid #e3e1dc;border-radius:14px;padding:16px 20px;display:flex;gap:16px;align-items:center}
+.B .verdict .dot{width:38px;height:38px;border-radius:10px;background:#fff1e8;color:#c2410c;display:grid;place-items:center;font-weight:700;font-size:18px}
+.B .verdict h2{font-size:18px;font-weight:600}.B .verdict p{color:#6b6e75;font-size:13.5px;margin-top:2px}
+.B .card{background:#fff;border:1px solid #e3e1dc;border-radius:14px;padding:14px 18px;display:flex;flex-direction:column;min-height:0}
+.B .card .t{font-size:13.5px;font-weight:600;margin-bottom:6px}.B .card .t span{color:#9a9da3;font-weight:400;margin-left:8px}
+.B .card .c{flex:1;min-height:0}
+.B aside{display:flex;flex-direction:column;gap:12px}
+.B .stat{background:#fff;border:1px solid #e3e1dc;border-radius:14px;padding:14px 18px}
+.B .stat label{font-size:12px;color:#6b6e75}.B .stat div{font-size:30px;font-weight:600;margin-top:2px}
+.B .stat div small{font-size:14px;color:#9a9da3;margin-left:4px}
+.B .meter{height:6px;background:#efede8;border-radius:4px;margin-top:10px;overflow:hidden}.B .meter i{display:block;height:100%;background:#c2410c;border-radius:4px}
+.B .lg{font-size:12px;color:#6b6e75;display:flex;gap:16px;padding:4px 4px}.B .lg i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+
+/* ========== C: Focus ========== */
+.C{background:#08090b;color:#eceff3;position:relative;--acc:#f5b041}
+.C .plot{position:absolute;inset:200px 12px 78px 0}
+.C .top{position:absolute;left:28px;right:28px;top:22px;display:flex;align-items:flex-start;gap:20px;z-index:2}
+.C .top h1{font-size:30px;font-weight:600;letter-spacing:-.3px}
+.C .top p{color:#8a919c;font-size:15px;margin-top:6px;max-width:560px}
+.C .grow{flex:1}
+.C .hero{text-align:right}
+.C .hero div{font-size:56px;font-weight:600;line-height:1;letter-spacing:-1px}
+.C .hero div small{font-size:20px;color:#8a919c;margin-left:4px}
+.C .hero label{font-size:12px;color:#8a919c;letter-spacing:1px}
+.C .chips{position:absolute;left:28px;bottom:100px;display:flex;gap:10px;z-index:2}
+.C .chip{background:#14171ccc;backdrop-filter:blur(8px);border:1px solid #23272f;border-radius:10px;padding:8px 14px;font-size:12px;color:#8a919c}
+.C .chip b{display:block;color:#eceff3;font-size:17px;font-weight:600;margin-top:2px}
+.C .dock{position:absolute;left:0;right:0;bottom:0;height:78px;background:#0e1014;border-top:1px solid #1c1f25;display:flex;align-items:center;padding:0 20px;gap:6px}
+.C .dock a{display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px 14px;border-radius:10px;font-size:11.5px;color:#7d848f;min-width:84px}
+.C .dock a svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.7}
+.C .dock a.on{background:#1a1e25;color:#fff}
+.C .dock .div{width:1px;height:40px;background:#23272f;margin:0 10px}
+.C .opt{position:absolute;right:28px;z-index:3;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.C .opt .pill{background:#14171ccc;backdrop-filter:blur(8px);border:1px solid #23272f;border-radius:20px;padding:7px 14px;font-size:12px;color:#c9ced6;cursor:pointer}
+.C .pop{background:#14171cf2;backdrop-filter:blur(12px);border:1px solid #2a2f38;border-radius:12px;padding:14px 16px;width:280px;box-shadow:0 12px 40px #000a;order:-1}
+.C .pop h5{font-size:11px;letter-spacing:1px;color:#8a919c;font-weight:600;margin:0 0 6px}
+.C .pop p{font-size:11.5px;color:#5d636d;margin:6px 0 12px}
+.C .sg{display:flex;background:#0c0e11;border-radius:8px;padding:3px}
+.C .sg a{flex:1;text-align:center;padding:6px 0;font-size:12px;color:#8a919c;border-radius:6px}
+.C .sg a.on{background:#262b33;color:#fff}
+.C .ask{font-size:12px;letter-spacing:.6px;color:var(--acc);font-weight:600;margin-bottom:8px}
+.C .key{display:flex;gap:18px;margin-top:12px;font-size:12px;color:#8a919c}.C .key i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.C .lane{position:absolute;left:0;right:0;bottom:78px;height:180px;border-top:1px solid #1c1f25;background:#0b0c0f}
+.C .lane span{position:absolute;left:28px;top:10px;font-size:11px;letter-spacing:1px;color:#8a919c;font-weight:600}.C .lane span i{font-style:normal;color:#3e444e;font-weight:400;letter-spacing:0;margin-left:6px}
+.C .lane div{position:absolute;inset:28px 0 0 0}
+.C .gl{writing-mode:vertical-rl;transform:rotate(180deg);font-size:9.5px;letter-spacing:1.5px;color:#4a505a;font-weight:600;margin-right:4px}
+.C .dock a{min-width:78px}
+.C .dock .btn{margin-left:auto;background:var(--acc);color:#1a1204;font-weight:700;font-size:13px;border-radius:10px;padding:11px 20px}
+</style></head>
+<body>
+<div class="bar"><b>Direction</b>
+<button data-d="A" class="on">A · Studio Console</button>
+<button data-d="B">B · Light Lab</button>
+<button data-d="C">C · Focus</button>
+<span class="sep"></span><b>Tab</b>
+<button data-t="spec">Tone (C only)</button><button data-t="dyn" class="on">Dynamics</button>
+<button data-t="cmp">Compression</button><span class="sep"></span><b>Palette (C)</b><button data-p="amber">Amber</button><button data-p="ice" class="on">Ice</button><button data-p="lime">Lime</button><button data-p="ember">Ember</button>
+</div>
+<p class="note" id="note"></p>
+<div class="stage" id="stage"><div class="frame" id="frame"></div></div>
+
+<script>
+// ---------- fake but plausible data ----------
+const N=600, thr=-18, ratio=4;
+const env=[...Array(N)].map((_,i)=>{const t=i/N;return -30+22*Math.max(0,Math.sin(t*Math.PI*6))**.6*(0.6+0.4*Math.sin(t*9))+3*Math.sin(i*1.7)});
+const comp=x=>x>thr?thr+(x-thr)/ratio:x;
+const gr=env.map(x=>comp(x)-x);
+const NOTES={
+A:"Studio Console — dark, cool, desk-like. Left sidebar groups tabs into “Listen” (live) and “Test” (measurements), each with its plain question. Big headline numbers on top, graphs as rounded cards on a grid. Default 1280×800, resizable.",
+B:"Light Lab — bright, calm, print-like. Segmented Listen/Test switch in the header, tabs underneath. A verdict card states the finding in one sentence; key numbers live in a right column with meters. Optional dark variant using the same layout.",
+C:"Ice palette locked in. Click any icon in the bottom dock to see that tab. Focus, refined with A's best ideas: each tab states its question (amber line), the dock is grouped LISTEN / TEST, a Pre/Post key sits under the headline, and Dynamics gets a gain-reduction lane under the main graph so nothing is lost. One huge graph fills the window, everything else floats over it. The answer is the hero number top-right; secondary numbers as glass chips. Tabs are an icon dock at the bottom; the Test button is always one click away."};
+
+function svgChart(el,kind,th){
+  const w=el.clientWidth||600,h=el.clientHeight||300;const P={l:40,r:12,t:10,b:22};
+  const iw=w-P.l-P.r,ih=h-P.t-P.b;let s=`<svg width="${w}" height="${h}" font-family="JetBrains Mono" font-size="10">`;
+  const grid=(ys,lab)=>ys.map(([v,y])=>`<line x1="${P.l}" x2="${w-P.r}" y1="${y}" y2="${y}" stroke="${th.grid}"/><text x="${P.l-6}" y="${y+3}" text-anchor="end" fill="${th.lab}">${v}${lab||''}</text>`).join('');
+  if(kind==='wave'){
+    const Y=d=>P.t+ih/2-(ih/2)*Math.pow(10,d/20)/0.45;
+    const mid=P.t+ih/2;
+    const area=(arr,c,o)=>{let up='',dn='';arr.forEach((d,i)=>{const x=P.l+i/(N-1)*iw,a=(Y(d)-mid);up+=`${i?'L':'M'}${x},${mid+a}`;});for(let i=N-1;i>=0;i--){const x=P.l+i/(N-1)*iw;dn+=`L${x},${mid-(Y(arr[i])-mid)}`};return `<path d="${up}${dn}Z" fill="${c}" fill-opacity="${o}"/>`};
+    s+=`<line x1="${P.l}" x2="${w-P.r}" y1="${mid}" y2="${mid}" stroke="${th.grid}"/>`;
+    s+=area(env,th.pre,.35)+area(env.map(comp),th.post,.85);
+    s+=`<text x="${P.l}" y="${h-6}" fill="${th.lab}">−4 s</text><text x="${w-P.r}" y="${h-6}" text-anchor="end" fill="${th.lab}">now</text>`;
+  }
+  if(kind==='gr'){
+    const Y=d=>P.t+(-d/12)*ih;
+    s+=grid([[0,Y(0)],[-3,Y(-3)],[-6,Y(-6)],[-9,Y(-9)],[-12,Y(-12)]]);
+    let p='';gr.forEach((d,i)=>{p+=`${i?'L':'M'}${P.l+i/(N-1)*iw},${Y(d)}`});
+    s+=`<path d="${p}L${w-P.r},${Y(0)}L${P.l},${Y(0)}Z" fill="${th.gr}" fill-opacity=".18"/><path d="${p}" stroke="${th.gr}" stroke-width="1.8" fill="none"/>`;
+  }
+  if(kind==='meter'){
+    const bars=[['In',-11.2,th.pre],['Out',-15.4,th.post]];const bw=Math.min(46,iw/4);
+    const Y=d=>P.t+(-d/48)*ih;
+    s+=grid([[0,Y(0)],[-12,Y(-12)],[-24,Y(-24)],[-36,Y(-36)],[-48,Y(-48)]]);
+    bars.forEach(([n,v,c],k)=>{const x=P.l+iw*(k?0.62:0.22);s+=`<rect x="${x}" y="${Y(v)}" width="${bw}" height="${Y(-48)-Y(v)}" rx="4" fill="${c}"/><text x="${x+bw/2}" y="${h-6}" text-anchor="middle" fill="${th.lab}">${n}</text>`});
+  }
+  if(kind==='xfer'){
+    const lo=-60,hi=0,X=v=>P.l+(v-lo)/(hi-lo)*iw,Y=v=>P.t+(hi-v)/(hi-lo)*ih;
+    s+=grid([0,-12,-24,-36,-48,-60].map(v=>[v,Y(v)]));
+    [-48,-36,-24,-12].forEach(v=>s+=`<line y1="${P.t}" y2="${h-P.b}" x1="${X(v)}" x2="${X(v)}" stroke="${th.grid}"/><text x="${X(v)}" y="${h-6}" text-anchor="middle" fill="${th.lab}">${v}</text>`);
+    s+=`<line x1="${X(lo)}" y1="${Y(lo)}" x2="${X(hi)}" y2="${Y(hi)}" stroke="${th.lab}" stroke-dasharray="4 4"/>`;
+    let p='';for(let v=lo;v<=hi;v+=.5){const k=6,o=Math.abs(v-thr)<k/2?v+(1/ratio-1)*(v-thr+k/2)**2/(2*k):comp(v);p+=`${v===lo?'M':'L'}${X(v)},${Y(o)}`}
+    s+=`<path d="${p}" stroke="${th.post}" stroke-width="2.6" fill="none"/>`;
+    s+=`<circle cx="${X(thr)}" cy="${Y(thr)}" r="5" fill="${th.bg}" stroke="${th.accent}" stroke-width="2"/><text x="${X(thr)+10}" y="${Y(thr)+16}" fill="${th.accent}" font-family="Inter" font-size="12" font-weight="600">starts here · −18 dB</text>`;
+  }
+  if(kind==='spec'){
+    const X=f=>P.l+Math.log10(f/20)/3*iw,Y=d=>P.t+(-d/72)*ih;
+    s+=grid([-12,-24,-36,-48,-60].map(v=>[v,Y(v)]));
+    [[100,'100'],[1000,'1k'],[10000,'10k']].forEach(([f,l])=>s+=`<line y1="${P.t}" y2="${h-P.b}" x1="${X(f)}" x2="${X(f)}" stroke="${th.grid}"/><text x="${X(f)}" y="${h-6}" text-anchor="middle" fill="${th.lab}">${l}</text>`);
+    const base=f=>-18-9*Math.log10(f/200)**2-(f>3000?8*Math.log10(f/3000):0)+2*Math.sin(f/90);
+    const eq=f=>(f<250?-1.1:0)+(f>4000?2.4:0);
+    const path=(fn)=>{let p='';for(let i=0;i<=300;i++){const f=20*Math.pow(1000,i/300);p+=`${i?'L':'M'}${X(f)},${Y(fn(f))}`}return p};
+    s+=`<path d="${path(base)}" stroke="${th.pre}" stroke-width="1.6" fill="none" opacity=".8"/><path d="${path(f=>base(f)+eq(f))}L${X(20000)},${h-P.b}L${X(20)},${h-P.b}Z" fill="${th.post}" fill-opacity=".08"/><path d="${path(f=>base(f)+eq(f))}" stroke="${th.post}" stroke-width="2.4" fill="none"/>`;
+  }
+  const LX=(f,lo,hi)=>P.l+Math.log10(f/lo)/Math.log10(hi/lo)*iw;
+  const fgrid=(lo,hi)=>[[50,'50'],[100,'100'],[200,'200'],[500,'500'],[1000,'1k'],[2000,'2k'],[5000,'5k'],[10000,'10k']].filter(([f])=>f>lo&&f<hi).map(([f,l])=>`<line y1="${P.t}" y2="${h-P.b}" x1="${LX(f,lo,hi)}" x2="${LX(f,lo,hi)}" stroke="${th.grid}"/><text x="${LX(f,lo,hi)}" y="${h-6}" text-anchor="middle" fill="${th.lab}">${l}</text>`).join('');
+  const line=(fn,n,c,wd,op)=>{let p='';for(let i=0;i<=n;i++)p+=`${i?'L':'M'}${fn(i/n).join(',')}`;return `<path d="${p}" stroke="${c}" stroke-width="${wd}" fill="none" opacity="${op||1}"/>`};
+  if(kind==='osc'){const Y=v=>P.t+ih/2-v*ih*0.36;s+=grid([['+1',Y(1)],['0',Y(0)],['−1',Y(-1)]]);
+    const sat=v=>Math.tanh(v*1.6)/Math.tanh(1.6)*0.97;
+    s+=line(u=>[P.l+u*iw,Y(1.15*Math.sin(u*Math.PI*6))],400,th.pre,1.6,.8)+line(u=>[P.l+u*iw,Y(sat(1.15*Math.sin(u*Math.PI*6)))],400,th.post,2.6);}
+  if(kind==='st'){const cx=P.l+ih/2+20,cy=P.t+ih/2+30,R=ih/2-50;
+    s+=`<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${th.grid}"/><line x1="${cx}" x2="${cx}" y1="${cy-R}" y2="${cy+R}" stroke="${th.grid}"/><line x1="${cx-R}" x2="${cx+R}" y1="${cy}" y2="${cy}" stroke="${th.grid}"/><text x="${cx}" y="${cy-R-4}" text-anchor="middle" fill="${th.lab}">MID</text><text x="${cx+R+4}" y="${cy+3}" fill="${th.lab}">SIDE</text>`;
+    let rnd=1;const rn=()=>(rnd=(rnd*16807)%2147483647)/2147483647-.5;
+    for(let i=0;i<900;i++){const m=rn()*1.6,sd=rn()*0.5;s+=`<circle cx="${cx+sd*R*0.9}" cy="${cy-m*R*0.6}" r="1.1" fill="${th.pre}" opacity=".35"/>`}
+    for(let i=0;i<900;i++){const m=rn()*1.6,sd=rn()*0.95;s+=`<circle cx="${cx+sd*R*0.9}" cy="${cy-m*R*0.6}" r="1.2" fill="${th.post}" opacity=".5"/>`}
+    const bx=cx+R+90,bw=w-P.r-bx-260,bands=[['Lows',.2,.25],['Low-mids',.35,.42],['Mids',.45,.6],['Highs',.5,.92]];
+    const by=cy-R;
+    s+=`<text x="${bx}" y="${by}" fill="${th.lab}" font-family="Inter" font-size="11" letter-spacing="1">WIDTH BY BAND</text>`;
+    bands.forEach(([n,a,b],k)=>{const y=by+36+k*(2*R/4.5);s+=`<text x="${bx}" y="${y}" fill="#c9ced6" font-family="Inter" font-size="13">${n}</text><rect x="${bx}" y="${y+8}" width="${bw}" height="6" rx="3" fill="${th.grid}"/><rect x="${bx}" y="${y+8}" width="${bw*a}" height="6" rx="3" fill="${th.pre}"/><rect x="${bx}" y="${y+18}" width="${bw}" height="6" rx="3" fill="${th.grid}"/><rect x="${bx}" y="${y+18}" width="${bw*b}" height="6" rx="3" fill="${th.post}"/>`});}
+  if(kind==='harm'){const Y=d=>P.t+(-d/120)*ih;s+=grid([0,-20,-40,-60,-80,-100,-120].map(v=>[v,Y(v)]));
+    const pre=[0,-108,-112,-115,-118,-117,-119,-120],post=[0,-42,-71,-58,-88,-79,-101,-96],bw=iw/8;
+    post.forEach((v,k)=>{const x=P.l+k*bw+bw*0.2;s+=`<rect x="${x}" y="${Y(pre[k])}" width="${bw*0.25}" height="${Y(-120)-Y(pre[k])}" rx="3" fill="${th.pre}" opacity=".7"/><rect x="${x+bw*0.3}" y="${Y(v)}" width="${bw*0.3}" height="${Y(-120)-Y(v)}" rx="3" fill="${th.post}"/><text x="${x+bw*0.3}" y="${h-6}" text-anchor="middle" fill="${th.lab}">${k?k+1+(k==1?'nd':k==2?'rd':'th'):'tone'}</text>`});}
+  if(kind==='eq'){const Y=d=>P.t+ih/2-d/8*(ih/2);s+=grid([[8,Y(8)],[4,Y(4)],[0,Y(0)],[-4,Y(-4)],[-8,Y(-8)]],' dB')+fgrid(20,20000);
+    const g=f=>-2.6*Math.exp(-((Math.log2(f/320))**2)/0.5)+4.1/(1+Math.pow(11000/f,3));
+    s+=`<line x1="${P.l}" x2="${w-P.r}" y1="${Y(0)}" y2="${Y(0)}" stroke="${th.pre}" stroke-dasharray="5 5" opacity=".7"/>`;
+    s+=line(u=>{const f=20*Math.pow(1000,u);return [LX(f,20,20000),Y(g(f))]},400,th.post,2.6);}
+  if(kind==='ar'){const X=ms=>P.l+ms/1000*iw,Y=d=>P.t+(d/8)*ih;s+=grid([0,-2,-4,-6,-8].map(v=>[v,Y(-v)]));
+    [250,500,750].forEach(m=>s+=`<text x="${X(m)}" y="${h-6}" text-anchor="middle" fill="${th.lab}">${m} ms</text>`);
+    s+=`<rect x="${X(0)}" y="${P.t}" width="${X(500)-X(0)}" height="${ih}" fill="${th.pre}" opacity=".06"/>`;
+    s+=line(u=>{const m=u*1000;const v=m<500?6.4*(1-Math.exp(-m/3.5)):6.4*Math.exp(-(m-500)/61);return [X(m),Y(v)]},500,th.post,2.6);
+    s+=`<line x1="${X(8)}" x2="${X(8)}" y1="${P.t}" y2="${h-P.b}" stroke="${th.accent}" stroke-dasharray="3 4"/><text x="${X(8)+6}" y="${Y(7.4)}" fill="${th.accent}" font-family="Inter" font-size="12" font-weight="600">grabs · 8 ms</text>`;
+    s+=`<line x1="${X(640)}" x2="${X(640)}" y1="${P.t}" y2="${h-P.b}" stroke="${th.accent}" stroke-dasharray="3 4"/><text x="${X(640)+6}" y="${Y(7.4)}" fill="${th.accent}" font-family="Inter" font-size="12" font-weight="600">lets go · 140 ms</text>`;}
+  if(kind==='thd'){const Y=v=>P.t+(1-Math.log10(v/0.01)/Math.log10(5/0.01))*ih;s+=grid([['5%',Y(5)],['1%',Y(1)],['0.1%',Y(.1)],['0.01%',Y(.01)]])+fgrid(20,20000);
+    s+=line(u=>{const f=20*Math.pow(1000,u);return [LX(f,20,20000),Y(0.03+1.9*Math.pow(40/Math.max(f,40),2.2)+0.02*Math.sin(u*30))]},300,th.post,2.6);
+    s+=line(u=>[P.l+u*iw,Y(0.012)],2,th.pre,1.5,.6);}
+  return el.innerHTML=s+'</svg>';
+}
+
+const TH={A:{grid:'#1c2331',lab:'#5d6678',pre:'#8f7cf5',post:'#3fd0c0',gr:'#f5a65b',accent:'#3fd0c0',bg:'#131924'},
+          B:{grid:'#ecebe7',lab:'#9a9da3',pre:'#9db4d6',post:'#2c5aa0',gr:'#c2410c',accent:'#c2410c',bg:'#fff'},
+          C:{grid:'#15181d',lab:'#3e444e',pre:'#5c6ad8',post:'#5ee6c8',gr:'#f5b041',accent:'#f5b041',bg:'#08090b'}};
+
+const ic={spec:'<path d="M3 17l4-6 4 3 4-8 4 5"/>',dyn:'<path d="M3 12h3l2-6 3 12 3-9 2 3h5"/>',osc:'<path d="M3 12c3-8 5-8 7 0s4 8 7 0 3-4 4-2"/>',st:'<circle cx="9" cy="12" r="5"/><circle cx="15" cy="12" r="5"/>',harm:'<path d="M5 20V8M10 20v-6M15 20v-9M20 20v-4"/>',eq:'<path d="M3 14c4 0 4-6 9-6s5 6 9 6"/>',cmp:'<path d="M4 20L12 12 20 9"/>',ar:'<path d="M3 18h4l3-12h5l3 12h3"/>',thd:'<path d="M3 16h18M3 16c5-1 9-3 18-10"/>'};
+
+function A(tab){const dyn=tab==='dyn';return `<div class="frame A">
+<header><div class="logo">Plug<span>N</span>spectr</div><div class="pill"><i></i>Linked to Pre · 48 kHz</div><div class="grow"></div><div class="btn ghost">Freeze</div><div class="btn">▶ Run test</div></header>
+<nav><h6>LISTEN</h6>
+<a>Tone<small>What does it do to the tone?</small></a><a class="${dyn?'on':''}">Dynamics<small>How much does it turn down?</small></a><a>Waveform<small>Does it change the shape?</small></a><a>Stereo<small>Wider or narrower?</small></a>
+<h6>TEST</h6><a>Harmonics<small>What does it add?</small></a><a>EQ curve<small>Which frequencies change?</small></a><a class="${dyn?'':'on'}">Compression<small>How hard does it squash?</small></a><a>Attack / Release<small>How fast does it react?</small></a><a>Distortion<small>Is it clean at every pitch?</small></a></nav>
+<main>${dyn?`<div class="q"><h1>Turning down about 4.2 dB, up to 9.8 dB on peaks</h1><p>Output is 4.1 dB quieter than the input — add make-up gain to compare fairly.</p></div>
+<div class="kpis"><div class="kpi hl"><label>Average cut</label><div class="num">4.2<small>dB</small></div><em>gain reduction</em></div><div class="kpi"><label>Peak cut</label><div class="num">9.8<small>dB</small></div><em>held 2 s</em></div><div class="kpi"><label>Loudness change</label><div class="num">−4.1<small>dB</small></div><em>RMS, out vs in</em></div><div class="kpi"><label>Crest factor</label><div class="num">8.3<small>dB</small></div><em>was 12.6 dB</em></div></div>
+<div class="cards"><div class="card big"><div class="t">Level over time<span>pre vs post waveform</span></div><div class="c" data-k="wave"></div></div><div class="card"><div class="t">How much it turns down<span>dB</span></div><div class="c" data-k="gr"></div></div><div class="card"><div class="t">Loudness<span>RMS</span></div><div class="c" data-k="meter"></div></div></div>`
+:`<div class="q"><h1>Starts compressing near −18 dB, ratio about 4:1</h1><p>Above −18 dB, every 4 dB louder in gives 1 dB louder out. Soft knee, about 6 dB wide.</p></div>
+<div class="kpis"><div class="kpi hl"><label>Threshold</label><div class="num">−18<small>dB</small></div><em>where it starts</em></div><div class="kpi"><label>Ratio</label><div class="num">4.0<small>: 1</small></div><em>how hard</em></div><div class="kpi"><label>Knee</label><div class="num">6<small>dB</small></div><em>soft</em></div><div class="kpi"><label>Make-up</label><div class="num">0.0<small>dB</small></div><em>at quiet levels</em></div></div>
+<div class="cards" style="grid-template-columns:1fr"><div class="card" style="grid-row:1/3"><div class="t">Output level vs input level<span>transfer curve, dB</span></div><div class="c" data-k="xfer"></div></div></div>`}</main>
+<footer><span class="lg"><i style="background:#8f7cf5"></i>Into your plugin (Pre)</span><span class="lg"><i style="background:#3fd0c0"></i>Out of your plugin (Post)</span><span style="flex:1"></span><span>Window 4 s · Hold 2 s</span></footer></div>`}
+
+function B(tab){const dyn=tab==='dyn';return `<div class="frame B">
+<header><div class="logo">Plug<span>N</span>spectr</div><div class="seg"><a class="${dyn?'on':''}">Listen</a><a class="${dyn?'':'on'}">Test</a></div><div class="grow"></div><span style="font-size:13px;color:#6b6e75">● Linked to Pre</span><div class="btn">${dyn?'Freeze':'▶ Run test'}</div></header>
+<div class="tabs">${dyn?'<a>Tone</a><a class="on">Dynamics</a><a>Waveform</a><a>Stereo</a>':'<a>Harmonics</a><a>EQ curve</a><a class="on">Compression</a><a>Attack / Release</a><a>Distortion</a>'}</div>
+<main>${dyn?`<div class="left"><div class="verdict"><div class="dot">↓</div><div><h2>Turning down about 4.2 dB on average</h2><p>Up to 9.8 dB on peaks · output is 4.1 dB quieter</p></div></div>
+<div class="card"><div class="t">Level over time<span>pre vs post</span></div><div class="c" data-k="wave"></div><div class="lg"><span><i style="background:#9db4d6"></i>Into your plugin</span><span><i style="background:#2c5aa0"></i>Out of your plugin</span></div></div>
+<div class="card"><div class="t">How much it turns down<span>gain reduction, dB</span></div><div class="c" data-k="gr"></div></div></div>
+<aside><div class="stat"><label>Average cut</label><div class="num">4.2<small>dB</small></div><div class="meter"><i style="width:35%"></i></div></div><div class="stat"><label>Peak cut</label><div class="num">9.8<small>dB</small></div><div class="meter"><i style="width:82%"></i></div></div><div class="stat"><label>Loudness change</label><div class="num">−4.1<small>dB</small></div></div><div class="stat"><label>Crest factor</label><div class="num">8.3<small>dB</small></div><p style="font-size:12px;color:#9a9da3;margin-top:4px">was 12.6 dB going in</p></div></aside>`
+:`<div class="left" style="grid-template-rows:auto 1fr"><div class="verdict"><div class="dot">◢</div><div><h2>Starts compressing near −18 dB, ratio about 4:1</h2><p>Every 4 dB louder in gives 1 dB louder out · soft knee</p></div></div>
+<div class="card"><div class="t">Output level vs input level<span>transfer curve, dB</span></div><div class="c" data-k="xfer"></div></div></div>
+<aside><div class="stat"><label>Threshold</label><div class="num">−18<small>dB</small></div></div><div class="stat"><label>Ratio</label><div class="num">4.0<small>: 1</small></div><div class="meter"><i style="width:60%"></i></div></div><div class="stat"><label>Knee</label><div class="num">6<small>dB · soft</small></div></div><div class="stat"><label>Make-up gain</label><div class="num">0.0<small>dB</small></div></div></aside>`}</main></div>`}
+
+const CT={
+ dyn:{q:'How much does it turn the level down?',h:'Turning down about 4.2 dB',p:'Up to 9.8 dB on peaks. Output is 4.1 dB quieter than the input.',hl:'AVERAGE CUT',hv:'4.2<small>dB</small>',chips:[['Peak cut','9.8 dB'],['Loudness','−4.1 dB'],['Crest','8.3 dB']],btn:'Freeze',live:1},
+ cmp:{q:'How hard does it squash loud sounds?',h:'Compressing above −18 dB',p:'Every 4 dB louder in gives 1 dB louder out, with a soft 6 dB knee.',hl:'RATIO',hv:'4.0<small>:1</small>',chips:[['Threshold','−18 dB'],['Knee','6 dB soft'],['Make-up','0.0 dB']],btn:'▶ Run test'},
+ spec:{q:'What does it do to the tone?',h:'Brighter, with slightly fewer lows',p:'Highs up 2.4 dB above 4 kHz, lows down 1.1 dB below 250 Hz. Mids unchanged.',hl:'BIGGEST CHANGE',hv:'+2.4<small>dB</small>',chips:[['Lows','−1.1 dB'],['Mids','±0.2 dB'],['Highs','+2.4 dB']],btn:'Freeze',live:1}};
+Object.assign(CT,{
+ osc:{q:'Does it change the shape of the wave?',h:'Tops are being flattened',p:'Output peaks stop at −0.3 dBFS while the input reaches +1.2 dB. That is soft clipping: it adds edge and loudness.',hl:'OUTPUT PEAK',hv:'−0.3<small>dBFS</small>',chips:[['Input peak','+1.2 dBFS'],['Shape','soft clip'],['Cycles shown','3']],btn:'Freeze',live:1},
+ st:{q:'Does it make the sound wider or narrower?',h:'Wider by 3.1 dB, safe in mono',p:'Most of the extra width is in the highs. Summed to mono, you lose only 0.8 dB.',hl:'WIDTH CHANGE',hv:'+3.1<small>dB</small>',chips:[['Phase','+0.62'],['In mono','−0.8 dB'],['Widest band','4–20 kHz']],btn:'Freeze',live:1},
+ harm:{q:'What does it add to a pure tone?',h:'Adds warmth, mostly the 2nd harmonic',p:'0.84% distortion, dominated by even harmonics: smooth and warm rather than edgy.',hl:'DISTORTION',hv:'0.84<small>%</small>',chips:[['Loudest','2nd (−42 dB)'],['Character','even / warm'],['Test tone','1 kHz']],btn:'■ Stop tone'},
+ eq:{q:'Which frequencies does it change?',h:'Boosts the air, trims the mud',p:'Up to +4.1 dB near 11 kHz, down 2.6 dB near 320 Hz. Adds no delay.',hl:'BIGGEST BOOST',hv:'+4.1<small>dB</small>',chips:[['Biggest cut','−2.6 dB @ 320 Hz'],['Delay','0 samples'],['Confidence','high']],btn:'▶ Run test'},
+ ar:{q:'How fast does it grab and let go?',h:'Grabs in 8 ms, lets go in 140 ms',p:'Fast attack catches transients; medium release avoids pumping on most material.',hl:'ATTACK',hv:'8<small>ms</small>',chips:[['Release','140 ms'],['Max cut','6.4 dB'],['Shape','smooth']],btn:'▶ Run test'},
+ thd:{q:'Is it clean at every pitch?',h:'Clean in the mids, gritty in the lows',p:'Averages 0.21% distortion, rising to 1.9% near 40 Hz.',hl:'WORST',hv:'1.9<small>%</small>',chips:[['Average','0.21%'],['Worst at','40 Hz'],['Above 1 kHz','< 0.05%']],btn:'▶ Run test'}});
+function C(tab){const c=CT[tab];const tabs=[['spec','Tone'],['dyn','Dynamics'],['osc','Waveform'],['st','Stereo'],0,['harm','Harmonics'],['eq','EQ curve'],['cmp','Compression'],['ar','Attack/Rel'],['thd','Distortion']];
+const plot=tab==='dyn'?`<div class="plot" style="bottom:258px" data-k="wave"></div><div class="lane"><span>HOW MUCH IT TURNS DOWN <i>gain reduction, dB</i></span><div data-k="gr"></div></div>`:`<div class="plot" data-k="${({cmp:'xfer',spec:'spec'})[tab]||tab}"></div>`;
+let grp=0;
+return `<div class="frame C">${plot}
+<div class="top"><div><div class="ask">${c.live?'● LISTEN':'◆ TEST'} · ${c.q}</div><h1>${c.h}</h1><p>${c.p}</p>
+<div class="key"><span><i style="background:${TH.C.pre}"></i>Into your plugin</span><span><i style="background:${TH.C.post}"></i>Out of your plugin</span></div></div><div class="grow"></div>
+<div class="hero"><label>${c.hl}</label><div class="num">${c.hv}</div></div></div>
+${c.live?`<div class="opt" style="bottom:${tab==='dyn'?'280px':'100px'}"><div class="pill" onclick="popOpen=!popOpen;draw()">⚙  Window 4 s · Hold 2 s</div>${popOpen?`<div class="pop"><h5>HOW MUCH HISTORY TO SHOW</h5><div class="sg"><a>1 s</a><a>2 s</a><a class="on">4 s</a><a>8 s</a><a>16 s</a></div><p>Longer windows show trends; shorter show detail.</p><h5>HOLD PEAK READINGS FOR</h5><div class="sg"><a>Off</a><a>1 s</a><a class="on">2 s</a><a>5 s</a><a>∞</a></div><p>How long the peak numbers stay before resetting.</p></div>`:''}</div>`:''}
+<div class="chips" style="${tab==='dyn'?'bottom:280px':''}">${c.chips.map(([a,b])=>`<div class="chip">${a}<b class="num">${b}</b></div>`).join('')}</div>
+<div class="dock"><span class="gl">LISTEN</span>${tabs.map(t=>t?`<a class="${tab===t[0]?'on':''}" onclick="t='${t[0]}';draw()" style="cursor:pointer"><svg viewBox="0 0 24 24">${ic[t[0]]}</svg>${t[1]}</a>`:'<span class="div"></span><span class="gl">TEST</span>').join('')}<div class="btn">${c.btn}</div></div></div>`}
+
+const PAL={amber:{pre:'#5c6ad8',post:'#5ee6c8',acc:'#f5b041'},ice:{pre:'#7d8696',post:'#4cc9f0',acc:'#4cc9f0'},lime:{pre:'#858b95',post:'#c6f432',acc:'#c6f432'},ember:{pre:'#6f7fa3',post:'#ff8a5b',acc:'#ff8a5b'}};
+let popOpen=true,pal='ice';
+document.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{pal=b.dataset.p;document.querySelectorAll('[data-p]').forEach(x=>x.classList.toggle('on',x===b));draw()});
+let d='C',t='dyn';
+document.querySelectorAll('[data-d]').forEach(x=>x.classList.toggle('on',x.dataset.d==='C'));
+function draw(){Object.assign(TH.C,{pre:PAL[pal].pre,post:PAL[pal].post,gr:PAL[pal].acc,accent:PAL[pal].acc});if(t==='spec'&&d!=='C'){d='C';document.querySelectorAll('[data-d]').forEach(x=>x.classList.toggle('on',x.dataset.d==='C'))}const st=document.getElementById('stage');st.innerHTML=({A,B,C})[d](t);const f=st.firstChild;
+ if(d==='C')f.style.setProperty('--acc',PAL[pal].acc);const sc=st.clientWidth/1280;f.style.transform=`scale(${sc})`;
+ f.querySelectorAll('[data-k]').forEach(el=>svgChart(el,el.dataset.k,TH[d]));
+ document.getElementById('note').textContent=NOTES[d];}
+document.querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{d=b.dataset.d;document.querySelectorAll('[data-d]').forEach(x=>x.classList.toggle('on',x===b));draw()});
+document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{t=b.dataset.t;document.querySelectorAll('[data-t]').forEach(x=>x.classList.toggle('on',x===b));draw()});
+addEventListener('resize',draw);document.fonts.ready.then(draw);draw();
+</script></body></html>
